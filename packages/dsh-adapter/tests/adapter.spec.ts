@@ -50,6 +50,12 @@ describe('pinned DSH compatibility boundary', () => {
     expect(normalizeDshSessionEvent({
       type: 'turn/end', data: { reason: { kind: 'completed' } },
     })).toEqual({ type: 'turn-end', outcome: 'completed' })
+    expect(normalizeDshSessionEvent({
+      type: 'turn/end', data: { reason: { kind: 'error', error: { message: 'private upstream detail', code: 'TIMEOUT' } } },
+    })).toEqual({ type: 'turn-end', outcome: 'error', failureCode: 'TIMEOUT' })
+    expect(JSON.stringify(normalizeDshSessionEvent({
+      type: 'turn/end', data: { reason: { kind: 'error', error: { message: 'private upstream detail', code: 'UNRECOGNIZED' } } },
+    }))).not.toContain('private upstream detail')
   })
 
   it('keeps failed-task output out of the public error message', () => {

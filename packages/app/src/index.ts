@@ -149,9 +149,35 @@ function renderAgentEvent(tui: InstallerTui, tools: Map<string, ReturnType<Insta
       break
     }
     case 'turn-end':
-      if (event.outcome !== 'completed') tui.addAssistant(`The installation assistant stopped this turn (${event.outcome}). You can provide guidance or press Ctrl+C to exit.`)
+      {
+        const message = installerTurnMessage(event)
+        if (message !== undefined) tui.addAssistant(message)
+      }
       break
   }
+}
+
+export function installerTurnMessage(event: Extract<InstallerAgentEvent, { type: 'turn-end' }>): string | undefined {
+  if (event.outcome === 'completed') return undefined
+  if (event.outcome === 'error' && event.failureCode === 'TIMEOUT') {
+    return 'The installer model provider timed out after several attempts. Type “try again” to retry in this window, or press Ctrl+C to exit.'
+  }
+  if (event.outcome === 'error' && event.failureCode === 'RATE_LIMIT') {
+    return 'The installer model provider is temporarily rate-limited. Wait a moment, then type “try again”, or press Ctrl+C to exit.'
+  }
+  if (event.outcome === 'error' && (event.failureCode === 'SERVER' || event.failureCode === 'TRANSPORT' || event.failureCode === 'EMPTY_RESPONSE')) {
+    return 'The installer model provider had a temporary connection problem. Type “try again” to retry in this window, or press Ctrl+C to exit.'
+  }
+  if (event.outcome === 'max-tokens') {
+    return 'The installer model reached its turn limit before finishing. Ask it to continue, or press Ctrl+C to exit.'
+  }
+  if (event.outcome === 'aborted') {
+    return 'The current installer turn was cancelled. You can continue in this window, or press Ctrl+C to exit.'
+  }
+  if (event.outcome === 'blocked') {
+    return 'The installer needs more information before it can continue. Reply with the requested detail, or press Ctrl+C to exit.'
+  }
+  return 'The installer model could not complete this turn. Type “try again” to retry in this window, or press Ctrl+C to exit.'
 }
 
 /** Runs one DSH agent that conducts the published installation contract. */

@@ -87,7 +87,11 @@ export type InstallerAgentEvent =
   | { type: 'assistant'; text: string; reasoning: string }
   | { type: 'tool-start'; id: string; name: string }
   | { type: 'tool-end'; id: string; failed: boolean }
-  | { type: 'turn-end'; outcome: 'completed' | 'blocked' | 'aborted' | 'error' | 'max-tokens' | 'unknown' }
+  | {
+      type: 'turn-end'
+      outcome: 'completed' | 'blocked' | 'aborted' | 'error' | 'max-tokens' | 'unknown'
+      failureCode?: 'EMPTY_RESPONSE' | 'RATE_LIMIT' | 'SERVER' | 'TIMEOUT' | 'TRANSPORT' | 'PI_AI_ERROR'
+    }
 
 export type InstallerAgentStatus = 'running' | 'idle'
 
@@ -161,7 +165,12 @@ export function normalizeDshSessionEvent(value: unknown): InstallerAgentEvent | 
     const outcome = kind === 'completed' || kind === 'blocked' || kind === 'aborted' || kind === 'error' || kind === 'max-tokens'
       ? kind
       : 'unknown'
-    return { type: 'turn-end', outcome }
+    const failure = record(reason?.error)
+    const code = failure?.code
+    const failureCode = code === 'EMPTY_RESPONSE' || code === 'RATE_LIMIT' || code === 'SERVER' || code === 'TIMEOUT' || code === 'TRANSPORT' || code === 'PI_AI_ERROR'
+      ? code
+      : undefined
+    return { type: 'turn-end', outcome, ...(failureCode === undefined ? {} : { failureCode }) }
   }
   return undefined
 }

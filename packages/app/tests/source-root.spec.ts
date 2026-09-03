@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { assertInstallerAgentCredential, installerAgentPrompt, validatedSourceRoot } from '../src/index.ts'
+import { assertInstallerAgentCredential, installerAgentPrompt, installerTurnMessage, validatedSourceRoot } from '../src/index.ts'
 
 describe('installer source root', () => {
   it('accepts an environment credential or an isolated private DSH store', async () => {
@@ -27,6 +27,14 @@ describe('installer source root', () => {
     expect(prompt).toContain('system reminders')
     expect(prompt).toContain('set -o pipefail')
     expect(prompt).not.toContain('API_KEY=')
+  })
+
+  it('turns safe DSH failure codes into actionable installer messages', () => {
+    expect(installerTurnMessage({ type: 'turn-end', outcome: 'completed' })).toBeUndefined()
+    expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'TIMEOUT' })).toContain('timed out after several attempts')
+    expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'RATE_LIMIT' })).toContain('rate-limited')
+    expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'SERVER' })).toContain('temporary connection problem')
+    expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'PI_AI_ERROR' })).toContain('could not complete this turn')
   })
 
   it('requires an absolute umbrella checkout containing both product components', async () => {

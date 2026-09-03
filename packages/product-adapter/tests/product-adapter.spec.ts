@@ -69,6 +69,13 @@ describe('native product installer', () => {
       'machtiani', 'init', '--no-interactive', '--config-scope', 'global', '--preset', 'openrouter',
       '--model', 'z-ai/glm-5.3-flash', '--alias', 'dearmachine', '--api-key-env', 'OPENROUTER_API_KEY',
     ])
+    expect(test.runner.requests.find(request => request.label === 'Synchronize Machtiani provider check')?.command).toEqual([
+      'machtiani', 'sync', '--model', 'dearmachine',
+    ])
+    expect(test.runner.requests.find(request => request.label === 'Check Machtiani provider')?.command).toEqual([
+      'machtiani', 'run', '--model', 'dearmachine', '--mode', 'code', '-p',
+      'Reply with exactly MACHTIANI_PROVIDER_OK without changing files.',
+    ])
     expect(test.runner.requests.find(request => request.label === 'Configure selected backend')?.stdin).toBe('\n')
     expect(test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command).toContain('--new-inbox')
     expect(test.runner.requests.find(request => request.label === 'Verify selected backend')?.cwd).toBe(join(test.home, '.dearmachine', 'entrypoint', 'main'))

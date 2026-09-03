@@ -60,7 +60,7 @@ initialize_repository "$umbrella/dearmachine" \
   .gitattributes .gitignore LICENSE README.md ROADMAP.md TODO.md contrib dearmachine deploy docs flake.lock flake.nix scripts tests
 
 initialize_repository "$umbrella/machtiani-installer" \
-  .gitignore LICENSE LICENSES README.md THIRD_PARTY_NOTICES.md assets flake.lock flake.nix package.json packages patches \
+  .gitignore LICENSE LICENSES README.md THIRD_PARTY_NOTICES.md flake.lock flake.nix package.json packages patches \
   pnpm-lock.yaml pnpm-workspace.yaml scripts tests tsconfig.json vitest.config.ts
 
 initialize_repository "$umbrella" \

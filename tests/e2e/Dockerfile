@@ -3,20 +3,13 @@ FROM nixos/nix:2.24.5@sha256:4ad79a0ab633944869a37921f096d35a3f2c7a0275d98b7bfa0
 
 ENV NIX_CONFIG="experimental-features = nix-command flakes"
 
-COPY . /workspace/machtiani
 WORKDIR /workspace/machtiani
 
-# Exercise the full installer semantic, snapshot, and PTY suite in the same
-# sparse source-only image used by the live product gate.
-RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
-      pnpm --dir /workspace/machtiani/machtiani-installer install --frozen-lockfile \
- && nix develop path:/workspace/machtiani/machtiani-installer -c \
-      pnpm --dir /workspace/machtiani/machtiani-installer test
-
 # Git LFS is required when Dear Machine creates its default state workspace.
-RUN nix develop path:/workspace/machtiani/machtiani-harness#smoke -c true \
+COPY machtiani-harness/flake.nix machtiani-harness/flake.lock /opt/machtiani-qse-harness/
+RUN nix develop path:/opt/machtiani-qse-harness#smoke -c true \
  && nix profile install --impure --expr \
-      'let f = builtins.getFlake "path:/workspace/machtiani/machtiani-harness"; p = import f.inputs.nixpkgs { system = builtins.currentSystem; }; in p.buildEnv { name = "machtiani-qse-runtime"; paths = [ p.git-lfs p.nodejs_24 p.python3 ]; }'
+      'let f = builtins.getFlake "path:/opt/machtiani-qse-harness"; p = import f.inputs.nixpkgs { system = builtins.currentSystem; }; in p.buildEnv { name = "machtiani-qse-runtime"; paths = [ p.git-lfs p.nodejs_24 p.python3 ]; }'
 
 # Forge is the selected Dear Machine backend for this disposable live gate.
 ARG TARGETARCH
@@ -27,7 +20,7 @@ RUN set -eu; \
       *) printf 'Unsupported Forge architecture: %s\n' "$TARGETARCH" >&2; exit 1 ;; \
     esac; \
     export forge_target forge_sha256; \
-    nix develop path:/workspace/machtiani/machtiani-harness#smoke -c bash -euo pipefail -c '\
+    nix develop path:/opt/machtiani-qse-harness#smoke -c bash -euo pipefail -c '\
       forge_tmp=$(mktemp -d /tmp/machtiani-forge.XXXXXX); \
       trap '\''rm -rf -- "$forge_tmp"'\'' EXIT; \
       forge_download="$forge_tmp/forge"; \
@@ -38,6 +31,15 @@ RUN set -eu; \
       install -Dm0755 "$forge_download" /usr/local/bin/forge; \
       test "$(/usr/local/bin/forge --version)" = "forge 2.13.21" \
     '
+
+# Exercise the full installer semantic, snapshot, and PTY suite in the same
+# sparse source-only image used by the live product gate. The pinned runtime
+# layers above stay reusable when only installer sources change.
+COPY . /workspace/machtiani
+RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
+      pnpm --dir /workspace/machtiani/machtiani-installer install --frozen-lockfile \
+ && nix develop path:/workspace/machtiani/machtiani-installer -c \
+      pnpm --dir /workspace/machtiani/machtiani-installer test
 
 RUN install -d -m 0700 /run/machtiani-installer-qse/secrets
 

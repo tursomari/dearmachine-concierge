@@ -5,6 +5,7 @@
   "type": "module",
   "bin": {
     "machtiani-installer": "dist/bin.mjs",
+    "machtiani-installer-credential": "dist/credential-bin.mjs",
     "machtiani-installer-product-headless": "dist/headless-bin.mjs"
   },
   "main": "dist/index.mjs",
@@ -13,6 +14,7 @@
   "scripts": { "build": "tsdown" },
   "dependencies": {
     "@dearmachine/machtiani-installer-credentials": "workspace:*",
+    "@dearmachine/machtiani-installer-dsh-adapter": "workspace:*",
     "@dearmachine/machtiani-installer-backends": "workspace:*",
     "@dearmachine/machtiani-installer-environment": "workspace:*",
     "@dearmachine/machtiani-installer-products": "workspace:*",

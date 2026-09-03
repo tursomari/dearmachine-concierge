@@ -42,6 +42,9 @@ importers:
       '@dearmachine/machtiani-installer-credentials':
         specifier: workspace:*
         version: link:../credential-adapter
+      '@dearmachine/machtiani-installer-dsh-adapter':
+        specifier: workspace:*
+        version: link:../dsh-adapter
       '@dearmachine/machtiani-installer-environment':
         specifier: workspace:*
         version: link:../environment-adapter

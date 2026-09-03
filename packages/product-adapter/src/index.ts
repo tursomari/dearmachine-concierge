@@ -188,6 +188,9 @@ export interface ProductInstallerOptions {
   diagnosticPath?: string
   reasoningEffort?: string
   existingInboxId?: string
+  liveEmailTimeoutMs?: number
+  liveEmailPollMs?: number
+  progress?(message: string): void
   environment?: NodeJS.ProcessEnv
   runner?: CommandRunner
 }
@@ -279,6 +282,67 @@ export class NativeProductInstaller {
     this.runner = options.runner ?? new SpawnCommandRunner()
   }
 
+  async captureLiveEmailBaseline(): Promise<string> {
+    const metadata = await this.liveEmailLogMetadata()
+    return JSON.stringify({ version: 1, device: String(metadata.dev), inode: String(metadata.ino), size: metadata.size })
+  }
+
+  async waitForLiveEmail(baselineValue: string, progress: (message: string) => void): Promise<void> {
+    let baseline: { version: number; device: string; inode: string; size: number }
+    try { baseline = JSON.parse(baselineValue) as typeof baseline } catch { throw new Error('the saved live email baseline is invalid') }
+    if (baseline.version !== 1 || !/^\d+$/u.test(baseline.device) || !/^\d+$/u.test(baseline.inode) ||
+      !Number.isSafeInteger(baseline.size) || baseline.size < 0) {
+      throw new Error('the saved live email baseline is invalid')
+    }
+    const deadline = Date.now() + (this.options.liveEmailTimeoutMs ?? 1_200_000)
+    const pollMs = this.options.liveEmailPollMs ?? 2_000
+    let received = false
+    let working = false
+    let lastUpdate = Date.now()
+    while (Date.now() < deadline) {
+      const metadata = await this.liveEmailLogMetadata()
+      if (String(metadata.dev) !== baseline.device || String(metadata.ino) !== baseline.inode || metadata.size < baseline.size) {
+        throw new Error('Dear Machine replaced or truncated its live log during email verification.')
+      }
+      const log = await readFile(join(this.options.home, '.dearmachine', 'log', 'dearmachine.log'))
+      const activity = log.subarray(baseline.size).toString('utf8')
+      if (!received && /poll: [1-9]\d* unread messages?/u.test(activity)) {
+        received = true
+        lastUpdate = Date.now()
+        progress('Dear Machine received your email')
+      }
+      if (/processed message=.* result=answer(?:\r?\n|$)/u.test(activity)) {
+        progress('Dear Machine sent the reply')
+        return
+      }
+      if (/processed message=.* result=(?!answer(?:\r?\n|$))[^\s]+/u.test(activity)) {
+        throw new Error('Dear Machine processed the test email without producing a reply.')
+      }
+      if (received && !working) {
+        working = true
+        lastUpdate = Date.now()
+        progress('Dear Machine is working through the selected backend')
+      } else if (Date.now() - lastUpdate >= 60_000) {
+        lastUpdate = Date.now()
+        progress(received
+          ? 'Dear Machine is still working through the selected backend'
+          : 'Still waiting for the test email to arrive')
+      }
+      await new Promise(resolve => setTimeout(resolve, pollMs))
+    }
+    throw new Error('Dear Machine did not send the live test reply within 20 minutes.')
+  }
+
+  private async liveEmailLogMetadata() {
+    const path = join(this.options.home, '.dearmachine', 'log', 'dearmachine.log')
+    const metadata = await lstat(path)
+    const owned = process.getuid === undefined || metadata.uid === process.getuid()
+    if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || (metadata.mode & 0o022) !== 0) {
+      throw new Error('Dear Machine live verification requires an owned, non-writable-by-others regular log file.')
+    }
+    return metadata
+  }
+
   async install(selection: ReadyInstallationSelection): Promise<InstalledProducts> {
     if (selection.backend.status !== 'ready') throw new Error(`${selection.backend.name} must pass its readiness check before product installation.`)
     const existingInboxId = this.options.existingInboxId
@@ -317,6 +381,7 @@ export class NativeProductInstaller {
       const request: CommandRequest = { label, command, cwd, environment }
       if (stdin !== undefined) request.stdin = stdin
       try {
+        this.options.progress?.(label)
         return await this.runner.run(request)
       } catch (error) {
         if (error instanceof CommandExecutionError && this.options.diagnosticPath !== undefined) {

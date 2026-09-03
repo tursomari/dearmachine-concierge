@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -54,9 +54,44 @@ const selection = {
 }
 
 describe('native product installer', () => {
+  it('verifies only live email activity appended after its private baseline', async () => {
+    const test = await fixture()
+    const logDirectory = join(test.home, '.dearmachine', 'log')
+    const logPath = join(logDirectory, 'dearmachine.log')
+    await mkdir(logDirectory, { recursive: true })
+    await writeFile(logPath, 'dearmachine: processed message=old result=answer\n', { mode: 0o600 })
+    const installer = new NativeProductInstaller({
+      home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
+      journalPath: test.journalPath, runner: test.runner, environment: { PATH: '/usr/bin:/bin' },
+      liveEmailPollMs: 5, liveEmailTimeoutMs: 500,
+    })
+    const baseline = await installer.captureLiveEmailBaseline()
+    const updates: string[] = []
+    setTimeout(() => { void appendFile(logPath, 'dearmachine: poll: 1 unread messages\n') }, 10)
+    setTimeout(() => { void appendFile(logPath, 'dearmachine: processed message=new result=answer\n') }, 30)
+    await expect(installer.waitForLiveEmail(baseline, message => updates.push(message))).resolves.toBeUndefined()
+    expect(updates).toContain('Dear Machine received your email')
+    expect(updates.at(-1)).toBe('Dear Machine sent the reply')
+  })
+
+  it('rejects an invalid live email baseline before reading historical activity', async () => {
+    const test = await fixture()
+    const installer = new NativeProductInstaller({
+      home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
+      journalPath: test.journalPath, runner: test.runner, environment: { PATH: '/usr/bin:/bin' },
+    })
+    await expect(installer.waitForLiveEmail('{"version":1}', () => {})).rejects.toThrow('baseline is invalid')
+  })
+
   it('executes the canonical fresh-install order without placing credentials in arguments', async () => {
     const test = await fixture()
-    await expect(test.installer.install(selection)).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
+    const progress: string[] = []
+    const installer = new NativeProductInstaller({
+      home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
+      journalPath: test.journalPath, runner: test.runner, environment: { PATH: '/usr/bin:/bin' },
+      progress: message => progress.push(message),
+    })
+    await expect(installer.install(selection)).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
     expect(test.runner.requests.map(request => request.label)).toEqual([
       'Source checkout preflight',
       'Install Machtiani', 'Configure Machtiani',
@@ -66,6 +101,7 @@ describe('native product installer', () => {
       'Install Dear Machine', 'Verify installed commands', 'Configure selected backend', 'Create Dear Machine pair',
       'Verify Dear Machine status', 'Verify selected backend', 'Verify source checkout',
     ])
+    expect(progress).toEqual(test.runner.requests.map(request => request.label))
     expect(test.runner.requests.flatMap(request => request.command).join('\n')).not.toContain('product-test-secret')
     expect(test.runner.requests.flatMap(request => request.command).join('\n')).not.toContain('email-test-secret')
     expect(test.runner.requests.find(request => request.label === 'Configure Machtiani')?.command).toEqual([

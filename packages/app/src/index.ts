@@ -1,10 +1,11 @@
 import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import { InstallerTui, assertInteractiveTerminal } from '@dearmachine/machtiani-installer-tui'
-import { runFirstThreeStages, runThroughBackendSelection, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
+import { runCompleteInstallation, runFirstThreeStages, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
 import { CredentialHelperAdapter } from '@dearmachine/machtiani-installer-credentials'
 import { AgentManagerBackendAdapter } from '@dearmachine/machtiani-installer-backends'
 import { LocalEnvironmentAdapter } from '@dearmachine/machtiani-installer-environment'
+import { NativeProductInstaller } from '@dearmachine/machtiani-installer-products'
 import { acquireInstallerLock } from './lock.ts'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
@@ -50,6 +51,7 @@ async function validatedSourceRoot(sourceRoot: string): Promise<string> {
 function conversation(tui: InstallerTui) {
   return {
     ask: (message: string) => tui.ask({ message }),
+    say: (message: string) => tui.addAssistant(message),
     progress: (message: string | undefined) => tui.setProgress(message),
     tool: (name: string, detail: string) => tui.beginTool(name, detail),
   }
@@ -82,11 +84,7 @@ export async function runMockInstaller(paths = defaultInstallerPaths()): Promise
   }
 }
 
-/**
- * Runs the real guided configuration through explicit backend selection. This
- * entry point deliberately stops before product mutation while that boundary
- * receives its own tests and live disposable-inbox verification.
- */
+/** Runs the complete guided native installation and live email verification. */
 export async function runInstaller(sourceRoot: string, paths = defaultInstallerPaths()): Promise<void> {
   assertInteractiveTerminal()
   const source = await validatedSourceRoot(sourceRoot)
@@ -99,18 +97,24 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     providerEnvironmentPath: join(home, '.config', 'dearmachine', 'backends.env'),
     managerCommand: ['nix', 'shell', `path:${join(source, 'dearmachine')}#agent-manager`, '--command', 'agent-manager'],
   })
+  const products = new NativeProductInstaller({
+    home,
+    sourceRoot: source,
+    workspace: paths.workspace,
+    journalPath: join(paths.stateDirectory, 'product-installation.json'),
+    diagnosticPath: join(paths.stateDirectory, 'product-command-diagnostic.json'),
+    progress: message => tui.setProgress(message),
+  })
   try {
     tui.start()
-    const result = await runThroughBackendSelection({
+    await runCompleteInstallation({
       conversation: conversation(tui),
       environment: new LocalEnvironmentAdapter({ backends }),
       credentials: new CredentialHelperAdapter({ home }),
       backends,
+      products,
       checkpoint: checkpointStore(join(paths.stateDirectory, 'installation-checkpoint.json')),
     })
-    if (result !== undefined) {
-      tui.addAssistant(`Configuration is ready with ${result.backend.name}. Product installation is not enabled in this development build yet.`)
-    }
   } finally {
     await tui.dispose()
     await lock.release()

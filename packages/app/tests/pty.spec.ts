@@ -4,7 +4,9 @@ import { join, resolve } from 'node:path'
 import * as pty from 'node-pty'
 import { describe, expect, it } from 'vitest'
 
-function runInPty(input: string): Promise<{ code: number; output: string }> {
+interface PtyResponse { prompt: string; input: string }
+
+function runInPty(responses: readonly PtyResponse[]): Promise<{ code: number; output: string }> {
   return new Promise(async (resolveResult, reject) => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-pty-test-'))
     const app = resolve('packages/app/dist/bin.mjs')
@@ -16,13 +18,16 @@ function runInPty(input: string): Promise<{ code: number; output: string }> {
       env: { ...process.env, HOME: root, XDG_STATE_HOME: join(root, 'state'), XDG_DATA_HOME: join(root, 'data'), TERM: 'xterm-256color' },
     })
     let output = ''
-    let sent = false
-    const timer = setTimeout(() => { child.kill(); reject(new Error('PTY installer timed out')) }, 8_000)
+    let responseIndex = 0
+    let searchOffset = 0
+    const timer = setTimeout(() => { child.kill(); reject(new Error(`PTY installer timed out after ${responseIndex}/${responses.length} responses\n${output.slice(-2_000)}`)) }, 8_000)
     child.onData(chunk => {
       output += chunk
-      if (!sent && output.includes('Would you like to continue')) {
-        sent = true
-        child.write(input)
+      const response = responses[responseIndex]
+      if (response !== undefined && output.slice(searchOffset).includes(response.prompt)) {
+        responseIndex += 1
+        searchOffset = output.length
+        child.write(response.input)
       }
     })
     child.onExit(({ exitCode }) => {
@@ -34,14 +39,30 @@ function runInPty(input: string): Promise<{ code: number; output: string }> {
 
 describe('real PTY lifecycle', () => {
   it('restores the terminal after declining the welcome gate', async () => {
-    const result = await runInPty('not now\r')
+    const result = await runInPty([{ prompt: 'Would you like to continue', input: 'not now\r' }])
     expect(result.code).toBe(0)
     expect(result.output).toContain('MACHTIANI INSTALLER')
   })
 
   it('restores the terminal after Ctrl-C cancellation', async () => {
-    const result = await runInPty('\x03')
+    const result = await runInPty([{ prompt: 'Would you like to continue', input: '\x03' }])
     expect(result.code).toBe(1)
     expect(result.output).toContain('cancelled')
+  })
+
+  it('completes the no-mutation guided preview through canonical credential handoffs', async () => {
+    const result = await runInPty([
+      { prompt: 'Would you like to continue', input: 'yes\r' },
+      { prompt: 'Which LLM provider', input: 'OpenRouter\r' },
+      { prompt: 'Which OpenRouter model', input: 'z-ai/glm-5.3-flash\r' },
+      { prompt: 'Tell me when you', input: 'done\r' },
+      { prompt: 'Which would you like to use?', input: 'AgentMail\r' },
+      { prompt: 'free tier is available.', input: 'no\r' },
+      { prompt: 'Tell me when you', input: 'done\r' },
+      { prompt: 'What email address', input: 'sender@example.test\r' },
+    ])
+    expect(result.code).toBe(0)
+    expect(result.output).toContain('no-change installation preview is complete')
+    expect(result.output).not.toContain('sk-')
   })
 })

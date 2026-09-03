@@ -157,6 +157,10 @@ export class InstallerTui {
 
   async dispose(): Promise<void> {
     if (this.stopped) return
+    if (this.started) {
+      this.ui.requestRender(true)
+      await new Promise<void>(resolve => setImmediate(resolve))
+    }
     this.stopped = true
     const pending = this.pendingQuestion
     this.pendingQuestion = undefined

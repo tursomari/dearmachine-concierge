@@ -4,7 +4,8 @@ Machtiani Installer is the first-party guided setup application for Dear
 Machine. It presents one predictable terminal experience while keeping the
 Dear Machine backend agent as a later, explicit user choice.
 
-This repository currently implements the first risk-reduction slices:
+This repository implements the first risk-reduction slices and the guarded
+native installation path:
 
 - an exact DeepSeek Harness package and source pin;
 - a narrow process adapter and isolated DSH profile;
@@ -20,13 +21,15 @@ This repository currently implements the first risk-reduction slices:
   validated as environment-compatible;
 - a guarded, testable native product-install adapter whose command plan keeps
   credentials out of arguments, refuses pre-existing Dear Machine state, and
-  journals safe restart behavior without risking a duplicate remote inbox; and
+  journals safe restart behavior without risking a duplicate remote inbox;
+- an interactive handoff from explicit backend selection through product
+  installation, live-email progress, reply verification, and a concise outcome
+  report; and
 - a live DSH smoke test that requires one harmless shell-tool round trip.
 
-The public bootstrap and product-changing installation tools are deliberately
-not enabled yet. The real guided entry point stops after configuration and
-backend selection; the product adapter remains disconnected until the
-containerized IXE and live email QSE remain green.
+The public bootstrap is deliberately not enabled yet. The local guided entry
+point enables product changes only after the containerized IXE and live email
+QSE gates pass.
 
 The repository build exposes a separate
 `packages/app/dist/headless-bin.mjs` entry point for those gates. It accepts a
@@ -63,8 +66,10 @@ nix run .# -- --install --source-root /absolute/path/to/machtiani
 ```
 
 This prepares the canonical `enter-llm-key` and `enter-email-key` helpers and,
-with permission, runs isolated backend health probes. It does not install or
-start Machtiani or Dear Machine in the current development slice.
+with permission, runs isolated backend health probes. It then installs and
+starts Machtiani and Dear Machine, asks for one live test email, follows that
+message through the selected backend, and reports success only after the reply
+is sent.
 
 Run the live DSH recursion smoke test only with a disposable or explicitly
 authorized OpenRouter credential already present in the environment:

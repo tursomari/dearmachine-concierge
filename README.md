@@ -13,8 +13,8 @@ native installation path:
 - terminal snapshots, real-PTY lifecycle checks, and a single-process lock;
 - the canonical consent, environment, LLM, and email workflow as a no-mutation
   preview;
-- private credential-helper handoff that never returns key material to the
-  workflow or transcript;
+- masked in-TUI credential entry that atomically writes private files without
+  returning key material to the ordinary conversation or transcript;
 - permission-gated discovery and functional health checks for Codex, Forge,
   and OMP, followed by an explicit human choice; provider credentials cross
   that boundary only for backend IDs whose installed behavior was explicitly
@@ -56,20 +56,21 @@ nix build
 Run the preview in a real terminal with:
 
 ```console
-nix run .# -- --mock
+nix run '.#' -- --mock
 ```
 
 Run the guided configuration against an umbrella checkout with:
 
 ```console
-nix run .# -- --install --source-root /absolute/path/to/machtiani
+nix run '.#' -- --install --source-root /absolute/path/to/machtiani
 ```
 
-This prepares the canonical `enter-llm-key` and `enter-email-key` helpers and,
-with permission, runs isolated backend health probes. It then installs and
-starts Machtiani and Dear Machine, asks for one live test email, follows that
-message through the selected backend, and reports success only after the reply
-is sent.
+The TUI captures required API keys in masked fields and writes them directly to
+private mode-`0600` files; the values never enter the transcript or DSH event
+stream. With permission, the installer then runs isolated backend health
+probes, installs and starts Machtiani and Dear Machine, asks for one live test
+email, follows that message through the selected backend, and reports success
+only after the reply is sent.
 
 Run the live DSH recursion smoke test only with a disposable or explicitly
 authorized OpenRouter credential already present in the environment:

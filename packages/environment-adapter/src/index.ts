@@ -8,7 +8,6 @@ const foundations = [
   { name: 'Nix', command: 'nix', package: undefined },
   { name: 'Git', command: 'git', package: 'nixpkgs#git' },
   { name: 'Git LFS', command: 'git-lfs', package: 'nixpkgs#git-lfs' },
-  { name: 'Micro', command: 'micro', package: 'nixpkgs#micro' },
 ] as const
 
 async function available(command: string, pathValue: string): Promise<boolean> {

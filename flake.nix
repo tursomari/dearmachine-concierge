@@ -40,7 +40,7 @@
               runHook preInstall
               runtime="$out/libexec/machtiani-installer"
               mkdir -p "$runtime" "$out/bin"
-              cp -R assets package.json node_modules packages "$runtime/"
+              cp -R package.json node_modules packages "$runtime/"
               makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-installer" \
                 --add-flags "$runtime/packages/app/dist/bin.mjs"
               runHook postInstall

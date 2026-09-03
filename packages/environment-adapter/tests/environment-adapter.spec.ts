@@ -19,7 +19,7 @@ describe('environment adapter', () => {
         discover: async () => { discoveries += 1; return [{ name: 'Codex', id: 'codex-yolo', executable: join(bin, 'codex') }] },
       },
     })
-    await expect(adapter.inspect()).resolves.toEqual({ missingFoundations: ['Git LFS', 'Micro'], detectedBackends: ['Codex'] })
+    await expect(adapter.inspect()).resolves.toEqual({ missingFoundations: ['Git LFS'], detectedBackends: ['Codex'] })
     expect(discoveries).toBe(1)
   })
 })

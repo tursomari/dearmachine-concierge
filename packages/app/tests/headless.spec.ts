@@ -20,6 +20,9 @@ describe('headless product gate', () => {
     expect(parseHeadlessArguments(['--source-root', '/source', '--selection-file', '/selection'])).toEqual({
       sourceRoot: '/source', selectionFile: '/selection',
     })
+    expect(parseHeadlessArguments([
+      '--source-root', '/source', '--selection-file', '/selection', '--existing-inbox-id', 'inbox-qse-owned',
+    ])).toEqual({ sourceRoot: '/source', selectionFile: '/selection', existingInboxId: 'inbox-qse-owned' })
     expect(() => parseHeadlessArguments(['--source-root', '/source'])).toThrow('Usage:')
   })
 

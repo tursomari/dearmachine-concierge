@@ -33,7 +33,9 @@ The repository build exposes a separate
 private, credential-free selection file, derives all writable paths from the
 disposable test `HOME`, acquires the ordinary installer lock, and invokes the
 guarded product adapter. It is intentionally not wrapped into the public Nix
-package.
+package. The live QSE may pass one exact pre-provisioned test inbox ID so its
+host-side transaction can journal ownership before the container mutates the
+resource; the normal installer still provisions a new inbox.
 
 ## Development
 

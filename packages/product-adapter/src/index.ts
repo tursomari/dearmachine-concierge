@@ -184,6 +184,7 @@ export interface ProductInstallerOptions {
   sourceRoot: string
   workspace: string
   journalPath: string
+  existingInboxId?: string
   environment?: NodeJS.ProcessEnv
   runner?: CommandRunner
 }
@@ -207,6 +208,7 @@ interface JournalSelection {
   transport: string
   authorizedSender: string
   backendId: string
+  existingInboxIdHash?: string
 }
 
 interface ProductJournal {
@@ -226,14 +228,16 @@ function atLeast(current: ProductStage, expected: ProductStage): boolean {
   return stages.indexOf(current) >= stages.indexOf(expected)
 }
 
-function journalSelection(selection: ReadyInstallationSelection): JournalSelection {
-  return {
+function journalSelection(selection: ReadyInstallationSelection, existingInboxId: string | undefined): JournalSelection {
+  const result: JournalSelection = {
     provider: selection.provider,
     model: selection.model,
     transport: selection.transport,
     authorizedSender: selection.authorizedSender,
     backendId: selection.backend.id,
   }
+  if (existingInboxId !== undefined) result.existingInboxIdHash = statusHash(existingInboxId)
+  return result
 }
 
 function statusHash(status: string): string {
@@ -272,6 +276,10 @@ export class NativeProductInstaller {
 
   async install(selection: ReadyInstallationSelection): Promise<InstalledProducts> {
     if (selection.backend.status !== 'ready') throw new Error(`${selection.backend.name} must pass its readiness check before product installation.`)
+    const existingInboxId = this.options.existingInboxId
+    if (existingInboxId !== undefined && (existingInboxId.trim() === '' || /[\r\n\0]/u.test(existingInboxId))) {
+      throw new Error('The pre-provisioned inbox ID is invalid.')
+    }
     const provider = providerSpec(selection.provider)
     const transport = transportSpec(selection.transport, this.options.home)
     const providerEnvironment = await loadPrivateEnvironment(join(this.options.home, '.config', 'dearmachine', 'backends.env'))
@@ -302,7 +310,7 @@ export class NativeProductInstaller {
     }
 
     await mkdir(this.options.workspace, { recursive: true, mode: 0o700 })
-    const selected = journalSelection(selection)
+    const selected = journalSelection(selection, existingInboxId)
     let journal = await loadJournal(this.options.journalPath)
     const loadedStage = journal?.stage
     if (journal === undefined) {
@@ -382,9 +390,10 @@ export class NativeProductInstaller {
         await advance('pair-created', recoveredInbox)
       } else {
         await advance('pair-creation-started')
+        const inboxArguments = existingInboxId === undefined ? ['--new-inbox'] : ['--inbox', existingInboxId]
         await run('Create Dear Machine pair', [
           'dearmachine', 'up', '--create', '--email', selection.authorizedSender,
-          '--new-inbox', '--transport', transport.id,
+          ...inboxArguments, '--transport', transport.id,
           '--project', entryPoint, '--entry-point-repo', entryPoint,
           '--config', deviceConfig, '--poll-interval', '5s', '--magnifica-humanitas', '--verbose',
         ])

@@ -70,6 +70,7 @@ describe('native product installer', () => {
       '--model', 'z-ai/glm-5.3-flash', '--alias', 'dearmachine', '--api-key-env', 'OPENROUTER_API_KEY',
     ])
     expect(test.runner.requests.find(request => request.label === 'Configure selected backend')?.stdin).toBe('\n')
+    expect(test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command).toContain('--new-inbox')
     expect(test.runner.requests.find(request => request.label === 'Verify selected backend')?.cwd).toBe(join(test.home, '.dearmachine', 'entrypoint', 'main'))
     expect(await readFile(join(test.home, '.dearmachine', 'config', 'dearmachine.toml'), 'utf8')).toBe(
       'version = 1\nbackends = ["codex-yolo"]\nresponse_tier = "formatted"\n',
@@ -79,6 +80,27 @@ describe('native product installer', () => {
     expect(journal).not.toContain('product-test-secret')
     expect(journal).not.toContain('email-test-secret')
     expect((await stat(test.journalPath)).mode & 0o077).toBe(0)
+  })
+
+  it('uses an explicitly pre-provisioned inbox for the live disposable-resource gate', async () => {
+    const test = await fixture()
+    const installer = new NativeProductInstaller({
+      home: test.home,
+      sourceRoot: test.sourceRoot,
+      workspace: test.workspace,
+      journalPath: test.journalPath,
+      runner: test.runner,
+      environment: { PATH: '/usr/bin:/bin' },
+      existingInboxId: 'inbox-qse-owned',
+    })
+    await installer.install(selection)
+    const command = test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command
+    expect(command).toContain('--inbox')
+    expect(command).toContain('inbox-qse-owned')
+    expect(command).not.toContain('--new-inbox')
+    const journal = await readFile(test.journalPath, 'utf8')
+    expect(journal).toContain('"existingInboxIdHash"')
+    expect(journal).not.toContain('inbox-qse-owned')
   })
 
   it('refuses an existing Dear Machine state tree before running any command', async () => {

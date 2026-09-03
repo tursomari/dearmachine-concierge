@@ -16,13 +16,19 @@ const selection = {
 }
 
 describe('headless product gate', () => {
-  it('accepts only the explicit four-argument interface', () => {
+  it('accepts only the explicit source, selection, and QSE option forms', () => {
     expect(parseHeadlessArguments(['--source-root', '/source', '--selection-file', '/selection'])).toEqual({
       sourceRoot: '/source', selectionFile: '/selection',
     })
     expect(parseHeadlessArguments([
       '--source-root', '/source', '--selection-file', '/selection', '--existing-inbox-id', 'inbox-qse-owned',
     ])).toEqual({ sourceRoot: '/source', selectionFile: '/selection', existingInboxId: 'inbox-qse-owned' })
+    expect(parseHeadlessArguments([
+      '--source-root', '/source', '--selection-file', '/selection', '--existing-inbox-id', 'inbox-qse-owned',
+      '--reasoning-effort', 'high',
+    ])).toEqual({
+      sourceRoot: '/source', selectionFile: '/selection', existingInboxId: 'inbox-qse-owned', reasoningEffort: 'high',
+    })
     expect(() => parseHeadlessArguments(['--source-root', '/source'])).toThrow('Usage:')
   })
 

@@ -141,7 +141,7 @@ function parseInbox(status: string, sender: string, transport: string): string {
   throw new Error('Dear Machine started, but its registered inbox could not be verified.')
 }
 
-async function verifiedMachtianiConfig(path: string, provider: ProviderSpec, model: string): Promise<boolean> {
+async function verifiedMachtianiConfig(path: string, provider: ProviderSpec, model: string, reasoningEffort?: string): Promise<boolean> {
   let content: string
   try { content = await readFile(path, 'utf8') } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
@@ -154,14 +154,15 @@ async function verifiedMachtianiConfig(path: string, provider: ProviderSpec, mod
     `provider = ${JSON.stringify(provider.preset)}`,
     `api_key = "\${${provider.variable}}"`,
   ]
+  if (reasoningEffort !== undefined) expected.push(`effort = ${JSON.stringify(reasoningEffort)}`)
   if (!expected.every(line => lines.has(line))) {
     throw new Error('The installer-owned Machtiani configuration does not match the saved provider and model choices.')
   }
   return true
 }
 
-async function requireMachtianiConfig(path: string, provider: ProviderSpec, model: string): Promise<void> {
-  if (!await verifiedMachtianiConfig(path, provider, model)) {
+async function requireMachtianiConfig(path: string, provider: ProviderSpec, model: string, reasoningEffort?: string): Promise<void> {
+  if (!await verifiedMachtianiConfig(path, provider, model, reasoningEffort)) {
     throw new Error('Machtiani configuration was not created.')
   }
 }
@@ -185,6 +186,7 @@ export interface ProductInstallerOptions {
   workspace: string
   journalPath: string
   diagnosticPath?: string
+  reasoningEffort?: string
   existingInboxId?: string
   environment?: NodeJS.ProcessEnv
   runner?: CommandRunner
@@ -209,6 +211,7 @@ interface JournalSelection {
   transport: string
   authorizedSender: string
   backendId: string
+  reasoningEffort?: string
   existingInboxIdHash?: string
 }
 
@@ -229,7 +232,7 @@ function atLeast(current: ProductStage, expected: ProductStage): boolean {
   return stages.indexOf(current) >= stages.indexOf(expected)
 }
 
-function journalSelection(selection: ReadyInstallationSelection, existingInboxId: string | undefined): JournalSelection {
+function journalSelection(selection: ReadyInstallationSelection, existingInboxId: string | undefined, reasoningEffort: string | undefined): JournalSelection {
   const result: JournalSelection = {
     provider: selection.provider,
     model: selection.model,
@@ -237,6 +240,7 @@ function journalSelection(selection: ReadyInstallationSelection, existingInboxId
     authorizedSender: selection.authorizedSender,
     backendId: selection.backend.id,
   }
+  if (reasoningEffort !== undefined) result.reasoningEffort = reasoningEffort
   if (existingInboxId !== undefined) result.existingInboxIdHash = statusHash(existingInboxId)
   return result
 }
@@ -280,6 +284,10 @@ export class NativeProductInstaller {
     const existingInboxId = this.options.existingInboxId
     if (existingInboxId !== undefined && (existingInboxId.trim() === '' || /[\r\n\0]/u.test(existingInboxId))) {
       throw new Error('The pre-provisioned inbox ID is invalid.')
+    }
+    const reasoningEffort = this.options.reasoningEffort
+    if (reasoningEffort !== undefined && (reasoningEffort.trim() === '' || /[\r\n\0]/u.test(reasoningEffort))) {
+      throw new Error('The reasoning effort is invalid.')
     }
     const provider = providerSpec(selection.provider)
     const transport = transportSpec(selection.transport, this.options.home)
@@ -328,7 +336,7 @@ export class NativeProductInstaller {
     }
 
     await mkdir(this.options.workspace, { recursive: true, mode: 0o700 })
-    const selected = journalSelection(selection, existingInboxId)
+    const selected = journalSelection(selection, existingInboxId, reasoningEffort)
     let journal = await loadJournal(this.options.journalPath)
     const loadedStage = journal?.stage
     if (journal === undefined) {
@@ -357,18 +365,23 @@ export class NativeProductInstaller {
     }
 
     if (!atLeast(journal.stage, 'machtiani-configured')) {
-      if (!await verifiedMachtianiConfig(machtianiConfigPath, provider, selection.model)) {
-        await run('Configure Machtiani', [
+      if (!await verifiedMachtianiConfig(machtianiConfigPath, provider, selection.model, reasoningEffort)) {
+        const configureCommand = [
           'machtiani', 'init', '--no-interactive', '--config-scope', 'global',
           '--preset', provider.preset, '--model', selection.model, '--alias', 'dearmachine', '--api-key-env', provider.variable,
-        ], this.options.workspace)
-        await requireMachtianiConfig(machtianiConfigPath, provider, selection.model)
+        ]
+        if (reasoningEffort !== undefined) configureCommand.push('--reasoning', reasoningEffort)
+        await run('Configure Machtiani', configureCommand, this.options.workspace)
+        await requireMachtianiConfig(machtianiConfigPath, provider, selection.model, reasoningEffort)
       }
       await advance('machtiani-configured')
     }
 
     if (!atLeast(journal.stage, 'provider-verified')) {
       const providerCheckRoot = await prepareProviderCheckWorkspace(this.options.workspace, run)
+      await run('Initialize Machtiani provider-check project', [
+        'machtiani', 'init', '--no-interactive', '--config-scope', 'global',
+      ], providerCheckRoot)
       await run('Synchronize Machtiani provider check', [
         'machtiani', 'sync', '--model', 'dearmachine',
         '--answer-model', 'dearmachine', '--file-discovery-model', 'dearmachine',

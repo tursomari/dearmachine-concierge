@@ -12,11 +12,14 @@ class RecordingRunner implements CommandRunner {
   async run(request: CommandRequest) {
     this.requests.push(request)
     if (request.label === 'Configure Machtiani') {
+      const reasoningIndex = request.command.indexOf('--reasoning')
+      const reasoning = reasoningIndex === -1 ? '' : `effort = "${request.command[reasoningIndex + 1]}"\n`
       await mkdir(join(this.home, '.machtiani'), { recursive: true })
       await writeFile(join(this.home, '.machtiani', 'config.toml'), `default_model = "dearmachine"
 model = "z-ai/glm-5.3-flash"
 provider = "openrouter"
 api_key = "\${OPENROUTER_API_KEY}"
+${reasoning}
 `, { mode: 0o600 })
     }
     if (request.label === 'Check Machtiani provider') return { code: 0, stdout: 'MACHTIANI_PROVIDER_OK\n', stderr: '' }
@@ -59,7 +62,7 @@ describe('native product installer', () => {
       'Install Machtiani', 'Configure Machtiani',
       'Initialize provider-check workspace', 'Configure provider-check identity', 'Configure provider-check email',
       'Stage provider-check workspace', 'Commit provider-check workspace',
-      'Synchronize Machtiani provider check', 'Check Machtiani provider',
+      'Initialize Machtiani provider-check project', 'Synchronize Machtiani provider check', 'Check Machtiani provider',
       'Install Dear Machine', 'Verify installed commands', 'Configure selected backend', 'Create Dear Machine pair',
       'Verify Dear Machine status', 'Verify selected backend', 'Verify source checkout',
     ])
@@ -77,6 +80,8 @@ describe('native product installer', () => {
       'machtiani', 'run', '--model', 'dearmachine', '--mode', 'code', '-p',
       'Reply with exactly MACHTIANI_PROVIDER_OK without changing files.',
     ])
+    expect(test.runner.requests.find(request => request.label === 'Initialize Machtiani provider-check project')?.cwd)
+      .toMatch(new RegExp(`^${test.workspace}/provider-check-`))
     expect(test.runner.requests.find(request => request.label === 'Configure selected backend')?.stdin).toBe('\n')
     expect(test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command).toContain('--new-inbox')
     expect(test.runner.requests.find(request => request.label === 'Verify selected backend')?.cwd).toBe(join(test.home, '.dearmachine', 'entrypoint', 'main'))
@@ -100,14 +105,17 @@ describe('native product installer', () => {
       runner: test.runner,
       environment: { PATH: '/usr/bin:/bin' },
       existingInboxId: 'inbox-qse-owned',
+      reasoningEffort: 'high',
     })
     await installer.install(selection)
     const command = test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command
     expect(command).toContain('--inbox')
     expect(command).toContain('inbox-qse-owned')
     expect(command).not.toContain('--new-inbox')
+    expect(test.runner.requests.find(request => request.label === 'Configure Machtiani')?.command).toContain('high')
     const journal = await readFile(test.journalPath, 'utf8')
     expect(journal).toContain('"existingInboxIdHash"')
+    expect(journal).toContain('"reasoningEffort": "high"')
     expect(journal).not.toContain('inbox-qse-owned')
   })
 

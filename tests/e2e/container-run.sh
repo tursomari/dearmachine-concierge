@@ -121,7 +121,8 @@ unset openrouter_key agentmail_key
 git -C "$umbrella" status --porcelain=v2 --untracked-files=all --ignore-submodules=none > "$runtime/source.before"
 node "$umbrella/machtiani-installer/packages/app/dist/headless-bin.mjs" \
   --source-root "$umbrella" --selection-file "$selection" \
-  --existing-inbox-id "$QSE_RECEIVER_ID" > "$runtime/result.json" 2> "$runtime/installer.stderr"
+  --existing-inbox-id "$QSE_RECEIVER_ID" --reasoning-effort high \
+  > "$runtime/result.json" 2> "$runtime/installer.stderr"
 chmod 0600 "$runtime/result.json" "$runtime/installer.stderr"
 
 python3 - "$runtime/result.json" "$QSE_RECEIVER_ADDRESS" <<'PY'

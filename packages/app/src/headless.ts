@@ -8,7 +8,7 @@ import { defaultInstallerPaths, validatedSourceRoot } from './index.ts'
 const selectionKeys = ['authorizedSender', 'backend', 'detectedBackends', 'model', 'provider', 'transport'] as const
 const backendKeys = ['executable', 'id', 'name', 'status', 'summary'] as const
 
-export interface HeadlessInvocation { sourceRoot: string; selectionFile: string; existingInboxId?: string }
+export interface HeadlessInvocation { sourceRoot: string; selectionFile: string; existingInboxId?: string; reasoningEffort?: string }
 
 export function parseHeadlessArguments(args: readonly string[]): HeadlessInvocation {
   if (args.length === 4 && args[0] === '--source-root' && args[1] !== '' && args[2] === '--selection-file' && args[3] !== '') {
@@ -18,7 +18,11 @@ export function parseHeadlessArguments(args: readonly string[]): HeadlessInvocat
     args[4] === '--existing-inbox-id' && args[5] !== '') {
     return { sourceRoot: args[1]!, selectionFile: args[3]!, existingInboxId: args[5]! }
   }
-  throw new Error('Usage: machtiani-installer-product-headless --source-root /absolute/path/to/machtiani --selection-file /private/selection.json [--existing-inbox-id TEST_INBOX_ID]')
+  if (args.length === 8 && args[0] === '--source-root' && args[1] !== '' && args[2] === '--selection-file' && args[3] !== '' &&
+    args[4] === '--existing-inbox-id' && args[5] !== '' && args[6] === '--reasoning-effort' && args[7] !== '') {
+    return { sourceRoot: args[1]!, selectionFile: args[3]!, existingInboxId: args[5]!, reasoningEffort: args[7]! }
+  }
+  throw new Error('Usage: machtiani-installer-product-headless --source-root /absolute/path/to/machtiani --selection-file /private/selection.json [--existing-inbox-id TEST_INBOX_ID [--reasoning-effort EFFORT]]')
 }
 
 function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
@@ -73,7 +77,7 @@ export async function loadHeadlessSelection(path: string): Promise<ReadyInstalla
   return parseSelection(JSON.parse(await readFile(path, 'utf8')) as unknown)
 }
 
-export async function runHeadlessProductInstallation(sourceRoot: string, selectionFile: string, existingInboxId?: string): Promise<InstalledProducts> {
+export async function runHeadlessProductInstallation(sourceRoot: string, selectionFile: string, existingInboxId?: string, reasoningEffort?: string): Promise<InstalledProducts> {
   const source = await validatedSourceRoot(sourceRoot)
   const home = process.env.HOME
   if (home === undefined || home === '') throw new Error('HOME is required for headless product installation.')
@@ -88,9 +92,10 @@ export async function runHeadlessProductInstallation(sourceRoot: string, selecti
       journalPath: join(paths.stateDirectory, 'product-installation.json'),
       diagnosticPath: join(paths.stateDirectory, 'product-command-diagnostic.json'),
     }
+    const configuredOptions = reasoningEffort === undefined ? installerOptions : { ...installerOptions, reasoningEffort }
     const installer = existingInboxId === undefined
-      ? new NativeProductInstaller(installerOptions)
-      : new NativeProductInstaller({ ...installerOptions, existingInboxId })
+      ? new NativeProductInstaller(configuredOptions)
+      : new NativeProductInstaller({ ...configuredOptions, existingInboxId })
     return await installer.install(selection)
   } finally {
     await lock.release()

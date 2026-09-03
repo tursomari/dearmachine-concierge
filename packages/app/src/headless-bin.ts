@@ -3,7 +3,9 @@ import { parseHeadlessArguments, runHeadlessProductInstallation } from './headle
 
 async function main(): Promise<void> {
   const invocation = parseHeadlessArguments(process.argv.slice(2))
-  const result = await runHeadlessProductInstallation(invocation.sourceRoot, invocation.selectionFile, invocation.existingInboxId)
+  const result = await runHeadlessProductInstallation(
+    invocation.sourceRoot, invocation.selectionFile, invocation.existingInboxId, invocation.reasoningEffort,
+  )
   process.stdout.write(`${JSON.stringify(result)}\n`)
 }
 

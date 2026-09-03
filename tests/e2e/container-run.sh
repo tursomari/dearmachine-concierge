@@ -66,8 +66,8 @@ initialize_repository "$umbrella/machtiani-installer" \
 initialize_repository "$umbrella" \
   .gitignore .gitmodules INSTALL.md LICENSE README.md docs scripts tests
 
-openrouter_key=$(sed -n '1p' "$openrouter_secret")
-agentmail_key=$(sed -n '1p' "$agentmail_secret")
+IFS= read -r openrouter_key < "$openrouter_secret"
+IFS= read -r agentmail_key < "$agentmail_secret"
 test -n "$openrouter_key" && test -n "$agentmail_key" || fail 'a runtime credential is empty'
 test "$(wc -l < "$openrouter_secret")" -eq 1 && test "$(wc -l < "$agentmail_secret")" -eq 1 || \
   fail 'runtime credentials must each contain exactly one line'

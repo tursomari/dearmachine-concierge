@@ -141,7 +141,13 @@ dearmachine status > "$runtime/dearmachine.status"
 grep -Fq 'DearMachine is running' "$runtime/dearmachine.status" || fail 'Dear Machine is not running'
 grep -Eq '(^|[[:space:]])result=ok([[:space:]]|$)' "$runtime/backend.status" || fail 'Forge backend health failed'
 git -C "$umbrella" status --porcelain=v2 --untracked-files=all --ignore-submodules=none > "$runtime/source.status"
-cmp -s "$runtime/source.before" "$runtime/source.status" || fail 'product installation changed the source snapshot'
+python3 - "$runtime/source.before" "$runtime/source.status" <<'PY'
+from pathlib import Path
+import sys
+
+if Path(sys.argv[1]).read_bytes() != Path(sys.argv[2]).read_bytes():
+    raise SystemExit("product installation changed the source snapshot")
+PY
 
 touch "$runtime/ready"
 chmod 0600 "$runtime/ready" "$runtime/dearmachine.status" "$runtime/backend.status" "$runtime/source.status"

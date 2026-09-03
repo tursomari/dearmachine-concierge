@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DSH_NPM_VERSION,
   DSH_SOURCE_REVISION,
+  DshTaskExecutionError,
   INSTALLER_MODEL,
   INSTALLER_REASONING_EFFORT,
   prepareIsolatedDshHome,
@@ -26,5 +27,18 @@ describe('pinned DSH compatibility boundary', () => {
     expect(storedSettings).toContain(`reasoningEffort: ${INSTALLER_REASONING_EFFORT}`)
     expect(`${patch}\n${storedSettings}`).not.toMatch(/(?:sk-or-v1-|api[_-]?key\s*:\s*[^A-Z\s])/iu)
     expect((await stat(join(root, 'settings.yaml'))).mode & 0o077).toBe(0)
+  })
+
+  it('keeps failed-task output out of the public error message', () => {
+    const credential = 'adapter-test-secret'
+    const error = new DshTaskExecutionError(1, {
+      stdout: `response containing ${credential}`,
+      stderr: `diagnostic containing ${credential}`,
+    })
+    expect(String(error)).not.toContain(credential)
+    expect(error.privateDiagnostic()).toEqual({
+      stdout: `response containing ${credential}`,
+      stderr: `diagnostic containing ${credential}`,
+    })
   })
 })

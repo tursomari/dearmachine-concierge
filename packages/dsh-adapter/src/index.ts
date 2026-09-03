@@ -69,6 +69,20 @@ export interface DshTaskResult {
   stderr: string
 }
 
+export class DshTaskExecutionError extends Error {
+  readonly #diagnostic: Readonly<DshTaskResult>
+
+  constructor(readonly code: number | null, diagnostic: DshTaskResult) {
+    super(`DeepSeek Harness task failed with status ${code ?? 'unknown'}. The installer retained the private diagnostic for troubleshooting.`)
+    this.name = 'DshTaskExecutionError'
+    this.#diagnostic = { ...diagnostic }
+  }
+
+  privateDiagnostic(): Readonly<DshTaskResult> {
+    return { ...this.#diagnostic }
+  }
+}
+
 function dshBin(): string {
   const require = createRequire(import.meta.url)
   return join(dirname(require.resolve('@deepseek-ai/dsh/package.json')), 'lib', 'bin.js')
@@ -86,12 +100,13 @@ export async function runDshTask(options: DshTaskOptions): Promise<DshTaskResult
     })
     let stdout = ''
     let stderr = ''
-    child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk })
-    child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
-    child.once('error', reject)
+    const append = (current: string, chunk: unknown): string => `${current}${String(chunk)}`.slice(-1_048_576)
+    child.stdout.setEncoding('utf8').on('data', chunk => { stdout = append(stdout, chunk) })
+    child.stderr.setEncoding('utf8').on('data', chunk => { stderr = append(stderr, chunk) })
+    child.once('error', () => reject(new Error('DeepSeek Harness task could not start.')))
     child.once('close', code => {
       if (code === 0) resolve({ stdout, stderr })
-      else reject(new Error(`DeepSeek Harness task exited with status ${code ?? 'unknown'}: ${stderr.trim()}`))
+      else reject(new DshTaskExecutionError(code, { stdout, stderr }))
     })
   })
 }

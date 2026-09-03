@@ -16,7 +16,7 @@ RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
 # Git LFS is required when Dear Machine creates its default state workspace.
 RUN nix develop path:/workspace/machtiani/machtiani-harness#smoke -c true \
  && nix profile install --impure --expr \
-      'let f = builtins.getFlake "path:/workspace/machtiani/machtiani-harness"; p = import f.inputs.nixpkgs { system = builtins.currentSystem; }; in p.buildEnv { name = "machtiani-qse-runtime"; paths = [ p.git p.git-lfs p.nodejs_24 p.python3 ]; }'
+      'let f = builtins.getFlake "path:/workspace/machtiani/machtiani-harness"; p = import f.inputs.nixpkgs { system = builtins.currentSystem; }; in p.buildEnv { name = "machtiani-qse-runtime"; paths = [ p.git-lfs p.nodejs_24 p.python3 ]; }'
 
 # Forge is the selected Dear Machine backend for this disposable live gate.
 ARG TARGETARCH

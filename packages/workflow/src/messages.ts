@@ -23,4 +23,22 @@ In another shell, run:
 
 Tell me when you're done.`,
   authorizedSender: 'What email address should be allowed to send work to Dear Machine?',
+  backendReadiness: (detectedAgents: string) => `Dear Machine works through a backend agent. I found these supported agents already installed: ${detectedAgents}.
+
+With your permission, I can check whether they are already signed in and ready to use with Dear Machine. May I do that?`,
+  backendChoice: (readinessSummary: string) => `${readinessSummary}
+
+Using an agent you already have through a subscription can make Dear Machine more capable and may lower separate API costs. Dear Machine supports Codex, Forge, and OMP.
+
+Codex, Forge, and OMP can make changes on your behalf and will exercise common-sense care. Dear Machine will ask when authorization is needed.
+
+If your preferred agent is not listed, I can help you create an adapter.
+
+Which agent would you like Dear Machine to use?`,
+  productInstallation: 'I have what I need. I’m installing Machtiani and Dear Machine now. This may take a few minutes.',
+  testEmail: (inboxAddress: string) => `Please send a short test email to ${inboxAddress}.
+
+If you don’t see the reply in your inbox, check your spam folder and mark it as “Not spam.”
+
+Tell me when you’ve sent it.`,
 } as const

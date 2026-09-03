@@ -36,6 +36,15 @@ importers:
 
   packages/app:
     dependencies:
+      '@dearmachine/machtiani-installer-backends':
+        specifier: workspace:*
+        version: link:../backend-adapter
+      '@dearmachine/machtiani-installer-credentials':
+        specifier: workspace:*
+        version: link:../credential-adapter
+      '@dearmachine/machtiani-installer-environment':
+        specifier: workspace:*
+        version: link:../environment-adapter
       '@dearmachine/machtiani-installer-tui':
         specifier: workspace:*
         version: link:../tui
@@ -43,11 +52,28 @@ importers:
         specifier: workspace:*
         version: link:../workflow
 
+  packages/backend-adapter:
+    dependencies:
+      '@dearmachine/machtiani-installer-workflow':
+        specifier: workspace:*
+        version: link:../workflow
+
+  packages/credential-adapter: {}
+
   packages/dsh-adapter:
     dependencies:
       '@deepseek-ai/dsh':
         specifier: 0.1.2-rc.1
         version: 0.1.2-rc.1(8fbcc725d00cca996501d389d042f10d)
+
+  packages/environment-adapter:
+    dependencies:
+      '@dearmachine/machtiani-installer-backends':
+        specifier: workspace:*
+        version: link:../backend-adapter
+      '@dearmachine/machtiani-installer-workflow':
+        specifier: workspace:*
+        version: link:../workflow
 
   packages/tui:
     dependencies:

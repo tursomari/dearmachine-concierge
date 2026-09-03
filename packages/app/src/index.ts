@@ -1,7 +1,10 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join } from 'node:path'
 import { InstallerTui, assertInteractiveTerminal } from '@dearmachine/machtiani-installer-tui'
-import { runFirstThreeStages, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
+import { runFirstThreeStages, runThroughBackendSelection, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
+import { CredentialHelperAdapter } from '@dearmachine/machtiani-installer-credentials'
+import { AgentManagerBackendAdapter } from '@dearmachine/machtiani-installer-backends'
+import { LocalEnvironmentAdapter } from '@dearmachine/machtiani-installer-environment'
 import { acquireInstallerLock } from './lock.ts'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
@@ -17,20 +20,51 @@ export function defaultInstallerPaths(environment: NodeJS.ProcessEnv = process.e
   }
 }
 
+function checkpointStore(path: string): CheckpointPort {
+  return {
+    load: async () => {
+      try { return JSON.parse(await readFile(path, 'utf8')) as WorkflowCheckpoint } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+        throw error
+      }
+    },
+    save: async checkpoint => {
+      await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+      const temporary = `${path}.${process.pid}.tmp`
+      await writeFile(temporary, `${JSON.stringify(checkpoint, undefined, 2)}\n`, { mode: 0o600 })
+      await rename(temporary, path)
+    },
+  }
+}
+
+async function validatedSourceRoot(sourceRoot: string): Promise<string> {
+  if (!isAbsolute(sourceRoot)) throw new Error('--source-root must be an absolute path to the Machtiani umbrella checkout')
+  const resolved = await realpath(sourceRoot)
+  for (const component of ['machtiani-harness', 'dearmachine']) {
+    const metadata = await stat(join(resolved, component))
+    if (!metadata.isDirectory()) throw new Error(`${resolved} does not contain the ${component} component checkout`)
+  }
+  return resolved
+}
+
+function conversation(tui: InstallerTui) {
+  return {
+    ask: (message: string) => tui.ask({ message }),
+    progress: (message: string | undefined) => tui.setProgress(message),
+    tool: (name: string, detail: string) => tui.beginTool(name, detail),
+  }
+}
+
 export async function runMockInstaller(paths = defaultInstallerPaths()): Promise<void> {
   assertInteractiveTerminal()
   await mkdir(paths.workspace, { recursive: true, mode: 0o700 })
   const lock = await acquireInstallerLock(join(paths.stateDirectory, 'installer.lock'))
   const tui = new InstallerTui()
-  const checkpointPath = join(paths.stateDirectory, 'checkpoint.json')
+  const checkpointPath = join(paths.stateDirectory, 'preview-checkpoint.json')
   try {
     tui.start()
     const result = await runFirstThreeStages({
-      conversation: {
-        ask: message => tui.ask({ message }),
-        progress: message => tui.setProgress(message),
-        tool: (name, detail) => tui.beginTool(name, detail),
-      },
+      conversation: conversation(tui),
       environment: {
         inspect: async () => ({ missingFoundations: [], detectedBackends: [] }),
         installFoundations: async () => { throw new Error('the no-mutation preview cannot install dependencies') },
@@ -39,20 +73,7 @@ export async function runMockInstaller(paths = defaultInstallerPaths()): Promise
         prepare: async () => {},
         status: async () => 'ready',
       },
-      checkpoint: {
-        load: async () => {
-          try { return JSON.parse(await readFile(checkpointPath, 'utf8')) as WorkflowCheckpoint } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-            throw error
-          }
-        },
-        save: async checkpoint => {
-          await mkdir(dirname(checkpointPath), { recursive: true, mode: 0o700 })
-          const temporary = `${checkpointPath}.${process.pid}.tmp`
-          await writeFile(temporary, `${JSON.stringify(checkpoint, undefined, 2)}\n`, { mode: 0o600 })
-          await rename(temporary, checkpointPath)
-        },
-      },
+      checkpoint: checkpointStore(checkpointPath),
     })
     if (result !== undefined) tui.addAssistant('The no-change installation preview is complete. No products or credentials were installed.')
   } finally {
@@ -61,4 +82,40 @@ export async function runMockInstaller(paths = defaultInstallerPaths()): Promise
   }
 }
 
+/**
+ * Runs the real guided configuration through explicit backend selection. This
+ * entry point deliberately stops before product mutation while that boundary
+ * receives its own tests and live disposable-inbox verification.
+ */
+export async function runInstaller(sourceRoot: string, paths = defaultInstallerPaths()): Promise<void> {
+  assertInteractiveTerminal()
+  const source = await validatedSourceRoot(sourceRoot)
+  const home = process.env.HOME
+  if (home === undefined || home === '') throw new Error('HOME is required to prepare private credential references')
+  await mkdir(paths.workspace, { recursive: true, mode: 0o700 })
+  const lock = await acquireInstallerLock(join(paths.stateDirectory, 'installer.lock'))
+  const tui = new InstallerTui()
+  const backends = new AgentManagerBackendAdapter({
+    providerEnvironmentPath: join(home, '.config', 'dearmachine', 'backends.env'),
+    managerCommand: ['nix', 'shell', `path:${join(source, 'dearmachine')}#agent-manager`, '--command', 'agent-manager'],
+  })
+  try {
+    tui.start()
+    const result = await runThroughBackendSelection({
+      conversation: conversation(tui),
+      environment: new LocalEnvironmentAdapter({ backends }),
+      credentials: new CredentialHelperAdapter({ home }),
+      backends,
+      checkpoint: checkpointStore(join(paths.stateDirectory, 'installation-checkpoint.json')),
+    })
+    if (result !== undefined) {
+      tui.addAssistant(`Configuration is ready with ${result.backend.name}. Product installation is not enabled in this development build yet.`)
+    }
+  } finally {
+    await tui.dispose()
+    await lock.release()
+  }
+}
+
 export { acquireInstallerLock, InstallerAlreadyRunningError } from './lock.ts'
+export { validatedSourceRoot }

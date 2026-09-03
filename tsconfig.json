@@ -7,7 +7,10 @@
     "paths": {
       "@dearmachine/machtiani-installer-tui": ["./packages/tui/src/index.ts"],
       "@dearmachine/machtiani-installer-workflow": ["./packages/workflow/src/index.ts"],
-      "@dearmachine/machtiani-installer-dsh-adapter": ["./packages/dsh-adapter/src/index.ts"]
+      "@dearmachine/machtiani-installer-dsh-adapter": ["./packages/dsh-adapter/src/index.ts"],
+      "@dearmachine/machtiani-installer-credentials": ["./packages/credential-adapter/src/index.ts"],
+      "@dearmachine/machtiani-installer-backends": ["./packages/backend-adapter/src/index.ts"],
+      "@dearmachine/machtiani-installer-environment": ["./packages/environment-adapter/src/index.ts"]
     },
     "strict": true,
     "verbatimModuleSyntax": true,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { messages, runFirstThreeStages, type WorkflowCheckpoint, type WorkflowPorts } from '../src/index.ts'
+import { messages, runFirstThreeStages, runThroughBackendSelection, type GuidedWorkflowPorts, type WorkflowCheckpoint, type WorkflowPorts } from '../src/index.ts'
 
 function fixture(answers: string[], initial?: WorkflowCheckpoint) {
   const asked: string[] = []
@@ -77,5 +77,65 @@ describe('canonical installation workflow', () => {
     expect(test.asked[0]).toBe(messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'))
     expect(test.asked).not.toContain(messages.welcome)
     expect(test.saved?.stage).toBe('complete')
+  })
+})
+
+describe('backend selection', () => {
+  it('does not probe or select a backend before permission and an explicit choice', async () => {
+    const test = fixture([], {
+      stage: 'complete', provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', transport: 'AgentMail',
+      authorizedSender: 'sender@example.test', detectedBackends: ['Codex'],
+    })
+    let checks = 0
+    const ports: GuidedWorkflowPorts = {
+      ...test.ports,
+      conversation: {
+        ...test.ports.conversation,
+        ask: async message => { test.asked.push(message); return 'no' },
+      },
+      backends: {
+        discover: async () => [{ name: 'Codex', id: 'codex-yolo', executable: '/usr/bin/codex' }],
+        check: async () => { checks += 1; return [] },
+      },
+    }
+    await expect(runThroughBackendSelection(ports)).resolves.toBeUndefined()
+    expect(checks).toBe(0)
+    expect(test.asked).toEqual([messages.backendReadiness('Codex')])
+  })
+
+  it('checks every candidate only after permission and records the human choice', async () => {
+    const test = fixture([], {
+      stage: 'complete', provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', transport: 'AgentMail',
+      authorizedSender: 'sender@example.test', detectedBackends: ['Codex', 'Forge'],
+    })
+    const answers = ['yes', 'Forge']
+    const checked: string[] = []
+    const ports: GuidedWorkflowPorts = {
+      ...test.ports,
+      conversation: {
+        ...test.ports.conversation,
+        ask: async message => {
+          test.asked.push(message)
+          const answer = answers.shift()
+          if (answer === undefined) throw new Error('missing backend answer')
+          return answer
+        },
+      },
+      backends: {
+        discover: async () => [
+          { name: 'Codex', id: 'codex-yolo', executable: '/usr/bin/codex' },
+          { name: 'Forge', id: 'forge', executable: '/usr/bin/forge' },
+        ],
+        check: async candidates => {
+          checked.push(...candidates.map(candidate => candidate.name))
+          return candidates.map(candidate => ({ ...candidate, status: 'ready' as const, summary: 'functional probe passed' }))
+        },
+      },
+    }
+    const result = await runThroughBackendSelection(ports)
+    expect(checked).toEqual(['Codex', 'Forge'])
+    expect(result?.backend).toEqual(expect.objectContaining({ name: 'Forge', id: 'forge', status: 'ready' }))
+    expect(test.saved?.stage).toBe('ready-to-install')
+    expect(test.asked[1]).toBe(messages.backendChoice('Codex is ready.\nForge is ready.'))
   })
 })

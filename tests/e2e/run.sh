@@ -154,7 +154,11 @@ cleanup() {
     rm -rf -- "$run_root"
   fi
   if test "$cleanup_status" -eq 0 && test "$run_complete" = true; then
-    printf 'Machtiani Installer containerized IXE and live email QSE passed; disposable resources were removed.\n'
+    if test "$self_test" = true; then
+      printf 'Machtiani Installer uncredentialed IXE/QSE self-test passed.\n'
+    else
+      printf 'Machtiani Installer containerized IXE and live email QSE passed; disposable resources were removed.\n'
+    fi
   fi
   exit "$cleanup_status"
 }

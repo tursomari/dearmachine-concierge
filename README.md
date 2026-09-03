@@ -15,13 +15,16 @@ This repository currently implements the first risk-reduction slices:
 - private credential-helper handoff that never returns key material to the
   workflow or transcript;
 - permission-gated discovery and functional health checks for Codex, Forge,
-  and OMP, followed by an explicit human choice; and
+  and OMP, followed by an explicit human choice;
+- a guarded, testable native product-install adapter whose command plan keeps
+  credentials out of arguments and refuses pre-existing Dear Machine state;
+  and
 - a live DSH smoke test that requires one harmless shell-tool round trip.
 
 The public bootstrap and product-changing installation tools are deliberately
 not enabled yet. The real guided entry point stops after configuration and
-backend selection; native product installation, full IXE, and live email QSE
-follow only after these gates remain green.
+backend selection; the product adapter remains disconnected until restart and
+partial-failure behavior, full IXE, and live email QSE remain green.
 
 ## Development
 

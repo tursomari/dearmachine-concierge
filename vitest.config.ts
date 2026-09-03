@@ -9,6 +9,7 @@ export default defineConfig({
       '@dearmachine/machtiani-installer-credentials': resolve('packages/credential-adapter/src/index.ts'),
       '@dearmachine/machtiani-installer-backends': resolve('packages/backend-adapter/src/index.ts'),
       '@dearmachine/machtiani-installer-environment': resolve('packages/environment-adapter/src/index.ts'),
+      '@dearmachine/machtiani-installer-products': resolve('packages/product-adapter/src/index.ts'),
     },
   },
   test: {

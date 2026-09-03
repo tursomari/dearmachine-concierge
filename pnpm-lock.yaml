@@ -75,6 +75,15 @@ importers:
         specifier: workspace:*
         version: link:../workflow
 
+  packages/product-adapter:
+    dependencies:
+      '@dearmachine/machtiani-installer-backends':
+        specifier: workspace:*
+        version: link:../backend-adapter
+      '@dearmachine/machtiani-installer-workflow':
+        specifier: workspace:*
+        version: link:../workflow
+
   packages/tui:
     dependencies:
       '@earendil-works/pi-tui':

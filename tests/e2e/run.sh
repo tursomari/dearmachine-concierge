@@ -125,6 +125,11 @@ cleanup() {
     if test "${TXN_KEEP_RUNTIME:-0}" = 1; then
       docker logs "$container_id" > "$run_root/container.log" 2>&1 || true
       chmod 0600 "$run_root/container.log"
+      retained_runtime=$run_root/container-runtime
+      mkdir "$retained_runtime"
+      chmod 0700 "$retained_runtime"
+      docker cp "$container_id:/run/machtiani-installer-qse/." "$retained_runtime" 2>/dev/null || true
+      chmod -R go-rwx "$retained_runtime"
     fi
     inspected_label=$(docker inspect --format "{{ index .Config.Labels \"$container_label\" }}" "$container_id" 2>/dev/null) || cleanup_safe=false
     inspected_name=$(docker inspect --format '{{.Name}}' "$container_id" 2>/dev/null) || cleanup_safe=false

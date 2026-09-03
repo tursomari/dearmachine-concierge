@@ -1,0 +1,28 @@
+{
+  "name": "@dearmachine/machtiani-installer",
+  "version": "0.0.1",
+  "private": true,
+  "description": "The guided Dear Machine installer, built on DeepSeek Harness",
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "pnpm --recursive run build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.2-rc.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.0",
+    "@xterm/headless": "5.5.0",
+    "node-pty": "1.2.0-beta.15",
+    "tsdown": "0.22.2",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
+  }
+}

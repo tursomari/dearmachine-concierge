@@ -1,0 +1,45 @@
+{
+  "nodes": {
+    "dsh-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788415378,
+        "narHash": "sha256-YWZzUWiwVt4jUk7FYMtzt7c+Cj+lUX5++OVaVb6MO0c=",
+        "owner": "deepseek-ai",
+        "repo": "deepseek-harness",
+        "rev": "76fda729799fe9b3848dbe2c211d4b231032b81e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "deepseek-ai",
+        "repo": "deepseek-harness",
+        "rev": "76fda729799fe9b3848dbe2c211d4b231032b81e",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1788316716,
+        "narHash": "sha256-bc7rSpXIdn9QWGNqfWcPZWOhEVF8NoeAZkWq0XWnf/k=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "3ed67ec0a4d3c7ab4ae1f04f8ee8df07bfa506a2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "dsh-src": "dsh-src",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

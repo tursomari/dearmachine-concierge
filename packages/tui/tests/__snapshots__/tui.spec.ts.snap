@@ -1,0 +1,44 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Machtiani Installer TUI > renders branded welcome and a question at 48x12 1`] = `
+"terminal 48x12 buffer=normal length=12 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "Machtiani Installer"
+cursor hidden column=3 viewportRow=10 bufferRow=10
+viewport
+0| " MACHTIANI INSTALLER                            "
+1| " A guided setup for Dear Machine                "
+2| <blank>
+3| "Machtiani                                       "
+4| "Welcome to Dear Machine. Would you like to      "
+5| "continue with the installation now?             "
+6| "                                                "
+7| "1. Yes                                          "
+8| "2. Not now                                      "
+9| <blank>
+10| " ›                                              "
+  style 3-3 inverse
+11| <blank>
+"
+`;
+
+exports[`Machtiani Installer TUI > renders branded welcome and a question at 80x24 1`] = `
+"terminal 80x24 buffer=normal length=24 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "Machtiani Installer"
+cursor hidden column=3 viewportRow=9 bufferRow=9
+viewport
+0| " MACHTIANI INSTALLER                                                            "
+1| " A guided setup for Dear Machine                                                "
+2| <blank>
+3| "Machtiani                                                                       "
+4| "Welcome to Dear Machine. Would you like to continue with the installation now?  "
+5| "                                                                                "
+6| "1. Yes                                                                          "
+7| "2. Not now                                                                      "
+8| <blank>
+9| " ›                                                                              "
+  style 3-3 inverse
+10-23| <blank>
+"
+`;

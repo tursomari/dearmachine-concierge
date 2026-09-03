@@ -1,0 +1,81 @@
+import { describe, expect, it } from 'vitest'
+import { messages, runFirstThreeStages, type WorkflowCheckpoint, type WorkflowPorts } from '../src/index.ts'
+
+function fixture(answers: string[], initial?: WorkflowCheckpoint) {
+  const asked: string[] = []
+  const events: string[] = []
+  let saved = initial
+  let inspections = 0
+  const ports: WorkflowPorts = {
+    conversation: {
+      ask: async message => {
+        asked.push(message)
+        const answer = answers.shift()
+        if (answer === undefined) throw new Error(`no answer for: ${message}`)
+        return answer
+      },
+      progress: message => events.push(`progress:${message ?? 'idle'}`),
+      tool: name => ({
+        succeed: summary => events.push(`tool:${name}:success:${summary ?? ''}`),
+        fail: summary => events.push(`tool:${name}:failure:${summary}`),
+      }),
+    },
+    environment: {
+      inspect: async () => {
+        inspections += 1
+        events.push('inspect')
+        return { missingFoundations: [], detectedBackends: ['Codex'] }
+      },
+      installFoundations: async names => { events.push(`install:${names.join(',')}`) },
+    },
+    credentials: {
+      prepare: async kind => { events.push(`prepare:${kind}`) },
+      status: async kind => { events.push(`status:${kind}`); return 'ready' },
+    },
+    checkpoint: {
+      load: async () => saved,
+      save: async checkpoint => { saved = checkpoint; events.push(`save:${checkpoint.stage}`) },
+    },
+  }
+  return { ports, asked, events, inspections, get saved() { return saved } }
+}
+
+describe('canonical installation workflow', () => {
+  it('does nothing before explicit consent', async () => {
+    const test = fixture(['not now'])
+    await expect(runFirstThreeStages(test.ports)).resolves.toBeUndefined()
+    expect(test.asked).toEqual([messages.welcome])
+    expect(test.events).toEqual([])
+  })
+
+  it('keeps the first three stages ordered and credentials out of the conversation', async () => {
+    const test = fixture(['yes', 'OpenRouter', 'z-ai/glm-5.3-flash', 'done', 'AgentMail', 'no', 'done', 'sender@example.test'])
+    await expect(runFirstThreeStages(test.ports)).resolves.toEqual({
+      provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', transport: 'AgentMail',
+      authorizedSender: 'sender@example.test', detectedBackends: ['Codex'],
+    })
+    expect(test.asked).toEqual([
+      messages.welcome,
+      messages.provider,
+      messages.model('OpenRouter'),
+      messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'),
+      messages.emailTransport,
+      messages.agentMailHelp,
+      messages.emailCredential('AgentMail'),
+      messages.authorizedSender,
+    ])
+    expect(test.events).toContain('prepare:llm')
+    expect(test.events).toContain('prepare:email')
+    expect(test.asked.join('\n')).not.toMatch(/sk-[A-Za-z0-9]/u)
+  })
+
+  it('resumes from a non-secret checkpoint without repeating earlier questions', async () => {
+    const test = fixture(['done', 'Sendmux', 'done', 'sender@example.test'], {
+      stage: 'llm-credential', provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', detectedBackends: [],
+    })
+    await runFirstThreeStages(test.ports)
+    expect(test.asked[0]).toBe(messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'))
+    expect(test.asked).not.toContain(messages.welcome)
+    expect(test.saved?.stage).toBe('complete')
+  })
+})

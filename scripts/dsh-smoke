@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+  echo "OPENROUTER_API_KEY is required for the live DSH smoke test." >&2
+  exit 2
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+smoke_root="$(mktemp -d)"
+trap 'rm -rf -- "$smoke_root"' EXIT
+
+export MACHTIANI_DSH_SMOKE_ROOT="$smoke_root"
+node --input-type=module -e "
+  import { mkdir, writeFile } from 'node:fs/promises'
+  import { runDshTask } from '${repo_root}/packages/dsh-adapter/dist/index.mjs'
+  const root = process.env.MACHTIANI_DSH_SMOKE_ROOT
+  const workspace = root + '/workspace'
+  await mkdir(workspace, { recursive: true })
+  const result = await runDshTask({
+    dshHome: root + '/dsh-home',
+    workspace,
+    task: \"Use the bash tool exactly once to run: printf 'DSH_DIAGNOSTIC_OK\\\\n'. After the tool succeeds, reply with exactly DSH_AGENT_OK and nothing else.\",
+  })
+  await writeFile(root + '/stdout.txt', result.stdout)
+  await writeFile(root + '/stderr.txt', result.stderr)
+"
+
+[[ "$(tr -d '\r\n' < "$smoke_root/stdout.txt")" == "DSH_AGENT_OK" ]]
+session_file="$(find "$smoke_root/dsh-home/sessions" -type f -name '*.jsonl.zstd' -print -quit)"
+[[ -n "$session_file" ]]
+zstdcat "$session_file" > "$smoke_root/session.jsonl"
+rg -q '"type":"tool/call"' "$smoke_root/session.jsonl"
+rg -q '"type":"tool/result"' "$smoke_root/session.jsonl"
+rg -q 'DSH_DIAGNOSTIC_OK' "$smoke_root/session.jsonl"
+rg -q 'DSH_AGENT_OK' "$smoke_root/session.jsonl"
+
+if rg -Fq -- "$OPENROUTER_API_KEY" "$smoke_root"; then
+  echo "Credential material reached the isolated runtime tree." >&2
+  exit 1
+fi
+
+echo "DSH smoke passed: z-ai/glm-5.3-flash/high, tool round trip, clean exit, no credential leak"

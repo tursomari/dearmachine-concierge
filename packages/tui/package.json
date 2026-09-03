@@ -1,0 +1,23 @@
+{
+  "name": "@dearmachine/machtiani-installer-tui",
+  "description": "Machtiani's focused terminal installer frontend, built on DeepSeek Harness",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    }
+  },
+  "files": ["dist", "src"],
+  "license": "BSD-3-Clause",
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "0.80.7"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "paths": {
+      "@dearmachine/machtiani-installer-tui": ["./packages/tui/src/index.ts"],
+      "@dearmachine/machtiani-installer-workflow": ["./packages/workflow/src/index.ts"],
+      "@dearmachine/machtiani-installer-dsh-adapter": ["./packages/dsh-adapter/src/index.ts"]
+    },
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["packages/*/src/**/*.ts", "packages/*/tests/**/*.ts", "*.ts"],
+  "exclude": ["packages/tui/upstream"]
+}

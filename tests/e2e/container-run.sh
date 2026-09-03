@@ -136,7 +136,8 @@ if result != {"inboxAddress": sys.argv[2]}:
 PY
 
 dearmachine status > "$runtime/dearmachine.status"
-(cd "$HOME/.dearmachine/entrypoint/main" && agent-manager backend health forge) > "$runtime/backend.status"
+(cd "$HOME/.dearmachine/entrypoint/main" && \
+  DEARMACHINE_BACKENDS='["forge"]' agent-manager backend health forge) > "$runtime/backend.status"
 grep -Fq 'DearMachine is running' "$runtime/dearmachine.status" || fail 'Dear Machine is not running'
 grep -Eq '(^|[[:space:]])result=ok([[:space:]]|$)' "$runtime/backend.status" || fail 'Forge backend health failed'
 git -C "$umbrella" status --porcelain=v2 --untracked-files=all --ignore-submodules=none > "$runtime/source.status"

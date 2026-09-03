@@ -407,20 +407,40 @@ reply_deadline=$(( $(date +%s) + 1200 ))
 while test "$(date +%s)" -lt "$reply_deadline"; do
   sender_messages=$run_root/sender-messages.json
   run_agentmail_helper list-messages --inbox-id "$sender_id" > "$sender_messages"
-  if python3 - "$sender_messages" "$thread_id" "$receiver_address" "$marker" <<'PY'
+  reply_message_id=$(python3 - "$sender_messages" "$thread_id" "$receiver_address" <<'PY'
+from email.utils import parseaddr
 import json
 import sys
 
 messages = json.load(open(sys.argv[1], encoding="utf-8"))["messages"]
-thread_id, receiver, marker = sys.argv[2:]
+thread_id, receiver = sys.argv[2:]
 matches = [row for row in messages if row.get("thread_id") == thread_id
-           and receiver.casefold() in row.get("from", "").casefold()
-           and marker in (row.get("text") or "")]
-raise SystemExit(0 if len(matches) == 1 else 1)
+           and parseaddr(row.get("from", ""))[1].casefold() == receiver.casefold()]
+if len(matches) > 1:
+    raise SystemExit("live exchange created duplicate replies")
+print(matches[0]["message_id"] if matches else "")
 PY
-  then
-    reply_found=true
-    break
+  ) || fail 'AgentMail reply observation became ambiguous'
+  if test -n "$reply_message_id"; then
+    reply=$run_root/reply.json
+    run_agentmail_helper get-message --inbox-id "$sender_id" --id "$reply_message_id" > "$reply"
+    chmod 0600 "$reply"
+    if python3 - "$reply" "$thread_id" "$receiver_address" "$marker" <<'PY'
+from email.utils import parseaddr
+import json
+import sys
+
+row = json.load(open(sys.argv[1], encoding="utf-8"))
+thread_id, receiver, marker = sys.argv[2:]
+valid = (row.get("thread_id") == thread_id
+         and parseaddr(row.get("from", ""))[1].casefold() == receiver.casefold()
+         and marker in (row.get("text") or ""))
+raise SystemExit(0 if valid else 1)
+PY
+    then
+      reply_found=true
+      break
+    fi
   fi
   sleep 5
 done

@@ -18,6 +18,7 @@ import {
 } from '@earendil-works/pi-tui'
 import { displayText } from './text.ts'
 import { createInstallerTheme, editorTheme, markdownTheme, type InstallerTheme } from './theme.ts'
+import { MaskedInput } from './masked-input.ts'
 
 export interface InstallerQuestion {
   message: string
@@ -44,12 +45,15 @@ export class InstallerTui {
   private readonly transcript = new Container()
   private readonly status = new Text('', 0, 0)
   private readonly editor: Editor
+  private readonly maskedInput = new MaskedInput()
+  private readonly inputSlot = new Container()
   private readonly theme: InstallerTheme
   private readonly markdown
   private readonly removeInputListener: () => void
   private pendingQuestion: {
     resolve(value: string): void
     reject(error: Error): void
+    secret: boolean
   } | undefined
   private started = false
   private stopped = false
@@ -64,17 +68,20 @@ export class InstallerTui {
       paddingX: 1,
       prompt: { first: '› ', continuation: '  ' },
     })
-    this.editor.onSubmit = value => { void this.submit(value) }
+    this.editor.onSubmit = value => { void this.submit(value, false) }
+    this.maskedInput.onSubmit = value => { void this.submit(value, true) }
     this.ui.addChild(this.transcript)
     this.ui.addChild(new Spacer(1))
     this.ui.addChild(this.status)
-    this.ui.addChild(this.editor)
+    this.inputSlot.addChild(this.editor)
+    this.ui.addChild(this.inputSlot)
     this.ui.setFocus(this.editor)
     this.removeInputListener = this.ui.addInputListener(data => {
       if (matchesKey(data, Key.ctrl('c'))) {
         if (this.pendingQuestion !== undefined) {
           const pending = this.pendingQuestion
           this.pendingQuestion = undefined
+          if (pending.secret) this.deactivateSecretInput()
           pending.reject(new Error('the installer question was cancelled'))
           this.options.onCancel?.()
         } else if (this.editor.getText() !== '') {
@@ -151,7 +158,21 @@ export class InstallerTui {
       : `\n\n${question.options.map((option, index) => `${index + 1}. ${option}`).join('\n')}`
     this.addAssistant(question.message + suffix)
     return new Promise<string>((resolve, reject) => {
-      this.pendingQuestion = { resolve, reject }
+      this.pendingQuestion = { resolve, reject, secret: false }
+    })
+  }
+
+  askSecret(message: string): Promise<string> {
+    if (this.pendingQuestion !== undefined) {
+      return Promise.reject(new Error('the installer supports exactly one active question'))
+    }
+    this.addAssistant(message)
+    this.inputSlot.removeChild(this.editor)
+    this.inputSlot.addChild(this.maskedInput)
+    this.ui.setFocus(this.maskedInput)
+    this.requestRender()
+    return new Promise<string>((resolve, reject) => {
+      this.pendingQuestion = { resolve, reject, secret: true }
     })
   }
 
@@ -164,6 +185,7 @@ export class InstallerTui {
     this.stopped = true
     const pending = this.pendingQuestion
     this.pendingQuestion = undefined
+    this.maskedInput.clear()
     pending?.reject(new Error('the installer closed before the question was answered'))
     this.removeInputListener()
     this.terminal.setProgress(false)
@@ -188,19 +210,35 @@ export class InstallerTui {
     this.requestRender()
   }
 
-  private async submit(value: string): Promise<void> {
-    const text = value.trim()
+  private async submit(value: string, secret: boolean): Promise<void> {
+    const text = secret ? value : value.trim()
     if (text === '') return
+    const pending = this.pendingQuestion
+    if (pending !== undefined && pending.secret !== secret) return
+    if (secret) {
+      if (pending === undefined) return
+      this.pendingQuestion = undefined
+      this.deactivateSecretInput()
+      pending.resolve(text)
+      return
+    }
     this.editor.addToHistory(text)
     this.editor.setText('')
     this.addUser(text)
-    const pending = this.pendingQuestion
     if (pending !== undefined) {
       this.pendingQuestion = undefined
       pending.resolve(text)
       return
     }
     await this.options.onSubmit?.(text)
+  }
+
+  private deactivateSecretInput(): void {
+    this.maskedInput.clear()
+    this.inputSlot.removeChild(this.maskedInput)
+    this.inputSlot.addChild(this.editor)
+    this.ui.setFocus(this.editor)
+    this.requestRender()
   }
 
   private requestRender(): void {

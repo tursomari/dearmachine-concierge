@@ -1,14 +1,12 @@
-import { spawn } from 'node:child_process'
-import { access, lstat, readFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { access, chmod, lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { dirname, join, relative, sep } from 'node:path'
 
 export type CredentialKind = 'llm' | 'email'
 
 export interface CredentialReference {
   kind: CredentialKind
-  helperName: 'enter-llm-key' | 'enter-email-key'
   destination: string
   format: 'environment' | 'raw'
   variable?: string
@@ -36,7 +34,6 @@ export function resolveCredentialReference(kind: CredentialKind, selection: stri
     if (variable === undefined) throw new Error(`Machtiani Installer does not yet know the credential variable for ${selection}.`)
     return {
       kind,
-      helperName: 'enter-llm-key',
       destination: join(home, '.config', 'dearmachine', 'backends.env'),
       format: 'environment',
       variable,
@@ -46,46 +43,31 @@ export function resolveCredentialReference(kind: CredentialKind, selection: stri
   if (transport === undefined) throw new Error(`Machtiani Installer does not yet know the credential path for ${selection}.`)
   return {
     kind,
-    helperName: 'enter-email-key',
     destination: join(home, '.config', 'dearmachine', `${transport}-api-key`),
     format: 'raw',
   }
 }
 
-export interface CredentialAdapterOptions {
-  home: string
-  environment?: NodeJS.ProcessEnv
-  helperPath?: string
-}
+export interface CredentialAdapterOptions { home: string }
 
-export class CredentialHelperAdapter {
-  private readonly helperPath: string
-  private readonly environment: NodeJS.ProcessEnv
+/** Stores transcript-free TUI input in the private files consumed by Dear Machine. */
+export class CredentialFileAdapter {
   private readonly references = new Map<CredentialKind, CredentialReference>()
 
-  constructor(private readonly options: CredentialAdapterOptions) {
-    this.helperPath = options.helperPath ?? fileURLToPath(new URL('../../../assets/credential-entry.sh', import.meta.url))
-    this.environment = { ...process.env, ...options.environment, HOME: options.home }
-  }
+  constructor(private readonly options: CredentialAdapterOptions) {}
 
   async prepare(kind: CredentialKind, selection: string): Promise<'ready' | 'pending'> {
     const reference = resolveCredentialReference(kind, selection, this.options.home)
     this.references.set(kind, reference)
-    if (await this.referenceExists(reference)) return 'ready'
-    if (await this.preparedSpecMatches(reference)) return 'pending'
-    const args = ['prepare', '--name', reference.helperName, '--destination', reference.destination, '--format', reference.format]
-    if (reference.variable !== undefined) args.push('--variable', reference.variable)
-    await this.run(args)
-    return 'pending'
+    return await this.referenceExists(reference) ? 'ready' : 'pending'
   }
 
-  async status(kind: CredentialKind): Promise<'ready' | 'pending'> {
+  async save(kind: CredentialKind, value: string): Promise<void> {
     const reference = this.references.get(kind)
-    if (reference === undefined) throw new Error(`the ${kind} credential helper has not been prepared`)
-    const output = (await this.run(['status', '--name', reference.helperName])).trim()
-    if (output !== 'ready' && output !== 'pending') throw new Error(`unexpected ${reference.helperName} status`)
-    if (output === 'ready') await this.verifyReference(reference)
-    return output
+    if (reference === undefined) throw new Error(`the ${kind} credential destination has not been prepared`)
+    validateCredential(value)
+    await this.writeReference(reference, value)
+    await this.verifyReference(reference)
   }
 
   reference(kind: CredentialKind): CredentialReference | undefined {
@@ -93,23 +75,53 @@ export class CredentialHelperAdapter {
     return reference === undefined ? undefined : { ...reference }
   }
 
+  private async writeReference(reference: CredentialReference, value: string): Promise<void> {
+    const destinationDirectory = dirname(reference.destination)
+    await mkdir(destinationDirectory, { recursive: true, mode: 0o700 })
+    await assertPrivateDestinationDirectory(this.options.home, destinationDirectory)
+    try {
+      const current = await lstat(reference.destination)
+      if (!current.isFile() || current.isSymbolicLink() || !ownedByCurrentUser(current.uid)) {
+        throw new Error('credential destination must be a regular file owned by the current user')
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+
+    const temporary = join(destinationDirectory, `.machtiani-credential-${process.pid}-${randomUUID()}`)
+    let handle
+    try {
+      handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
+      const content = reference.format === 'environment'
+        ? `${reference.variable}=${value}\n`
+        : `${value}\n`
+      await handle.writeFile(content, 'utf8')
+      await handle.sync()
+      await handle.close()
+      handle = undefined
+      await chmod(temporary, 0o600)
+      await rename(temporary, reference.destination)
+    } catch (error) {
+      await handle?.close().catch(() => {})
+      await unlink(temporary).catch(() => {})
+      throw error
+    }
+  }
+
   private async verifyReference(reference: CredentialReference): Promise<void> {
     await access(reference.destination, constants.R_OK)
     const metadata = await lstat(reference.destination)
     if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || (metadata.mode & 0o077) !== 0 || !ownedByCurrentUser(metadata.uid)) {
-      throw new Error(`${reference.helperName} did not create a nonempty private credential file`)
+      throw new Error('credential input did not create a nonempty private credential file')
     }
+    const content = await readFile(reference.destination, 'utf8')
     if (reference.format === 'environment') {
-      const content = await readFile(reference.destination, 'utf8')
       const prefix = `${reference.variable}=`
       if (!content.startsWith(prefix) || content.slice(prefix.length).trim() === '') {
-        throw new Error(`${reference.helperName} did not create the expected credential reference`)
+        throw new Error('credential input did not create the expected credential reference')
       }
-    } else {
-      const content = await readFile(reference.destination, 'utf8')
-      if (content.trim() === '' || /\s/u.test(content.trim())) {
-        throw new Error(`${reference.helperName} did not create a valid one-line credential`)
-      }
+    } else if (content.trim() === '' || /\s/u.test(content.trim())) {
+      throw new Error('credential input did not create a valid one-line credential')
     }
   }
 
@@ -117,7 +129,7 @@ export class CredentialHelperAdapter {
     try {
       const metadata = await lstat(reference.destination)
       if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0 || !ownedByCurrentUser(metadata.uid)) {
-        throw new Error(`${reference.helperName} credential destination is not a private regular file`)
+        throw new Error('credential destination is not a private regular file')
       }
       const content = await readFile(reference.destination, 'utf8')
       if (reference.format === 'environment') {
@@ -130,42 +142,25 @@ export class CredentialHelperAdapter {
       throw error
     }
   }
+}
 
-  private async preparedSpecMatches(reference: CredentialReference): Promise<boolean> {
-    const stateRoot = this.environment.XDG_STATE_HOME || join(this.options.home, '.local', 'state')
-    const specPath = join(stateRoot, 'dearmachine', 'installation', `${reference.helperName}.spec`)
-    const executable = join(this.options.home, '.local', 'bin', reference.helperName)
-    try {
-      await access(executable, constants.X_OK)
-      const metadata = await lstat(specPath)
-      if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0 || !ownedByCurrentUser(metadata.uid)) {
-        throw new Error(`${reference.helperName} specification is not private`)
-      }
-      const expected = `destination=${reference.destination}\nformat=${reference.format}\nvariable=${reference.variable ?? ''}\n`
-      return await readFile(specPath, 'utf8') === expected
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-      throw error
-    }
+function validateCredential(value: string): void {
+  if (value === '' || value.length > 16_384 || /\s/u.test(value) || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) {
+    throw new Error('API key must be one nonempty line without whitespace')
   }
+}
 
-  private async run(args: readonly string[]): Promise<string> {
-    return await new Promise((resolve, reject) => {
-      const child = spawn(this.helperPath, [...args], {
-        env: this.environment,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      let stdout = ''
-      let stderr = ''
-      child.stdout.setEncoding('utf8').on('data', chunk => { stdout += chunk })
-      child.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk })
-      child.once('error', reject)
-      child.once('close', code => {
-        if (code === 0) resolve(stdout)
-        else reject(new Error(stderr.trim() || `${this.helperPath} exited with status ${code ?? 'unknown'}`))
-      })
-    })
+async function assertPrivateDestinationDirectory(home: string, destinationDirectory: string): Promise<void> {
+  const [resolvedHome, resolvedDirectory] = await Promise.all([realpath(home), realpath(destinationDirectory)])
+  const fromHome = relative(resolvedHome, resolvedDirectory)
+  if (fromHome === '..' || fromHome.startsWith(`..${sep}`) || fromHome === '') {
+    throw new Error('credential destination must remain beneath HOME')
   }
+  const metadata = await lstat(destinationDirectory)
+  if (!metadata.isDirectory() || metadata.isSymbolicLink() || !ownedByCurrentUser(metadata.uid)) {
+    throw new Error('credential destination directory must be owned by the current user and must not be a symbolic link')
+  }
+  if ((metadata.mode & 0o077) !== 0) await chmod(destinationDirectory, 0o700)
 }
 
 function ownedByCurrentUser(uid: number): boolean {

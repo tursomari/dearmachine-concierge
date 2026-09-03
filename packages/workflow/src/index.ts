@@ -2,6 +2,7 @@ import { messages } from './messages.ts'
 
 export interface ConversationPort {
   ask(message: string): Promise<string>
+  askSecret(message: string): Promise<string>
   say(message: string): void
   progress(message: string | undefined): void
   tool(name: string, detail: string): {
@@ -23,8 +24,8 @@ export interface EnvironmentPort {
 export type CredentialKind = 'llm' | 'email'
 
 export interface CredentialPort {
-  prepare(kind: CredentialKind, selection: string): Promise<'ready' | 'pending' | void>
-  status(kind: CredentialKind): Promise<'ready' | 'pending'>
+  prepare(kind: CredentialKind, selection: string): Promise<'ready' | 'pending'>
+  save(kind: CredentialKind, value: string): Promise<void>
 }
 
 export interface BackendCandidate {
@@ -104,17 +105,20 @@ async function awaitCredential(
   prompt: string,
 ): Promise<void> {
   if (await ports.credentials.prepare(kind, selection) === 'ready') return
-  while (true) {
-    await ports.conversation.ask(prompt)
-    if (await ports.credentials.status(kind) === 'ready') return
-    await ports.conversation.ask('Credential entry has not finished. Please finish it, then tell me when you’re done.')
+  let value = await ports.conversation.askSecret(prompt)
+  try {
+    await ports.credentials.save(kind, value)
+    ports.conversation.say('Credential saved securely.')
+  } finally {
+    value = ''
   }
 }
 
 /**
  * Runs the no-product-mutation slice of the canonical procedure: consent and
  * environment preparation, provider/model selection, and email setup. Secret
- * values never cross this API; only helper readiness does.
+ * values cross only the dedicated secret-input and credential ports. They are
+ * never sent through ordinary conversation, checkpoints, or transcripts.
  */
 export async function runFirstThreeStages(ports: WorkflowPorts): Promise<InstallationSelection | undefined> {
   let state = await ports.checkpoint.load() ?? { stage: 'welcome' as const }

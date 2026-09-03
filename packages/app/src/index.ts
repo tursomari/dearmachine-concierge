@@ -2,7 +2,7 @@ import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/prom
 import { dirname, isAbsolute, join } from 'node:path'
 import { InstallerTui, assertInteractiveTerminal } from '@dearmachine/machtiani-installer-tui'
 import { runCompleteInstallation, runFirstThreeStages, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
-import { CredentialHelperAdapter } from '@dearmachine/machtiani-installer-credentials'
+import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credentials'
 import { AgentManagerBackendAdapter } from '@dearmachine/machtiani-installer-backends'
 import { LocalEnvironmentAdapter } from '@dearmachine/machtiani-installer-environment'
 import { NativeProductInstaller } from '@dearmachine/machtiani-installer-products'
@@ -48,9 +48,12 @@ async function validatedSourceRoot(sourceRoot: string): Promise<string> {
   return resolved
 }
 
-function conversation(tui: InstallerTui) {
+function conversation(tui: InstallerTui, preview = false) {
   return {
     ask: (message: string) => tui.ask({ message }),
+    askSecret: (message: string) => tui.askSecret(preview
+      ? `Preview only: this demonstrates the masked credential field. Type any placeholder and press Enter; it will not be saved.\n\n${message}`
+      : message),
     say: (message: string) => tui.addAssistant(message),
     progress: (message: string | undefined) => tui.setProgress(message),
     tool: (name: string, detail: string) => tui.beginTool(name, detail),
@@ -66,14 +69,14 @@ export async function runMockInstaller(paths = defaultInstallerPaths()): Promise
   try {
     tui.start()
     const result = await runFirstThreeStages({
-      conversation: conversation(tui),
+      conversation: conversation(tui, true),
       environment: {
         inspect: async () => ({ missingFoundations: [], detectedBackends: [] }),
         installFoundations: async () => { throw new Error('the no-mutation preview cannot install dependencies') },
       },
       credentials: {
-        prepare: async () => {},
-        status: async () => 'ready',
+        prepare: async () => 'pending',
+        save: async () => {},
       },
       checkpoint: checkpointStore(checkpointPath),
     })
@@ -110,7 +113,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     await runCompleteInstallation({
       conversation: conversation(tui),
       environment: new LocalEnvironmentAdapter({ backends }),
-      credentials: new CredentialHelperAdapter({ home }),
+      credentials: new CredentialFileAdapter({ home }),
       backends,
       products,
       checkpoint: checkpointStore(join(paths.stateDirectory, 'installation-checkpoint.json')),

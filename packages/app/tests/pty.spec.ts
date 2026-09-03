@@ -55,14 +55,15 @@ describe('real PTY lifecycle', () => {
       { prompt: 'Would you like to continue', input: 'yes\r' },
       { prompt: 'Which LLM provider', input: 'OpenRouter\r' },
       { prompt: 'Which OpenRouter model', input: 'z-ai/glm-5.3-flash\r' },
-      { prompt: 'Tell me when you', input: 'done\r' },
+      { prompt: 'Preview only:', input: 'preview-llm-credential\r' },
       { prompt: 'Which would you like to use?', input: 'AgentMail\r' },
       { prompt: 'free tier is available.', input: 'no\r' },
-      { prompt: 'Tell me when you', input: 'done\r' },
+      { prompt: 'Preview only:', input: 'preview-email-credential\r' },
       { prompt: 'What email address', input: 'sender@example.test\r' },
     ])
     expect(result.code).toBe(0)
     expect(result.output).toContain('no-change installation preview is complete')
-    expect(result.output).not.toContain('sk-')
+    expect(result.output).not.toContain('preview-llm-credential')
+    expect(result.output).not.toContain('preview-email-credential')
   })
 })

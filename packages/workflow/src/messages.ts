@@ -9,20 +9,12 @@ Would you like to continue with the installation now?`,
   model: (provider: string) => `Which ${provider} model would you like Machtiani to use? If you’re unsure, I can recommend one.`,
   llmCredential: (provider: string, model: string) => `Machtiani needs your ${provider} API key to use ${model} for Dear Machine.
 
-In another shell, run:
-
-\`enter-llm-key\`
-
-Tell me when you're done.`,
+Paste it into the secure field below and press Enter. Your input is masked, saved directly to a private file, and never added to the conversation or sent to the installer model.`,
   emailTransport: "Dear Machine needs an email service to receive messages and send replies. AgentMail provides that inbox and is recommended; OpenMail and Sendmux are also supported. Which would you like to use?",
   agentMailHelp: "If you don’t already have an AgentMail API key, a free tier is available. Do you need help getting one?",
   emailCredential: (transport: string) => `Dear Machine needs your ${transport} API key to connect to the email service you chose.
 
-In another shell, run:
-
-\`enter-email-key\`
-
-Tell me when you're done.`,
+Paste it into the secure field below and press Enter. Your input is masked, saved directly to a private file, and never added to the conversation or sent to the installer model.`,
   authorizedSender: 'What email address should be allowed to send work to Dear Machine?',
   backendReadiness: (detectedAgents: string) => `Dear Machine works through a backend agent. I found these supported agents already installed: ${detectedAgents}.
 
@@ -48,7 +40,7 @@ SUCCESS
 
 Machtiani and Dear Machine are installed, ${backend} passed its health check, and a live email to ${inboxAddress} received a reply.
 
-Human actions: chose the provider, model, email transport, authorized sender, and backend; made any needed credentials available through the private helpers; and sent the test email.
+Human actions: chose the provider, model, email transport, authorized sender, and backend; entered any needed credentials through private masked fields; and sent the test email.
 
 Configuration: ~/.machtiani/config.toml and ~/.dearmachine/config/dearmachine.toml
 Logs: ~/.dearmachine/log/dearmachine.log

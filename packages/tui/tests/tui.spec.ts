@@ -49,6 +49,38 @@ describe('Machtiani Installer TUI', () => {
     expect(await harness.terminal.snapshot()).toContain('OpenRouter')
   })
 
+  it('accepts bracketed-paste secret input without rendering or transcribing it', async () => {
+    const harness = await open()
+    opened.push(harness)
+    const secret = 'credential-value-that-must-stay-private'
+    const answer = harness.tui.askSecret('Paste the API key and press Enter.')
+    harness.terminal.send(`\x1b[200~${secret}\x1b[201~`)
+    await harness.terminal.waitForFrame()
+    const masked = await harness.terminal.snapshot()
+    expect(masked).toContain('••••')
+    expect(masked).not.toContain(secret)
+    harness.terminal.send('\r')
+    await expect(answer).resolves.toBe(secret)
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot({ includeScrollback: true })).not.toContain(secret)
+  })
+
+  it('clears a masked value when secret entry is cancelled', async () => {
+    const harness = await open()
+    opened.push(harness)
+    const secret = 'cancelled-private-value'
+    const answer = harness.tui.askSecret('Paste the API key and press Enter.')
+    harness.terminal.send(secret)
+    harness.terminal.send('\x03')
+    await expect(answer).rejects.toThrow('cancelled')
+    const ordinary = harness.tui.ask({ message: 'Continue?' })
+    harness.terminal.send('yes')
+    harness.terminal.send('\r')
+    await expect(ordinary).resolves.toBe('yes')
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot({ includeScrollback: true })).not.toContain(secret)
+  })
+
   it('renders tool progress and settles it without leaving terminal progress active', async () => {
     const harness = await open()
     opened.push(harness)

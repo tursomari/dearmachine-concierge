@@ -3,6 +3,7 @@ import { messages, runCompleteInstallation, runFirstThreeStages, runThroughBacke
 
 function fixture(answers: string[], initial?: WorkflowCheckpoint) {
   const asked: string[] = []
+  const secretAsked: string[] = []
   const events: string[] = []
   let saved = initial
   let inspections = 0
@@ -12,6 +13,12 @@ function fixture(answers: string[], initial?: WorkflowCheckpoint) {
         asked.push(message)
         const answer = answers.shift()
         if (answer === undefined) throw new Error(`no answer for: ${message}`)
+        return answer
+      },
+      askSecret: async message => {
+        secretAsked.push(message)
+        const answer = answers.shift()
+        if (answer === undefined) throw new Error(`no secret answer for: ${message}`)
         return answer
       },
       say: message => events.push(`say:${message}`),
@@ -30,15 +37,15 @@ function fixture(answers: string[], initial?: WorkflowCheckpoint) {
       installFoundations: async names => { events.push(`install:${names.join(',')}`) },
     },
     credentials: {
-      prepare: async kind => { events.push(`prepare:${kind}`) },
-      status: async kind => { events.push(`status:${kind}`); return 'ready' },
+      prepare: async kind => { events.push(`prepare:${kind}`); return 'pending' },
+      save: async kind => { events.push(`credential:${kind}:saved`) },
     },
     checkpoint: {
       load: async () => saved,
       save: async checkpoint => { saved = checkpoint; events.push(`save:${checkpoint.stage}`) },
     },
   }
-  return { ports, asked, events, inspections, get saved() { return saved } }
+  return { ports, asked, secretAsked, events, inspections, get saved() { return saved } }
 }
 
 describe('canonical installation workflow', () => {
@@ -50,7 +57,7 @@ describe('canonical installation workflow', () => {
   })
 
   it('keeps the first three stages ordered and credentials out of the conversation', async () => {
-    const test = fixture(['yes', 'OpenRouter', 'z-ai/glm-5.3-flash', 'done', 'AgentMail', 'no', 'done', 'sender@example.test'])
+    const test = fixture(['yes', 'OpenRouter', 'z-ai/glm-5.3-flash', 'provider-test-secret', 'AgentMail', 'no', 'email-test-secret', 'sender@example.test'])
     await expect(runFirstThreeStages(test.ports)).resolves.toEqual({
       provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', transport: 'AgentMail',
       authorizedSender: 'sender@example.test', detectedBackends: ['Codex'],
@@ -59,23 +66,27 @@ describe('canonical installation workflow', () => {
       messages.welcome,
       messages.provider,
       messages.model('OpenRouter'),
-      messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'),
       messages.emailTransport,
       messages.agentMailHelp,
-      messages.emailCredential('AgentMail'),
       messages.authorizedSender,
+    ])
+    expect(test.secretAsked).toEqual([
+      messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'),
+      messages.emailCredential('AgentMail'),
     ])
     expect(test.events).toContain('prepare:llm')
     expect(test.events).toContain('prepare:email')
-    expect(test.asked.join('\n')).not.toMatch(/sk-[A-Za-z0-9]/u)
+    const persistedAndConversational = JSON.stringify({ asked: test.asked, secretAsked: test.secretAsked, events: test.events, checkpoint: test.saved })
+    expect(persistedAndConversational).not.toContain('provider-test-secret')
+    expect(persistedAndConversational).not.toContain('email-test-secret')
   })
 
   it('resumes from a non-secret checkpoint without repeating earlier questions', async () => {
-    const test = fixture(['done', 'Sendmux', 'done', 'sender@example.test'], {
+    const test = fixture(['resume-provider-secret', 'Sendmux', 'resume-email-secret', 'sender@example.test'], {
       stage: 'llm-credential', provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', detectedBackends: [],
     })
     await runFirstThreeStages(test.ports)
-    expect(test.asked[0]).toBe(messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'))
+    expect(test.secretAsked[0]).toBe(messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'))
     expect(test.asked).not.toContain(messages.welcome)
     expect(test.saved?.stage).toBe('complete')
   })

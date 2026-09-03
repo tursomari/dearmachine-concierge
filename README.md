@@ -17,14 +17,14 @@ This repository currently implements the first risk-reduction slices:
 - permission-gated discovery and functional health checks for Codex, Forge,
   and OMP, followed by an explicit human choice;
 - a guarded, testable native product-install adapter whose command plan keeps
-  credentials out of arguments and refuses pre-existing Dear Machine state;
-  and
+  credentials out of arguments, refuses pre-existing Dear Machine state, and
+  journals safe restart behavior without risking a duplicate remote inbox; and
 - a live DSH smoke test that requires one harmless shell-tool round trip.
 
 The public bootstrap and product-changing installation tools are deliberately
 not enabled yet. The real guided entry point stops after configuration and
-backend selection; the product adapter remains disconnected until restart and
-partial-failure behavior, full IXE, and live email QSE remain green.
+backend selection; the product adapter remains disconnected until the
+containerized IXE and live email QSE remain green.
 
 ## Development
 

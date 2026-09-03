@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -7,16 +7,20 @@ import { CommandExecutionError, NativeProductInstaller, SpawnCommandRunner, type
 class RecordingRunner implements CommandRunner {
   readonly requests: CommandRequest[] = []
 
-  constructor(private readonly home: string) {}
+  constructor(protected readonly home: string) {}
 
   async run(request: CommandRequest) {
     this.requests.push(request)
     if (request.label === 'Configure Machtiani') {
       await mkdir(join(this.home, '.machtiani'), { recursive: true })
-      await writeFile(join(this.home, '.machtiani', 'config.toml'), 'api_key = "${OPENROUTER_API_KEY}"\n', { mode: 0o600 })
+      await writeFile(join(this.home, '.machtiani', 'config.toml'), `default_model = "dearmachine"
+model = "z-ai/glm-5.3-flash"
+provider = "openrouter"
+api_key = "\${OPENROUTER_API_KEY}"
+`, { mode: 0o600 })
     }
     if (request.label === 'Check Machtiani provider') return { code: 0, stdout: 'MACHTIANI_PROVIDER_OK\n', stderr: '' }
-    if (request.label === 'Verify Dear Machine status') {
+    if (request.command[0] === 'dearmachine' && request.command[1] === 'status') {
       return { code: 0, stdout: 'DearMachine is running (PID 42).\npair-id\tsender@example.test\tinbox@example.test\tagentmail\n', stderr: '' }
     }
     if (request.label === 'Verify selected backend') return { code: 0, stdout: 'result=ok\n', stderr: '' }
@@ -29,14 +33,15 @@ async function fixture() {
   const home = join(root, 'home')
   const sourceRoot = join(root, 'source')
   const workspace = join(root, 'workspace')
+  const journalPath = join(root, 'state', 'product-installation.json')
   await mkdir(join(home, '.config', 'dearmachine'), { recursive: true })
   await mkdir(join(sourceRoot, 'machtiani-harness'), { recursive: true })
   await mkdir(join(sourceRoot, 'dearmachine'), { recursive: true })
   await writeFile(join(home, '.config', 'dearmachine', 'backends.env'), 'OPENROUTER_API_KEY=product-test-secret\n', { mode: 0o600 })
   await writeFile(join(home, '.config', 'dearmachine', 'agentmail-api-key'), 'email-test-secret\n', { mode: 0o600 })
   const runner = new RecordingRunner(home)
-  const installer = new NativeProductInstaller({ home, sourceRoot, workspace, runner, environment: { PATH: '/usr/bin:/bin' } })
-  return { home, runner, installer }
+  const installer = new NativeProductInstaller({ home, sourceRoot, workspace, journalPath, runner, environment: { PATH: '/usr/bin:/bin' } })
+  return { home, sourceRoot, workspace, journalPath, runner, installer }
 }
 
 const selection = {
@@ -51,9 +56,10 @@ describe('native product installer', () => {
     await expect(test.installer.install(selection)).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
     expect(test.runner.requests.map(request => request.label)).toEqual([
       'Source checkout preflight',
+      'Install Machtiani', 'Configure Machtiani',
       'Initialize provider-check workspace', 'Configure provider-check identity', 'Configure provider-check email',
       'Stage provider-check workspace', 'Commit provider-check workspace',
-      'Install Machtiani', 'Configure Machtiani', 'Synchronize Machtiani provider check', 'Check Machtiani provider',
+      'Synchronize Machtiani provider check', 'Check Machtiani provider',
       'Install Dear Machine', 'Verify installed commands', 'Configure selected backend', 'Create Dear Machine pair',
       'Verify Dear Machine status', 'Verify selected backend', 'Verify source checkout',
     ])
@@ -68,6 +74,11 @@ describe('native product installer', () => {
     expect(await readFile(join(test.home, '.dearmachine', 'config', 'dearmachine.toml'), 'utf8')).toBe(
       'version = 1\nbackends = ["codex-yolo"]\nresponse_tier = "formatted"\n',
     )
+    const journal = await readFile(test.journalPath, 'utf8')
+    expect(journal).toContain('"stage": "verified"')
+    expect(journal).not.toContain('product-test-secret')
+    expect(journal).not.toContain('email-test-secret')
+    expect((await stat(test.journalPath)).mode & 0o077).toBe(0)
   })
 
   it('refuses an existing Dear Machine state tree before running any command', async () => {
@@ -95,5 +106,69 @@ describe('native product installer', () => {
       expect(error).toBeInstanceOf(CommandExecutionError)
       expect((error as CommandExecutionError).privateDiagnostic().stderr).toBe('command-test-secret')
     }
+  })
+
+  it('recovers a proven matching pair after interruption without creating another inbox', async () => {
+    const test = await fixture()
+    class InterruptedPairRunner extends RecordingRunner {
+      override async run(request: CommandRequest) {
+        if (request.label === 'Create Dear Machine pair') {
+          this.requests.push(request)
+          throw new CommandExecutionError(request.label, 1, { code: 1, stdout: '', stderr: 'private interrupted diagnostic' })
+        }
+        return await super.run(request)
+      }
+    }
+    const interrupted = new InterruptedPairRunner(test.home)
+    const first = new NativeProductInstaller({
+      home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
+      journalPath: test.journalPath, runner: interrupted, environment: { PATH: '/usr/bin:/bin' },
+    })
+    await expect(first.install(selection)).rejects.toThrow('Create Dear Machine pair failed')
+    expect(await readFile(test.journalPath, 'utf8')).toContain('"stage": "pair-creation-started"')
+
+    const resumedRunner = new RecordingRunner(test.home)
+    const resumed = new NativeProductInstaller({
+      home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
+      journalPath: test.journalPath, runner: resumedRunner, environment: { PATH: '/usr/bin:/bin' },
+    })
+    await expect(resumed.install(selection)).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
+    expect(resumedRunner.requests.some(request => request.label === 'Create Dear Machine pair')).toBe(false)
+    expect(resumedRunner.requests[0]?.label).toBe('Inspect interrupted pair creation')
+  })
+
+  it('refuses to request a second inbox when interrupted pair creation is ambiguous', async () => {
+    const test = await fixture()
+    class InterruptedPairRunner extends RecordingRunner {
+      override async run(request: CommandRequest) {
+        if (request.label === 'Create Dear Machine pair') {
+          this.requests.push(request)
+          throw new CommandExecutionError(request.label, 1, { code: 1, stdout: '', stderr: 'private interrupted diagnostic' })
+        }
+        return await super.run(request)
+      }
+    }
+    const first = new NativeProductInstaller({
+      home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
+      journalPath: test.journalPath, runner: new InterruptedPairRunner(test.home), environment: { PATH: '/usr/bin:/bin' },
+    })
+    await expect(first.install(selection)).rejects.toThrow('Create Dear Machine pair failed')
+
+    class NoPairRunner extends RecordingRunner {
+      override async run(request: CommandRequest) {
+        if (request.label === 'Inspect interrupted pair creation') {
+          this.requests.push(request)
+          return { code: 0, stdout: 'DearMachine is stopped.\nNo pairs are registered.\n', stderr: '' }
+        }
+        return await super.run(request)
+      }
+    }
+    const resumedRunner = new NoPairRunner(test.home)
+    const resumed = new NativeProductInstaller({
+      home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
+      journalPath: test.journalPath, runner: resumedRunner, environment: { PATH: '/usr/bin:/bin' },
+    })
+    await expect(resumed.install(selection)).rejects.toThrow('will not request another remote inbox automatically')
+    expect(resumedRunner.requests.some(request => request.label === 'Create Dear Machine pair')).toBe(false)
   })
 })

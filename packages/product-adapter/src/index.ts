@@ -351,7 +351,10 @@ export class NativeProductInstaller {
 
     if (!atLeast(journal.stage, 'provider-verified')) {
       const providerCheckRoot = await prepareProviderCheckWorkspace(this.options.workspace, run)
-      await run('Synchronize Machtiani provider check', ['machtiani', 'sync', '--model', 'dearmachine'], providerCheckRoot)
+      await run('Synchronize Machtiani provider check', [
+        'machtiani', 'sync', '--model', 'dearmachine',
+        '--answer-model', 'dearmachine', '--file-discovery-model', 'dearmachine',
+      ], providerCheckRoot)
       const providerCheck = await run(
         'Check Machtiani provider',
         ['machtiani', 'run', '--model', 'dearmachine', '--mode', 'code', '-p', 'Reply with exactly MACHTIANI_PROVIDER_OK without changing files.'],

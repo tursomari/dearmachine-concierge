@@ -71,6 +71,7 @@ describe('native product installer', () => {
     ])
     expect(test.runner.requests.find(request => request.label === 'Synchronize Machtiani provider check')?.command).toEqual([
       'machtiani', 'sync', '--model', 'dearmachine',
+      '--answer-model', 'dearmachine', '--file-discovery-model', 'dearmachine',
     ])
     expect(test.runner.requests.find(request => request.label === 'Check Machtiani provider')?.command).toEqual([
       'machtiani', 'run', '--model', 'dearmachine', '--mode', 'code', '-p',

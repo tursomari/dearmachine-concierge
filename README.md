@@ -28,6 +28,13 @@ not enabled yet. The real guided entry point stops after configuration and
 backend selection; the product adapter remains disconnected until the
 containerized IXE and live email QSE remain green.
 
+The repository build exposes a separate
+`packages/app/dist/headless-bin.mjs` entry point for those gates. It accepts a
+private, credential-free selection file, derives all writable paths from the
+disposable test `HOME`, acquires the ordinary installer lock, and invokes the
+guarded product adapter. It is intentionally not wrapped into the public Nix
+package.
+
 ## Development
 
 Use Node 24 and pnpm through the pinned Nix shell:

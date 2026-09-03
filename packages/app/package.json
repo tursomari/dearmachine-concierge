@@ -3,7 +3,10 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "bin": { "machtiani-installer": "dist/bin.mjs" },
+  "bin": {
+    "machtiani-installer": "dist/bin.mjs",
+    "machtiani-installer-product-headless": "dist/headless-bin.mjs"
+  },
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
   "files": ["dist", "src"],
@@ -12,6 +15,7 @@
     "@dearmachine/machtiani-installer-credentials": "workspace:*",
     "@dearmachine/machtiani-installer-backends": "workspace:*",
     "@dearmachine/machtiani-installer-environment": "workspace:*",
+    "@dearmachine/machtiani-installer-products": "workspace:*",
     "@dearmachine/machtiani-installer-tui": "workspace:*",
     "@dearmachine/machtiani-installer-workflow": "workspace:*"
   }

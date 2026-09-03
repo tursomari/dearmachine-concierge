@@ -45,6 +45,9 @@ importers:
       '@dearmachine/machtiani-installer-environment':
         specifier: workspace:*
         version: link:../environment-adapter
+      '@dearmachine/machtiani-installer-products':
+        specifier: workspace:*
+        version: link:../product-adapter
       '@dearmachine/machtiani-installer-tui':
         specifier: workspace:*
         version: link:../tui

@@ -190,8 +190,8 @@ export class InstallerTui {
     this.removeInputListener()
     this.terminal.setProgress(false)
     this.terminal.setTitle('')
+    await this.terminal.drainInput(100, 20)
     if (this.started) this.ui.stop()
-    await this.terminal.drainInput()
   }
 
   private appendBanner(): void {

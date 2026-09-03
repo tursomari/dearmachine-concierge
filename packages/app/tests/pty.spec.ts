@@ -4,9 +4,18 @@ import { join, resolve } from 'node:path'
 import * as pty from 'node-pty'
 import { describe, expect, it } from 'vitest'
 
-interface PtyResponse { prompt: string; input: string }
+interface PtyResponse {
+  prompt: string
+  input: string
+}
 
-function runInPty(responses: readonly PtyResponse[]): Promise<{ code: number; output: string }> {
+interface TerminalReply {
+  trigger: string
+  input: string
+  delayMs: number
+}
+
+function runInPty(responses: readonly PtyResponse[], terminalReply?: TerminalReply): Promise<{ code: number; output: string }> {
   return new Promise(async (resolveResult, reject) => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-pty-test-'))
     const app = resolve('packages/app/dist/bin.mjs')
@@ -20,9 +29,14 @@ function runInPty(responses: readonly PtyResponse[]): Promise<{ code: number; ou
     let output = ''
     let responseIndex = 0
     let searchOffset = 0
+    let sentTerminalReply = false
     const timer = setTimeout(() => { child.kill(); reject(new Error(`PTY installer timed out after ${responseIndex}/${responses.length} responses\n${output.slice(-2_000)}`)) }, 8_000)
     child.onData(chunk => {
       output += chunk
+      if (!sentTerminalReply && terminalReply !== undefined && output.includes(terminalReply.trigger)) {
+        sentTerminalReply = true
+        setTimeout(() => { child.write(terminalReply.input) }, terminalReply.delayMs)
+      }
       const response = responses[responseIndex]
       if (response !== undefined && output.slice(searchOffset).includes(response.prompt)) {
         responseIndex += 1
@@ -42,6 +56,17 @@ describe('real PTY lifecycle', () => {
     const result = await runInPty([{ prompt: 'Would you like to continue', input: 'not now\r' }])
     expect(result.code).toBe(0)
     expect(result.output).toContain('MACHTIANI INSTALLER')
+  })
+
+  it('drains delayed terminal replies before restoring cooked input', async () => {
+    const deviceAttributes = '\x1b[?61;1;21;22;28c'
+    const result = await runInPty([{
+      prompt: 'Would you like to continue',
+      input: 'not now\r',
+    }], { trigger: '\x1b[<u', input: deviceAttributes, delayMs: 5 })
+    expect(result.code).toBe(0)
+    expect(result.output).not.toContain(deviceAttributes)
+    expect(result.output).not.toContain('^[[?61;1;21;22;28c')
   })
 
   it('restores the terminal after Ctrl-C cancellation', async () => {

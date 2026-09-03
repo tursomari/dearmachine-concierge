@@ -109,6 +109,7 @@ describe('Machtiani Installer TUI', () => {
     await tui.dispose()
     expect(terminal.started).toBe(1)
     expect(terminal.stopped).toBe(1)
+    expect(terminal.lifecycle).toEqual(['start', 'drain:100:20', 'stop'])
     expect(terminal.progress).toBe(false)
     expect(terminal.title).toBe('')
     await terminal.dispose()

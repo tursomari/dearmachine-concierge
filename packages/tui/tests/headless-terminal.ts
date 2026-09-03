@@ -129,7 +129,11 @@ function renderRows(rows: readonly RowSnapshot[], firstRow: number): string[] {
  */
 export class HeadlessTerminal implements Terminal {
   readonly kittyProtocolActive = false
-  readonly drainInput = (): Promise<void> => Promise.resolve()
+  readonly lifecycle: string[] = []
+  readonly drainInput = (timeoutMs?: number, idleMs?: number): Promise<void> => {
+    this.lifecycle.push(`drain:${timeoutMs ?? 'default'}:${idleMs ?? 'default'}`)
+    return Promise.resolve()
+  }
   started = 0
   stopped = 0
   title = ''
@@ -163,12 +167,14 @@ export class HeadlessTerminal implements Terminal {
 
   start(onInput: (data: string) => void, onResize: () => void): void {
     this.started += 1
+    this.lifecycle.push('start')
     this.onInput = onInput
     this.onResize = onResize
   }
 
   stop(): void {
     this.stopped += 1
+    this.lifecycle.push('stop')
   }
 
   write(data: string): void {

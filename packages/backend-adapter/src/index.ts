@@ -44,6 +44,7 @@ export async function loadPrivateEnvironment(path: string): Promise<NodeJS.Proce
 export interface BackendAdapterOptions {
   environment?: NodeJS.ProcessEnv
   providerEnvironmentPath?: string
+  providerEnvironmentBackendIds?: readonly string[]
   managerCommand?: readonly string[]
   timeoutMs?: number
 }
@@ -63,11 +64,14 @@ export class AgentManagerBackendAdapter implements BackendPort {
   }
 
   async check(candidates: readonly BackendCandidate[]): Promise<readonly BackendReadiness[]> {
-    const extra = this.options.providerEnvironmentPath === undefined
+    const permitted = new Set(this.options.providerEnvironmentBackendIds ?? [])
+    const extra = this.options.providerEnvironmentPath === undefined || permitted.size === 0
       ? {}
       : await loadPrivateEnvironment(this.options.providerEnvironmentPath)
     const results: BackendReadiness[] = []
-    for (const candidate of candidates) results.push(await this.checkOne(candidate, extra))
+    for (const candidate of candidates) {
+      results.push(await this.checkOne(candidate, permitted.has(candidate.id) ? extra : {}))
+    }
     return results
   }
 

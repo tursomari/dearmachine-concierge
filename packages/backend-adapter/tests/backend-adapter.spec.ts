@@ -47,4 +47,22 @@ printf 'backend=%s\\nresult=ok\\n' "$3"
     await chmod(path, 0o644)
     await expect(loadPrivateEnvironment(path)).rejects.toThrow('private regular file')
   })
+
+  it('does not expose a provider credential to a backend unless its ID is explicitly compatible', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-backend-env-boundary-'))
+    const manager = join(root, 'agent-manager')
+    const providerEnvironmentPath = join(root, 'backends.env')
+    await writeFile(providerEnvironmentPath, 'OPENROUTER_API_KEY=backend-test-secret\n', { mode: 0o600 })
+    await writeFile(manager, `#!/usr/bin/env bash
+set -euo pipefail
+test -z "\${OPENROUTER_API_KEY:-}"
+printf 'result=ok\n'
+`)
+    await chmod(manager, 0o700)
+    const candidate = { name: 'Forge', id: 'forge', executable: '/test/forge' }
+    const adapter = new AgentManagerBackendAdapter({ managerCommand: [manager], providerEnvironmentPath })
+    await expect(adapter.check([candidate])).resolves.toEqual([
+      { ...candidate, status: 'ready', summary: 'functional probe passed' },
+    ])
+  })
 })

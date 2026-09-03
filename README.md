@@ -15,7 +15,9 @@ This repository currently implements the first risk-reduction slices:
 - private credential-helper handoff that never returns key material to the
   workflow or transcript;
 - permission-gated discovery and functional health checks for Codex, Forge,
-  and OMP, followed by an explicit human choice;
+  and OMP, followed by an explicit human choice; provider credentials cross
+  that boundary only for backend IDs whose installed behavior was explicitly
+  validated as environment-compatible;
 - a guarded, testable native product-install adapter whose command plan keeps
   credentials out of arguments, refuses pre-existing Dear Machine state, and
   journals safe restart behavior without risking a duplicate remote inbox; and

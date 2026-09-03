@@ -122,6 +122,10 @@ cleanup() {
     container_id=$(txn_reconcile_container_from_cidfile "$container_name" 2>/dev/null) || cleanup_safe=false
   fi
   if test -n "$container_id"; then
+    if test "${TXN_KEEP_RUNTIME:-0}" = 1; then
+      docker logs "$container_id" > "$run_root/container.log" 2>&1 || true
+      chmod 0600 "$run_root/container.log"
+    fi
     inspected_label=$(docker inspect --format "{{ index .Config.Labels \"$container_label\" }}" "$container_id" 2>/dev/null) || cleanup_safe=false
     inspected_name=$(docker inspect --format '{{.Name}}' "$container_id" 2>/dev/null) || cleanup_safe=false
     if test "$cleanup_safe" = true && test "$inspected_label" = "$run_id" && test "$inspected_name" = "/$container_name"; then

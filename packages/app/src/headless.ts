@@ -86,6 +86,7 @@ export async function runHeadlessProductInstallation(sourceRoot: string, selecti
       sourceRoot: source,
       workspace: paths.workspace,
       journalPath: join(paths.stateDirectory, 'product-installation.json'),
+      diagnosticPath: join(paths.stateDirectory, 'product-command-diagnostic.json'),
     }
     const installer = existingInboxId === undefined
       ? new NativeProductInstaller(installerOptions)

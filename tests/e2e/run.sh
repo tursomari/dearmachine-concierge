@@ -129,6 +129,9 @@ cleanup() {
       mkdir "$retained_runtime"
       chmod 0700 "$retained_runtime"
       docker cp "$container_id:/run/machtiani-installer-qse/." "$retained_runtime" 2>/dev/null || true
+      mkdir "$retained_runtime/installer-state"
+      docker cp "$container_id:/home/installer/.local/state/machtiani-installer/." \
+        "$retained_runtime/installer-state" 2>/dev/null || true
       chmod -R go-rwx "$retained_runtime"
     fi
     inspected_label=$(docker inspect --format "{{ index .Config.Labels \"$container_label\" }}" "$container_id" 2>/dev/null) || cleanup_safe=false

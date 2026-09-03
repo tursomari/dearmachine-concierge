@@ -138,6 +138,40 @@ describe('native product installer', () => {
     }
   })
 
+  it('retains a private redacted command diagnostic when requested', async () => {
+    const test = await fixture()
+    class FailingRunner extends RecordingRunner {
+      override async run(request: CommandRequest) {
+        if (request.label === 'Synchronize Machtiani provider check') {
+          this.requests.push(request)
+          throw new CommandExecutionError(request.label, 1, {
+            code: 1,
+            stdout: 'safe provider detail product-test-secret',
+            stderr: 'safe transport detail email-test-secret',
+          })
+        }
+        return await super.run(request)
+      }
+    }
+    const diagnosticPath = join(test.home, '.local', 'state', 'machtiani-installer', 'product-command-diagnostic.json')
+    const installer = new NativeProductInstaller({
+      home: test.home,
+      sourceRoot: test.sourceRoot,
+      workspace: test.workspace,
+      journalPath: test.journalPath,
+      diagnosticPath,
+      runner: new FailingRunner(test.home),
+      environment: { PATH: '/usr/bin:/bin' },
+    })
+    await expect(installer.install(selection)).rejects.toThrow('Synchronize Machtiani provider check failed')
+    const diagnostic = await readFile(diagnosticPath, 'utf8')
+    expect(diagnostic).toContain('safe provider detail [REDACTED]')
+    expect(diagnostic).toContain('safe transport detail [REDACTED]')
+    expect(diagnostic).not.toContain('product-test-secret')
+    expect(diagnostic).not.toContain('email-test-secret')
+    expect((await stat(diagnosticPath)).mode & 0o077).toBe(0)
+  })
+
   it('recovers a proven matching pair after interruption without creating another inbox', async () => {
     const test = await fixture()
     class InterruptedPairRunner extends RecordingRunner {

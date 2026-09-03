@@ -184,6 +184,7 @@ export interface ProductInstallerOptions {
   sourceRoot: string
   workspace: string
   journalPath: string
+  diagnosticPath?: string
   existingInboxId?: string
   environment?: NodeJS.ProcessEnv
   runner?: CommandRunner
@@ -288,6 +289,7 @@ export class NativeProductInstaller {
       throw new Error(`The private provider environment is missing ${provider.variable}.`)
     }
     await privateRegularFile(transport.credentialPath)
+    const transportCredential = (await readFile(transport.credentialPath, 'utf8')).trim()
 
     const environment: NodeJS.ProcessEnv = {
       ...process.env,
@@ -306,7 +308,23 @@ export class NativeProductInstaller {
     const run = async (label: string, command: readonly string[], cwd = this.options.workspace, stdin?: string): Promise<CommandResult> => {
       const request: CommandRequest = { label, command, cwd, environment }
       if (stdin !== undefined) request.stdin = stdin
-      return await this.runner.run(request)
+      try {
+        return await this.runner.run(request)
+      } catch (error) {
+        if (error instanceof CommandExecutionError && this.options.diagnosticPath !== undefined) {
+          const captured = error.privateDiagnostic()
+          const redact = (value: string): string => [providerCredential, transportCredential]
+            .filter(secret => secret !== '')
+            .reduce((result, secret) => result.split(secret).join('[REDACTED]'), value)
+          await writePrivate(this.options.diagnosticPath, `${JSON.stringify({
+            label: error.label,
+            code: error.code,
+            stdout: redact(captured.stdout),
+            stderr: redact(captured.stderr),
+          }, undefined, 2)}\n`)
+        }
+        throw error
+      }
     }
 
     await mkdir(this.options.workspace, { recursive: true, mode: 0o700 })

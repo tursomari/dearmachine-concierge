@@ -2,6 +2,7 @@ import { messages } from './messages.ts'
 
 export interface ConversationPort {
   ask(message: string): Promise<string>
+  say(message: string): void
   progress(message: string | undefined): void
   tool(name: string, detail: string): {
     succeed(summary?: string): void
@@ -43,7 +44,7 @@ export interface BackendPort {
 }
 
 export interface WorkflowCheckpoint {
-  stage: 'welcome' | 'environment' | 'provider' | 'model' | 'llm-credential' | 'email-transport' | 'email-credential' | 'authorized-sender' | 'complete' | 'backend-discovery' | 'backend-choice' | 'ready-to-install'
+  stage: 'welcome' | 'environment' | 'provider' | 'model' | 'llm-credential' | 'email-transport' | 'email-credential' | 'authorized-sender' | 'complete' | 'backend-discovery' | 'backend-choice' | 'ready-to-install' | 'installing' | 'awaiting-test-email' | 'verifying-email' | 'success'
   provider?: string
   model?: string
   transport?: string
@@ -51,6 +52,8 @@ export interface WorkflowCheckpoint {
   detectedBackends?: readonly string[]
   backendReadiness?: readonly BackendReadiness[]
   backend?: BackendReadiness
+  inboxAddress?: string
+  liveEmailBaseline?: string
 }
 
 export interface CheckpointPort {
@@ -75,6 +78,16 @@ export interface WorkflowPorts {
 
 export interface GuidedWorkflowPorts extends WorkflowPorts {
   backends: BackendPort
+}
+
+export interface ProductPort {
+  install(selection: ReadyInstallationSelection): Promise<{ inboxAddress: string }>
+  captureLiveEmailBaseline(): Promise<string>
+  waitForLiveEmail(baseline: string, progress: (message: string) => void): Promise<void>
+}
+
+export interface CompleteWorkflowPorts extends GuidedWorkflowPorts {
+  products: ProductPort
 }
 
 export interface ReadyInstallationSelection extends InstallationSelection {
@@ -108,7 +121,10 @@ export async function runFirstThreeStages(ports: WorkflowPorts): Promise<Install
 
   if (state.stage === 'welcome') {
     const consent = await ports.conversation.ask(messages.welcome)
-    if (!yes(consent)) return undefined
+    if (!yes(consent)) {
+      ports.conversation.say(messages.notNow)
+      return undefined
+    }
     state = { stage: 'environment' }
     await ports.checkpoint.save(state)
   }
@@ -237,10 +253,77 @@ export async function runThroughBackendSelection(ports: GuidedWorkflowPorts): Pr
     await ports.checkpoint.save(state)
   }
 
-  if (state.stage !== 'ready-to-install' || state.backend === undefined) {
+  const postSelectionStages: readonly WorkflowCheckpoint['stage'][] = [
+    'ready-to-install', 'installing', 'awaiting-test-email', 'verifying-email', 'success',
+  ]
+  if (!postSelectionStages.includes(state.stage) || state.backend === undefined) {
     throw new Error(`cannot install from workflow stage ${state.stage}`)
   }
   return { ...configuration, backend: state.backend }
+}
+
+/** Completes product installation and proves one new human-sent email received a reply. */
+export async function runCompleteInstallation(ports: CompleteWorkflowPorts): Promise<{ inboxAddress: string } | undefined> {
+  const selection = await runThroughBackendSelection(ports)
+  if (selection === undefined) return undefined
+  let state = (await ports.checkpoint.load())!
+
+  if (state.stage === 'ready-to-install') {
+    ports.conversation.say(messages.productInstallation)
+    state = { ...state, stage: 'installing' }
+    await ports.checkpoint.save(state)
+  }
+
+  if (state.stage === 'installing') {
+    ports.conversation.progress('Installing Machtiani and Dear Machine')
+    const activity = ports.conversation.tool('Installation', 'Installing, configuring, and checking the native client')
+    try {
+      const installed = await ports.products.install(selection)
+      const liveEmailBaseline = await ports.products.captureLiveEmailBaseline()
+      activity.succeed('Native client is ready')
+      ports.conversation.progress(undefined)
+      state = { ...state, stage: 'awaiting-test-email', inboxAddress: installed.inboxAddress, liveEmailBaseline }
+      await ports.checkpoint.save(state)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      activity.fail(detail)
+      ports.conversation.progress(undefined)
+      throw error
+    }
+  }
+
+  if (state.stage === 'awaiting-test-email') {
+    if (state.inboxAddress === undefined || state.liveEmailBaseline === undefined) {
+      throw new Error('the saved live email verification state is incomplete')
+    }
+    await ports.conversation.ask(messages.testEmail(state.inboxAddress))
+    state = { ...state, stage: 'verifying-email' }
+    await ports.checkpoint.save(state)
+  }
+
+  if (state.stage === 'verifying-email') {
+    if (state.liveEmailBaseline === undefined) throw new Error('the saved live email baseline is missing')
+    ports.conversation.progress('Waiting for Dear Machine to receive your email')
+    const activity = ports.conversation.tool('Live email', 'Waiting for a new message and its reply')
+    try {
+      await ports.products.waitForLiveEmail(state.liveEmailBaseline, message => ports.conversation.progress(message))
+      activity.succeed('Reply sent')
+      ports.conversation.progress(undefined)
+      state = { ...state, stage: 'success' }
+      await ports.checkpoint.save(state)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      activity.fail(detail)
+      ports.conversation.progress(undefined)
+      throw error
+    }
+  }
+
+  if (state.stage !== 'success' || state.inboxAddress === undefined) {
+    throw new Error(`cannot complete installation from workflow stage ${state.stage}`)
+  }
+  ports.conversation.say(messages.installationOutcome(selection.backend.name, state.inboxAddress))
+  return { inboxAddress: state.inboxAddress }
 }
 
 export { messages } from './messages.ts'

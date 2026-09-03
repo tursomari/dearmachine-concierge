@@ -4,6 +4,7 @@ export const messages = {
 Your computer can have an inbox of its own. Email it from anywhere, and it can work locally and write back in the same thread.
 
 Would you like to continue with the installation now?`,
+  notNow: 'Of course. Nothing was changed, and you can return whenever you’re ready.',
   provider: "Machtiani powers Dear Machine's AI reasoning. Which LLM provider would you like Machtiani to use? OpenRouter is recommended, or you can name another supported provider.",
   model: (provider: string) => `Which ${provider} model would you like Machtiani to use? If you’re unsure, I can recommend one.`,
   llmCredential: (provider: string, model: string) => `Machtiani needs your ${provider} API key to use ${model} for Dear Machine.
@@ -41,4 +42,16 @@ Which agent would you like Dear Machine to use?`,
 If you don’t see the reply in your inbox, check your spam folder and mark it as “Not spam.”
 
 Tell me when you’ve sent it.`,
+  installationOutcome: (backend: string, inboxAddress: string) => `Installation outcome
+
+SUCCESS
+
+Machtiani and Dear Machine are installed, ${backend} passed its health check, and a live email to ${inboxAddress} received a reply.
+
+Human actions: chose the provider, model, email transport, authorized sender, and backend; made any needed credentials available through the private helpers; and sent the test email.
+
+Configuration: ~/.machtiani/config.toml and ~/.dearmachine/config/dearmachine.toml
+Logs: ~/.dearmachine/log/dearmachine.log
+
+No further manual action is required.`,
 } as const

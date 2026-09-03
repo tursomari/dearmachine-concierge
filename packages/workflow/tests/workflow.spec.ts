@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { messages, runFirstThreeStages, runThroughBackendSelection, type GuidedWorkflowPorts, type WorkflowCheckpoint, type WorkflowPorts } from '../src/index.ts'
+import { messages, runCompleteInstallation, runFirstThreeStages, runThroughBackendSelection, type CompleteWorkflowPorts, type GuidedWorkflowPorts, type WorkflowCheckpoint, type WorkflowPorts } from '../src/index.ts'
 
 function fixture(answers: string[], initial?: WorkflowCheckpoint) {
   const asked: string[] = []
@@ -14,6 +14,7 @@ function fixture(answers: string[], initial?: WorkflowCheckpoint) {
         if (answer === undefined) throw new Error(`no answer for: ${message}`)
         return answer
       },
+      say: message => events.push(`say:${message}`),
       progress: message => events.push(`progress:${message ?? 'idle'}`),
       tool: name => ({
         succeed: summary => events.push(`tool:${name}:success:${summary ?? ''}`),
@@ -45,7 +46,7 @@ describe('canonical installation workflow', () => {
     const test = fixture(['not now'])
     await expect(runFirstThreeStages(test.ports)).resolves.toBeUndefined()
     expect(test.asked).toEqual([messages.welcome])
-    expect(test.events).toEqual([])
+    expect(test.events).toEqual([`say:${messages.notNow}`])
   })
 
   it('keeps the first three stages ordered and credentials out of the conversation', async () => {
@@ -137,5 +138,55 @@ describe('backend selection', () => {
     expect(result?.backend).toEqual(expect.objectContaining({ name: 'Forge', id: 'forge', status: 'ready' }))
     expect(test.saved?.stage).toBe('ready-to-install')
     expect(test.asked[1]).toBe(messages.backendChoice('Codex is ready.\nForge is ready.'))
+  })
+})
+
+describe('complete installation', () => {
+  const ready: WorkflowCheckpoint = {
+    stage: 'ready-to-install', provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', transport: 'AgentMail',
+    authorizedSender: 'sender@example.test', detectedBackends: ['Forge'],
+    backend: { name: 'Forge', id: 'forge', executable: '/usr/bin/forge', status: 'ready', summary: 'functional probe passed' },
+  }
+
+  it('orders product mutation, the human email gate, live verification, and the success report', async () => {
+    const test = fixture(['sent'], ready)
+    const productEvents: string[] = []
+    const ports: CompleteWorkflowPorts = {
+      ...test.ports,
+      backends: { discover: async () => [], check: async () => [] },
+      products: {
+        install: async () => { productEvents.push('install'); return { inboxAddress: 'machine@example.test' } },
+        captureLiveEmailBaseline: async () => { productEvents.push('baseline'); return 'private-baseline' },
+        waitForLiveEmail: async (baseline, progress) => {
+          productEvents.push(`verify:${baseline}`)
+          progress('Dear Machine received your email and is working through Forge')
+        },
+      },
+    }
+    await expect(runCompleteInstallation(ports)).resolves.toEqual({ inboxAddress: 'machine@example.test' })
+    expect(productEvents).toEqual(['install', 'baseline', 'verify:private-baseline'])
+    expect(test.asked).toEqual([messages.testEmail('machine@example.test')])
+    expect(test.events).toContain(`say:${messages.productInstallation}`)
+    expect(test.events).toContain(`say:${messages.installationOutcome('Forge', 'machine@example.test')}`)
+    expect(test.saved).toEqual(expect.objectContaining({ stage: 'success', inboxAddress: 'machine@example.test' }))
+    expect(test.events.indexOf('save:installing')).toBeLessThan(test.events.indexOf('save:awaiting-test-email'))
+  })
+
+  it('resumes live verification without reinstalling or repeating the email question', async () => {
+    const test = fixture([], { ...ready, stage: 'verifying-email', inboxAddress: 'machine@example.test', liveEmailBaseline: 'saved-baseline' })
+    let installs = 0
+    const ports: CompleteWorkflowPorts = {
+      ...test.ports,
+      backends: { discover: async () => [], check: async () => [] },
+      products: {
+        install: async () => { installs += 1; return { inboxAddress: 'wrong@example.test' } },
+        captureLiveEmailBaseline: async () => 'wrong-baseline',
+        waitForLiveEmail: async baseline => { expect(baseline).toBe('saved-baseline') },
+      },
+    }
+    await expect(runCompleteInstallation(ports)).resolves.toEqual({ inboxAddress: 'machine@example.test' })
+    expect(installs).toBe(0)
+    expect(test.asked).toEqual([])
+    expect(test.saved?.stage).toBe('success')
   })
 })

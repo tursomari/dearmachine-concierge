@@ -76,11 +76,19 @@ printf 'OPENROUTER_API_KEY=%s\n' "$openrouter_key" > "$HOME/.config/dearmachine/
 printf '%s\n' "$agentmail_key" > "$HOME/.config/dearmachine/agentmail-api-key"
 chmod 0600 "$HOME/.config/dearmachine/backends.env" "$HOME/.config/dearmachine/agentmail-api-key"
 
-# Forge 2.13.21 imports environment credentials into its private store. That
-# mutation is explicit and confined to this disposable QSE home.
-OPENROUTER_API_KEY=$openrouter_key forge config set model open_router z-ai/glm-5.3-flash >/dev/null
+# Forge 2.13.21 imports environment credentials into its private store only
+# when direct mode starts. Closed stdin makes that migration fail safely before
+# an agent turn; all output remains inside this disposable QSE runtime.
+forge_migration_stdout=$runtime/forge-migration.stdout
+forge_migration_stderr=$runtime/forge-migration.stderr
+OPENROUTER_API_KEY=$openrouter_key forge </dev/null > "$forge_migration_stdout" 2> "$forge_migration_stderr" || true
+chmod 0600 "$forge_migration_stdout" "$forge_migration_stderr"
 test -f "$HOME/.forge/.credentials.json" && test "$(stat -c '%a' "$HOME/.forge/.credentials.json")" = 600 || \
   fail 'Forge did not create a private disposable credential store'
+forge config set model open_router z-ai/glm-5.3-flash > "$forge_migration_stdout" 2> "$forge_migration_stderr" || \
+  fail 'Forge rejected the pinned OpenRouter model'
+forge config set reasoning-effort high > "$forge_migration_stdout" 2> "$forge_migration_stderr" || \
+  fail 'Forge rejected high reasoning effort'
 
 selection=$runtime/selection.json
 QSE_SELECTION_PATH=$selection python3 - <<'PY'

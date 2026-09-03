@@ -46,6 +46,7 @@ export class InstallerTui {
   private readonly status = new Text('', 0, 0)
   private readonly editor: Editor
   private readonly maskedInput = new MaskedInput()
+  private readonly secureInputLabel: Text
   private readonly inputSlot = new Container()
   private readonly theme: InstallerTheme
   private readonly markdown
@@ -57,11 +58,16 @@ export class InstallerTui {
   } | undefined
   private started = false
   private stopped = false
+  private progressMessage: string | undefined
+  private suspendedProgressMessage: string | undefined
+  private progressFrame = 0
+  private progressTimer: ReturnType<typeof setInterval> | undefined
 
   constructor(private readonly options: InstallerTuiOptions = {}) {
     this.terminal = options.terminal ?? new ProcessTerminal()
     this.theme = createInstallerTheme(options.color ?? true)
     this.markdown = markdownTheme(this.theme)
+    this.secureInputLabel = new Text(this.theme.bold(this.theme.accent('🔒  Secure API key — input hidden')), 0, 0)
     this.ui = new TUI(this.terminal, false)
     this.editor = new Editor(this.ui, editorTheme(this.theme), {
       frame: 'none',
@@ -124,7 +130,25 @@ export class InstallerTui {
   }
 
   setProgress(message: string | undefined): void {
-    this.status.setText(message === undefined ? '' : this.theme.dim(`◌ ${displayText(message)}`))
+    if (message === undefined) {
+      this.progressMessage = undefined
+      this.progressFrame = 0
+      if (this.progressTimer !== undefined) clearInterval(this.progressTimer)
+      this.progressTimer = undefined
+      this.status.setText('')
+    } else {
+      const nextMessage = displayText(message)
+      if (nextMessage !== this.progressMessage) this.progressFrame = 0
+      this.progressMessage = nextMessage
+      this.renderProgress()
+      if (this.progressTimer === undefined) {
+        this.progressTimer = setInterval(() => {
+          this.progressFrame += 1
+          this.renderProgress()
+        }, 240)
+        this.progressTimer.unref()
+      }
+    }
     this.terminal.setProgress(message !== undefined)
     this.requestRender()
   }
@@ -175,7 +199,10 @@ export class InstallerTui {
     if (this.pendingQuestion !== undefined) {
       return Promise.reject(new Error('the installer supports exactly one active question'))
     }
+    this.suspendedProgressMessage = this.progressMessage
+    this.setProgress(undefined)
     this.inputSlot.removeChild(this.editor)
+    this.inputSlot.addChild(this.secureInputLabel)
     this.inputSlot.addChild(this.maskedInput)
     this.ui.setFocus(this.maskedInput)
     this.requestRender()
@@ -191,6 +218,10 @@ export class InstallerTui {
       await new Promise<void>(resolve => setImmediate(resolve))
     }
     this.stopped = true
+    if (this.progressTimer !== undefined) clearInterval(this.progressTimer)
+    this.progressTimer = undefined
+    this.progressMessage = undefined
+    this.suspendedProgressMessage = undefined
     const pending = this.pendingQuestion
     this.pendingQuestion = undefined
     this.maskedInput.clear()
@@ -244,8 +275,12 @@ export class InstallerTui {
   private deactivateSecretInput(): void {
     this.maskedInput.clear()
     this.inputSlot.removeChild(this.maskedInput)
+    this.inputSlot.removeChild(this.secureInputLabel)
     this.inputSlot.addChild(this.editor)
     this.ui.setFocus(this.editor)
+    const resumeProgress = this.suspendedProgressMessage
+    this.suspendedProgressMessage = undefined
+    if (resumeProgress !== undefined) this.setProgress(resumeProgress)
     this.requestRender()
   }
 
@@ -254,6 +289,15 @@ export class InstallerTui {
     const prompt = '› '
     this.editor.setPrompt({ first: prompt, continuation: ' '.repeat(visibleWidth(prompt)) })
     this.ui.requestRender()
+  }
+
+  private renderProgress(): void {
+    const message = this.progressMessage
+    if (message === undefined) return
+    const frames = ['◌', '◔', '◑', '◕', '●', '◕', '◑', '◔'] as const
+    const marker = frames[this.progressFrame % frames.length]
+    this.status.setText(this.theme.dim(`${marker} ${message}`))
+    this.requestRender()
   }
 }
 

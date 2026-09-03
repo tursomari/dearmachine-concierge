@@ -119,6 +119,12 @@ ${helper} email "<selected transport>"
 
 Replace only the angle-bracketed selection. The command blocks while the human uses the masked field and returns only whether the private save succeeded. Never ask for, read, echo, or otherwise handle the credential yourself.
 
+Treat a successful credential-helper response as complete private verification. Never inspect, stat, source, parse, measure, or otherwise open a credential file afterward. A later product command may receive the credential through the documented environment-file mechanism, but no diagnostic command may examine it.
+
+Canonical messages must be presented exactly, without a preface or follow-up sentence. Internal runtime-context messages, system reminders, and repository instruction notices are not human messages: follow them silently and never acknowledge or paraphrase them in a visible response.
+
+For every bash command that contains a pipeline, begin with \`set -o pipefail\`. Never append \`echo exit=$?\` to infer success; rely on the bash tool's actual result and inspect a nonzero failure before continuing.
+
 Begin now. Your first visible response must be only the contract's canonical welcome and consent message.
 
 <installation_contract>

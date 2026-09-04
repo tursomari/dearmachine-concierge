@@ -89,6 +89,8 @@ describe('pinned DSH compatibility boundary', () => {
       expect(providers.some(provider => provider.id === 'openrouter')).toBe(true)
       expect(providers.some(provider => provider.id === 'deepseek')).toBe(true)
       expect(providers.some(provider => provider.id === 'openai' && !provider.authMethods[0]?.subscription)).toBe(true)
+      expect(providers.find(provider => provider.id === 'custom-openai-remote')).toMatchObject({ customScope: 'remote', authMethods: [] })
+      expect(providers.find(provider => provider.id === 'custom-openai-local')).toMatchObject({ customScope: 'local', authMethods: [] })
       expect(providers.find(provider => provider.id === 'openai-codex')).toEqual({
         id: 'openai-codex',
         name: 'OpenAI Codex subscription',
@@ -147,6 +149,40 @@ describe('pinned DSH compatibility boundary', () => {
     expect(setup.profileFor({ provider: 'anthropic-claude', model: 'sonnet', reasoningEffort: 'high' })).toEqual({
       version: 1, driver: 'anthropic-claude-agent-sdk', provider: 'anthropic-claude', authMethod: 'subscription',
       model: 'sonnet', reasoningEffort: 'high', runtimeProfile: join(home, '.config', 'machtiani', 'claude'),
+    })
+  })
+
+  it('builds distinct remote and local custom profiles with optional credentials', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-dsh-custom-profile-'))
+    const setup = await InstallerModelSetup.open(root, {})
+    expect(setup.profileFor({
+      provider: 'custom-openai-remote', model: 'remote-model', reasoningEffort: 'high',
+      customProvider: {
+        kind: 'openai-compatible', scope: 'remote', name: 'Remote Models', usesApiKey: true,
+        chatCompletionsEndpoint: 'https://models.example/v1/chat/completions',
+      },
+    })).toEqual({
+      version: 1, driver: 'openai-compatible', provider: 'custom-openai-remote', authMethod: 'optional_api_key',
+      model: 'remote-model', reasoningEffort: 'high',
+      credential: { kind: 'environment-file', path: join(root, 'backends.env'), variable: 'MACHTIANI_CUSTOM_OPENAI_REMOTE_API_KEY' },
+      customProvider: {
+        kind: 'openai-compatible', scope: 'remote', name: 'Remote Models', usesApiKey: true,
+        chatCompletionsEndpoint: 'https://models.example/v1/chat/completions',
+      },
+    })
+    expect(setup.profileFor({
+      provider: 'custom-openai-local', model: 'local-model',
+      customProvider: {
+        kind: 'openai-compatible', scope: 'local', name: 'Local Models', usesApiKey: false,
+        chatCompletionsEndpoint: 'http://localhost:11434/v1/chat/completions',
+      },
+    })).toEqual({
+      version: 1, driver: 'openai-compatible', provider: 'custom-openai-local', authMethod: 'optional_api_key',
+      model: 'local-model',
+      customProvider: {
+        kind: 'openai-compatible', scope: 'local', name: 'Local Models', usesApiKey: false,
+        chatCompletionsEndpoint: 'http://localhost:11434/v1/chat/completions',
+      },
     })
   })
 

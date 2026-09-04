@@ -8,6 +8,7 @@ import {
   type InstallerModelSelection,
   type InstallerModelSetup,
 } from '@dearmachine/machtiani-installer-dsh-adapter'
+import { validateCustomOpenAIEndpoint, type CustomOpenAIProviderScope } from '@dearmachine/machtiani-model-host'
 import { SecretInputCancelledError, type InstallerChoice, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 
 type WizardTui = Pick<InstallerTui,
@@ -19,7 +20,8 @@ type WizardTui = Pick<InstallerTui,
   | 'choose'
   | 'setProgress'
 >
-type WizardSetup = Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'>
+type WizardSetup = Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'> &
+  Partial<Pick<InstallerModelSetup, 'verifyCustomProvider'>>
 
 class SignInCodeCancelledError extends Error {
   constructor() {
@@ -87,6 +89,16 @@ async function authPrompt(tui: WizardTui, prompt: InstallerAuthPrompt, authentic
 
 function providerChoices(setup: WizardSetup): InstallerChoice[] {
   return setup.providers().map(provider => {
+    if (provider.customScope === 'remote') return {
+      value: provider.id,
+      label: provider.name,
+      description: 'Your HTTPS Chat Completions endpoint',
+    }
+    if (provider.customScope === 'local') return {
+      value: provider.id,
+      label: provider.name,
+      description: 'A model server on this machine',
+    }
     const subscription = provider.authMethods.some(method => method.subscription)
     const browserSignIn = provider.authMethods.some(method => method.id === 'oauth')
     const apiKey = provider.authMethods.some(method => method.id === 'api_key')
@@ -99,6 +111,120 @@ function providerChoices(setup: WizardSetup): InstallerChoice[] {
           : browserSignIn ? 'browser sign-in' : 'API credentials'
     return { value: provider.id, label: provider.name, description: `${provider.id} — ${authentication}` }
   })
+}
+
+const CUSTOM_REASONING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
+function plainValue(value: string, label: string): string {
+  const result = value.trim()
+  if (result === '' || result.length > 256 || /[\r\n\0]/u.test(result)) throw new Error(`${label} must be one nonempty line of at most 256 characters.`)
+  return result
+}
+
+async function customValue(tui: WizardTui, message: string, label: string): Promise<string> {
+  while (true) {
+    try { return plainValue(await tui.ask({ message }), label) }
+    catch (error) { tui.addAssistant(error instanceof Error ? error.message : `Enter a valid ${label}.`) }
+  }
+}
+
+async function customEndpoint(tui: WizardTui, scope: CustomOpenAIProviderScope): Promise<string> {
+  while (true) {
+    const value = await tui.ask({
+      message: scope === 'remote'
+        ? 'What is the complete HTTPS Chat Completions endpoint? It must end in /chat/completions.'
+        : 'What is the complete local Chat Completions endpoint? Use localhost, 127.0.0.1, or [::1], and end it in /chat/completions.',
+    })
+    try { return validateCustomOpenAIEndpoint(value.trim(), scope) }
+    catch (error) { tui.addAssistant(error instanceof Error ? error.message : 'Enter a valid Chat Completions endpoint.') }
+  }
+}
+
+async function runCustomProviderWizard(
+  tui: WizardTui,
+  setup: WizardSetup,
+  providerId: string,
+  scope: CustomOpenAIProviderScope,
+  stored: InstallerModelSelection | undefined,
+): Promise<InstallerModelSelection> {
+  let previous = stored?.provider === providerId ? stored : undefined
+  while (true) {
+    const name = await customValue(tui, `What should I call this ${scope} provider?`, 'Provider name')
+    const chatCompletionsEndpoint = await customEndpoint(tui, scope)
+    const model = await customValue(tui, 'What exact model name should the endpoint receive?', 'Model name')
+    const usesApiKey = await tui.choose(
+      'Does this endpoint require an API key?',
+      [
+        { value: 'yes', label: 'Yes', description: 'Enter it in the secure field' },
+        { value: 'no', label: 'No', description: scope === 'local' ? 'Common for a private local model server' : 'Only choose this if the remote endpoint is intentionally keyless' },
+      ],
+      previous?.customProvider?.usesApiKey === false ? 'no' : 'yes',
+    ) === 'yes'
+    let apiKey: string | undefined
+    if (usesApiKey) {
+      tui.addAssistant('Paste the API key into the secure field and press Enter. It is saved privately and never enters the conversation.')
+      try { apiKey = await tui.captureSecret() }
+      catch (error) {
+        if (error instanceof SecretInputCancelledError) {
+          tui.addAssistant('Key entry was cancelled. You can enter the custom provider details again, or press Ctrl+C to exit the installer.')
+          previous = undefined
+          continue
+        }
+        throw error
+      }
+    }
+    const reasoning = await tui.choose(
+      'Should the installer send a reasoning level to this model?',
+      [
+        { value: 'default', label: 'No — provider default', description: 'Send no reasoning parameter' },
+        ...CUSTOM_REASONING_LEVELS.map(level => ({
+          value: level,
+          label: `${level[0]!.toLocaleUpperCase()}${level.slice(1)}`,
+          ...(level === 'high' ? { description: 'Recommended when the model supports it' } : {}),
+        })),
+      ],
+      previous?.reasoningEffort ?? 'default',
+    )
+    const selection: InstallerModelSelection = {
+      provider: providerId,
+      model,
+      ...(reasoning === 'default' ? {} : { reasoningEffort: reasoning }),
+      customProvider: {
+        kind: 'openai-compatible',
+        scope,
+        name,
+        chatCompletionsEndpoint,
+        usesApiKey,
+      },
+    }
+    tui.addAssistant('I’ll send a tiny live request now to verify streaming, tool calling, and continuation after a tool result. This confirms the configuration works now; it cannot guarantee the provider will never change.')
+    while (true) {
+      const controller = new AbortController()
+      const cancellation = tui.beginCancellationScope(() => { controller.abort() })
+      try {
+        tui.setProgress('Testing the custom provider')
+        if (setup.verifyCustomProvider === undefined) throw new Error('Custom provider verification is unavailable.')
+        await setup.verifyCustomProvider(selection, apiKey, controller.signal)
+        tui.setProgress(undefined)
+        await saveInstallerModelSelection(setup.dshHome, selection)
+        tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${name} — ${model}${reasoning === 'default' ? '' : ` — ${reasoning} reasoning`}.`)
+        return selection
+      } catch (error) {
+        tui.setProgress(undefined)
+        if (controller.signal.aborted) tui.addAssistant('The compatibility test was cancelled.')
+        else tui.addAssistant(error instanceof Error ? error.message : 'The compatibility test failed.')
+      } finally { cancellation.close() }
+      const next = await tui.choose(
+        'What would you like to do?',
+        [
+          { value: 'retry', label: 'Try the test again', description: 'Use the same settings' },
+          { value: 'edit', label: 'Edit provider settings', description: 'Enter the endpoint, model, or key again' },
+        ],
+        'retry',
+      )
+      if (next === 'edit') { previous = selection; break }
+    }
+  }
 }
 
 function preferredEffort(efforts: readonly string[], current: string | undefined): string | undefined {
@@ -179,6 +305,10 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
     providers,
     preliminary?.provider,
   )
+  const chosenProvider = setup.providers().find(candidate => candidate.id === providerId)
+  if (chosenProvider?.customScope !== undefined) {
+    return await runCustomProviderWizard(tui, setup, providerId, chosenProvider.customScope, preliminary)
+  }
   await ensureAuthentication(tui, setup, providerId)
 
   const provider = setup.providers().find(candidate => candidate.id === providerId)

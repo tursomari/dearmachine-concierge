@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -76,6 +76,85 @@ function fakeSetup(dshHome: string, authenticated = false): {
 }
 
 describe('installer model setup wizard', () => {
+  it('configures and verifies a remote custom provider without exposing its key', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-custom-remote-'))
+    const verified: Array<{ selection: unknown; apiKey: string | undefined }> = []
+    const setup = {
+      dshHome: root,
+      providers: () => [{
+        id: 'custom-openai-remote', name: 'Custom OpenAI-compatible provider (remote)', authMethods: [], customScope: 'remote' as const,
+      }],
+      modelsFor: async () => [],
+      isAuthenticated: async () => false,
+      authenticate: async () => {},
+      verifyCustomProvider: async (selection: unknown, apiKey: string | undefined) => { verified.push({ selection, apiKey }) },
+    }
+    const tui = new ScriptedTui([
+      'custom-openai-remote',
+      'Acme Models',
+      'http://models.example/v1/chat/completions',
+      'https://models.example/v1/chat/completions',
+      'acme-reasoner',
+      'yes',
+      'high',
+    ])
+    const selection = await runInstallerModelWizard(tui as never, setup)
+    expect(selection).toEqual({
+      provider: 'custom-openai-remote',
+      model: 'acme-reasoner',
+      reasoningEffort: 'high',
+      customProvider: {
+        kind: 'openai-compatible', scope: 'remote', name: 'Acme Models', usesApiKey: true,
+        chatCompletionsEndpoint: 'https://models.example/v1/chat/completions',
+      },
+    })
+    expect(verified).toEqual([{ selection, apiKey: 'wizard-private-value' }])
+    expect(tui.messages).toContain('Remote custom providers require an HTTPS endpoint.')
+    expect(JSON.stringify(tui.messages)).not.toContain('wizard-private-value')
+    expect(JSON.parse(await readFile(join(root, 'installer-model.json'), 'utf8'))).toEqual(selection)
+  })
+
+  it('supports a keyless loopback provider and retries a failed live test', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-custom-local-'))
+    let attempts = 0
+    const setup = {
+      dshHome: root,
+      providers: () => [{
+        id: 'custom-openai-local', name: 'Custom OpenAI-compatible provider (local)', authMethods: [], customScope: 'local' as const,
+      }],
+      modelsFor: async () => [],
+      isAuthenticated: async () => false,
+      authenticate: async () => {},
+      verifyCustomProvider: async (_selection: unknown, apiKey: string | undefined) => {
+        expect(apiKey).toBeUndefined()
+        attempts += 1
+        if (attempts === 1) throw new Error('The endpoint is warming up.')
+      },
+    }
+    const tui = new ScriptedTui([
+      'custom-openai-local',
+      'Laptop model',
+      'http://192.168.1.5:11434/v1/chat/completions',
+      'http://localhost:11434/v1/chat/completions',
+      'local-model',
+      'no',
+      'default',
+      'retry',
+    ])
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toEqual({
+      provider: 'custom-openai-local',
+      model: 'local-model',
+      customProvider: {
+        kind: 'openai-compatible', scope: 'local', name: 'Laptop model', usesApiKey: false,
+        chatCompletionsEndpoint: 'http://localhost:11434/v1/chat/completions',
+      },
+    })
+    expect(attempts).toBe(2)
+    expect(tui.secretAttempts).toBe(0)
+    expect(tui.messages).toContain('Local custom providers must use localhost, 127.0.0.1, or [::1].')
+    expect(tui.messages).toContain('The endpoint is warming up.')
+  })
+
   it('selects provider, private authentication, model, and reasoning before agent startup', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-'))
     const { setup, authentications } = fakeSetup(root)

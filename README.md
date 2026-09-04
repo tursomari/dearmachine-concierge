@@ -77,6 +77,16 @@ installer and Machtiani after installation. Dear Machine's backend agent
 remains a later, explicit choice in the guided conversation. No configuration
 flag is required.
 
+The same wizard also offers separate custom OpenAI-compatible choices. Remote
+providers require a complete HTTPS Chat Completions endpoint. Local providers
+may use HTTP or HTTPS but are restricted to `localhost`, `127.0.0.1`, or
+`[::1]`. Either choice can use a masked API key or no key. The user supplies
+the exact model name and may select a reasoning level or leave it entirely to
+the provider. Before saving the choice, the installer sends a small live test
+that must stream a tool call and then continue after the tool result. This is a
+point-in-time compatibility check, not a promise that an external provider
+will never change.
+
 The TUI captures required API keys in masked fields and writes them directly to
 private mode-`0600` storage; the values never enter the transcript or DSH event
 stream. A key-entry field can be cancelled with Ctrl+C without exiting the

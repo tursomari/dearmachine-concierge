@@ -2,11 +2,19 @@ import { chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:f
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import {
+  API_KEY_PROVIDERS,
   apiKeyModels,
   apiKeyProviders,
+  CUSTOM_OPENAI_LOCAL_PROVIDER,
+  CUSTOM_OPENAI_REMOTE_PROVIDER,
   ModelHost,
+  removeApiKeyCredential,
   readApiKeyCredential,
   subscriptionProviders,
+  validateCustomOpenAIEndpoint,
+  verifyCustomOpenAIProfile,
+  type CustomOpenAIProviderConfig,
+  type CustomOpenAIProviderScope,
   type ModelHostProfile,
   writeApiKeyCredential,
 } from '@dearmachine/machtiani-model-host'
@@ -24,6 +32,7 @@ export interface InstallerProviderOption {
   id: string
   name: string
   authMethods: readonly InstallerAuthMethod[]
+  customScope?: CustomOpenAIProviderScope
 }
 
 export interface InstallerModelOption {
@@ -36,6 +45,7 @@ export interface InstallerModelSelection {
   provider: string
   model: string
   reasoningEffort?: string
+  customProvider?: CustomOpenAIProviderConfig
 }
 
 export type InstallerAuthPrompt =
@@ -118,15 +128,31 @@ export class InstallerModelSetup {
       name: provider.name,
       authMethods: [{ id: 'api_key', label: `${provider.name} API key`, subscription: false }],
       }))
-    return [...subscriptions, ...apiKeys]
+    const custom: InstallerProviderOption[] = [
+      {
+        id: CUSTOM_OPENAI_REMOTE_PROVIDER,
+        name: 'Custom OpenAI-compatible provider (remote)',
+        authMethods: [],
+        customScope: 'remote',
+      },
+      {
+        id: CUSTOM_OPENAI_LOCAL_PROVIDER,
+        name: 'Custom OpenAI-compatible provider (local)',
+        authMethods: [],
+        customScope: 'local',
+      },
+    ]
+    return [...subscriptions, ...apiKeys, ...custom]
   }
 
   async modelsFor(providerId: string): Promise<readonly InstallerModelOption[]> {
+    if (providerId === CUSTOM_OPENAI_REMOTE_PROVIDER || providerId === CUSTOM_OPENAI_LOCAL_PROVIDER) return []
     if (apiKeyProviders().some(provider => provider.id === providerId)) return apiKeyModels(providerId)
     return await new ModelHost(this.profileFor({ provider: providerId, model: 'pending' })).models()
   }
 
   async isAuthenticated(providerId: string): Promise<boolean> {
+    if (providerId === CUSTOM_OPENAI_REMOTE_PROVIDER || providerId === CUSTOM_OPENAI_LOCAL_PROVIDER) return false
     if (apiKeyProviders().some(provider => provider.id === providerId)) return await readApiKeyCredential(this.credentialPath, providerId) !== undefined
     return await new ModelHost(this.profileFor({ provider: providerId, model: 'pending' })).authenticated()
   }
@@ -154,7 +180,49 @@ export class InstallerModelSetup {
 
   async close(): Promise<void> {}
 
+  async verifyCustomProvider(selection: InstallerModelSelection, apiKey: string | undefined, signal?: AbortSignal): Promise<void> {
+    const customProvider = selection.customProvider
+    const scope = customProvider?.scope
+    if (customProvider === undefined || scope === undefined || (selection.provider !== CUSTOM_OPENAI_REMOTE_PROVIDER && selection.provider !== CUSTOM_OPENAI_LOCAL_PROVIDER)) {
+      throw new Error('invalid custom provider selection')
+    }
+    if (selection.customProvider?.usesApiKey === true && apiKey === undefined) throw new Error('the custom provider API key is missing')
+    if (selection.customProvider?.usesApiKey === false && apiKey !== undefined) throw new Error('a keyless custom provider cannot receive an API key')
+    if (apiKey === undefined) await removeApiKeyCredential(this.credentialPath, selection.provider)
+    else await writeApiKeyCredential(this.credentialPath, selection.provider, apiKey)
+    await verifyCustomOpenAIProfile(this.profileFor({
+      ...selection,
+      customProvider: {
+        ...customProvider,
+        chatCompletionsEndpoint: validateCustomOpenAIEndpoint(customProvider.chatCompletionsEndpoint, scope),
+      },
+    }), signal)
+  }
+
   profileFor(selection: InstallerModelSelection): ModelHostProfile {
+    if (selection.provider === CUSTOM_OPENAI_REMOTE_PROVIDER || selection.provider === CUSTOM_OPENAI_LOCAL_PROVIDER) {
+      const definition = API_KEY_PROVIDERS.find(provider => provider.id === selection.provider)!
+      const customProvider = selection.customProvider
+      if (customProvider === undefined) throw new Error('custom provider settings are missing')
+      const credential = customProvider.usesApiKey ? {
+        kind: 'environment-file' as const,
+        path: this.credentialPath,
+        variable: definition.variable,
+      } : undefined
+      return {
+        version: 1,
+        driver: 'openai-compatible',
+        provider: selection.provider,
+        authMethod: 'optional_api_key',
+        model: selection.model,
+        ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+        ...(credential === undefined ? {} : { credential }),
+        customProvider: {
+          ...customProvider,
+          chatCompletionsEndpoint: validateCustomOpenAIEndpoint(customProvider.chatCompletionsEndpoint, customProvider.scope),
+        },
+      }
+    }
     const api = apiKeyProviders().find(provider => provider.id === selection.provider)
     if (api !== undefined) return {
       version: 1, driver: 'pi-ai', provider: selection.provider, authMethod: 'api_key', model: selection.model,
@@ -180,10 +248,32 @@ function parsedSelection(value: unknown): InstallerModelSelection | undefined {
   const candidate = value as Record<string, unknown>
   if (typeof candidate.provider !== 'string' || candidate.provider === '' || typeof candidate.model !== 'string' || candidate.model === '') return undefined
   if (candidate.reasoningEffort !== undefined && (typeof candidate.reasoningEffort !== 'string' || candidate.reasoningEffort === '')) return undefined
+  let customProvider: CustomOpenAIProviderConfig | undefined
+  if (candidate.customProvider !== undefined) {
+    if (typeof candidate.customProvider !== 'object' || candidate.customProvider === null || Array.isArray(candidate.customProvider)) return undefined
+    const custom = candidate.customProvider as Record<string, unknown>
+    if (custom.kind !== 'openai-compatible' || (custom.scope !== 'remote' && custom.scope !== 'local') ||
+      typeof custom.name !== 'string' || custom.name.trim() === '' || typeof custom.chatCompletionsEndpoint !== 'string' ||
+      typeof custom.usesApiKey !== 'boolean') return undefined
+    try {
+      customProvider = {
+        kind: 'openai-compatible',
+        scope: custom.scope,
+        name: custom.name,
+        chatCompletionsEndpoint: validateCustomOpenAIEndpoint(custom.chatCompletionsEndpoint, custom.scope),
+        usesApiKey: custom.usesApiKey,
+      }
+    } catch { return undefined }
+  }
+  const expectedScope = candidate.provider === CUSTOM_OPENAI_REMOTE_PROVIDER
+    ? 'remote'
+    : candidate.provider === CUSTOM_OPENAI_LOCAL_PROVIDER ? 'local' : undefined
+  if (expectedScope === undefined ? customProvider !== undefined : customProvider?.scope !== expectedScope) return undefined
   return {
     provider: candidate.provider,
     model: candidate.model,
     ...(candidate.reasoningEffort === undefined ? {} : { reasoningEffort: candidate.reasoningEffort }),
+    ...(customProvider === undefined ? {} : { customProvider }),
   }
 }
 
@@ -222,8 +312,13 @@ export async function isKnownInstallerModelSelection(
   setup: Pick<InstallerModelSetup, 'providers' | 'modelsFor'>,
   selection: InstallerModelSelection | undefined,
 ): Promise<boolean> {
-  if (selection === undefined || !setup.providers().some(provider => provider.id === selection.provider)) return false
-  const model = (await setup.modelsFor(selection.provider)).find(candidate => candidate.id === selection.model)
+  const parsed = parsedSelection(selection)
+  if (parsed === undefined || !setup.providers().some(provider => provider.id === parsed.provider)) return false
+  const customScope = setup.providers().find(provider => provider.id === parsed.provider)?.customScope
+  if (customScope !== undefined) {
+    return parsed.customProvider?.scope === customScope
+  }
+  const model = (await setup.modelsFor(parsed.provider)).find(candidate => candidate.id === parsed.model)
   if (model === undefined) return false
-  return selection.reasoningEffort === undefined || model.reasoningEfforts.includes(selection.reasoningEffort)
+  return parsed.reasoningEffort === undefined || model.reasoningEfforts.includes(parsed.reasoningEffort)
 }

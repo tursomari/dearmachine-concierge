@@ -1,6 +1,7 @@
 import { chmod, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import {
@@ -11,10 +12,137 @@ import {
   readApiKeyCredential,
   saveModelHostProfile,
   serveModelHost,
+  validateCustomOpenAIEndpoint,
+  verifyCustomOpenAIProfile,
   writeApiKeyCredential,
 } from '../src/index.ts'
 
+async function requestBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  let body = ''
+  for await (const chunk of request) body += String(chunk)
+  return JSON.parse(body) as Record<string, unknown>
+}
+
+function streamEvents(response: ServerResponse, events: readonly Record<string, unknown>[]): void {
+  response.writeHead(200, { 'content-type': 'text/event-stream' })
+  for (const event of events) response.write(`data: ${JSON.stringify(event)}\n\n`)
+  response.end('data: [DONE]\n\n')
+}
+
 describe('shared model host profile', () => {
+  it('separates HTTPS remote endpoints from loopback-only local endpoints', () => {
+    expect(validateCustomOpenAIEndpoint('https://models.example/v1/chat/completions', 'remote')).toBe('https://models.example/v1/chat/completions')
+    expect(validateCustomOpenAIEndpoint('http://127.0.0.1:11434/v1/chat/completions/', 'local')).toBe('http://127.0.0.1:11434/v1/chat/completions')
+    expect(validateCustomOpenAIEndpoint('https://[::1]:8443/v1/chat/completions', 'local')).toBe('https://[::1]:8443/v1/chat/completions')
+    expect(() => validateCustomOpenAIEndpoint('http://models.example/v1/chat/completions', 'remote')).toThrow('HTTPS')
+    expect(() => validateCustomOpenAIEndpoint('https://localhost/v1/chat/completions', 'remote')).toThrow('local custom-provider')
+    expect(() => validateCustomOpenAIEndpoint('http://192.168.1.10/v1/chat/completions', 'local')).toThrow('localhost')
+    expect(() => validateCustomOpenAIEndpoint('http://127.0.0.1:11434/v1/models', 'local')).toThrow('/chat/completions')
+    expect(() => validateCustomOpenAIEndpoint('https://models.example/v1/chat/completions?key=secret', 'remote')).toThrow('query parameters')
+  })
+
+  it('verifies keyless local streaming, tool calls, and tool-result continuation', async () => {
+    const requests: Array<{ body: Record<string, unknown>; authorization: string | undefined }> = []
+    const server = createServer(async (request, response) => {
+      requests.push({ body: await requestBody(request), authorization: request.headers.authorization })
+      if (requests.length === 1) {
+        streamEvents(response, [
+          { id: 'one', object: 'chat.completion.chunk', created: 1, model: 'local-test', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call-1', type: 'function', function: { name: 'compatibility_echo', arguments: '{"value":"ready"}' } }] }, finish_reason: null }] },
+          { id: 'one', object: 'chat.completion.chunk', created: 1, model: 'local-test', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+        ])
+      } else {
+        streamEvents(response, [
+          { id: 'two', object: 'chat.completion.chunk', created: 2, model: 'local-test', choices: [{ index: 0, delta: { role: 'assistant', content: 'Compatibility confirmed.' }, finish_reason: null }] },
+          { id: 'two', object: 'chat.completion.chunk', created: 2, model: 'local-test', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+        ])
+      }
+    })
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve) })
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('test server did not bind')
+      await verifyCustomOpenAIProfile({
+        version: 1,
+        driver: 'openai-compatible',
+        provider: 'custom-openai-local',
+        authMethod: 'optional_api_key',
+        model: 'local-test',
+        customProvider: {
+          kind: 'openai-compatible', scope: 'local', name: 'Local test', usesApiKey: false,
+          chatCompletionsEndpoint: `http://127.0.0.1:${address.port}/v1/chat/completions`,
+        },
+      })
+    } finally { await new Promise<void>((resolve, reject) => { server.close(error => { if (error === undefined) resolve(); else reject(error) }) }) }
+    expect(requests).toHaveLength(2)
+    expect(requests.map(request => request.authorization)).toEqual([undefined, undefined])
+    expect(requests[0]?.body).toMatchObject({ model: 'local-test', stream: true, tool_choice: 'required' })
+    expect(requests[0]?.body).not.toHaveProperty('reasoning_effort')
+    expect(requests[1]?.body.tools).toEqual([])
+    expect(requests[1]?.body).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({ role: 'assistant', tool_calls: expect.any(Array) }),
+        expect.objectContaining({ role: 'tool', tool_call_id: 'call-1' }),
+      ]),
+    })
+  })
+
+  it('sends a private custom-provider key and the optional reasoning level', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-custom-key-'))
+    const credentials = join(root, 'backends.env')
+    await writeApiKeyCredential(credentials, 'custom-openai-local', 'private-custom-key')
+    const requests: Array<{ body: Record<string, unknown>; authorization: string | undefined }> = []
+    const server = createServer(async (request, response) => {
+      requests.push({ body: await requestBody(request), authorization: request.headers.authorization })
+      if (requests.length === 1) {
+        streamEvents(response, [
+          { id: 'one', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call-2', type: 'function', function: { name: 'compatibility_echo', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] },
+        ])
+      } else {
+        streamEvents(response, [{ id: 'two', choices: [{ index: 0, delta: { role: 'assistant', content: 'Done.' }, finish_reason: 'stop' }] }])
+      }
+    })
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve) })
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('test server did not bind')
+      await verifyCustomOpenAIProfile({
+        version: 1, driver: 'openai-compatible', provider: 'custom-openai-local', authMethod: 'optional_api_key',
+        model: 'reasoning-test', reasoningEffort: 'high',
+        credential: { kind: 'environment-file', path: credentials, variable: 'MACHTIANI_CUSTOM_OPENAI_LOCAL_API_KEY' },
+        customProvider: {
+          kind: 'openai-compatible', scope: 'local', name: 'Reasoning test', usesApiKey: true,
+          chatCompletionsEndpoint: `http://127.0.0.1:${address.port}/v1/chat/completions`,
+        },
+      })
+    } finally { await new Promise<void>((resolve, reject) => { server.close(error => { if (error === undefined) resolve(); else reject(error) }) }) }
+    expect(requests).toHaveLength(2)
+    expect(requests.map(request => request.authorization)).toEqual(['Bearer private-custom-key', 'Bearer private-custom-key'])
+    expect(requests.map(request => request.body.reasoning_effort)).toEqual(['high', 'high'])
+    expect(JSON.stringify(requests)).not.toContain('MACHTIANI_CUSTOM_OPENAI_LOCAL_API_KEY')
+  })
+
+  it('does not follow redirects from a custom endpoint', async () => {
+    let requests = 0
+    const server = createServer((_request, response) => {
+      requests += 1
+      response.writeHead(302, { location: '/different/chat/completions' })
+      response.end()
+    })
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve) })
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('test server did not bind')
+      await expect(verifyCustomOpenAIProfile({
+        version: 1, driver: 'openai-compatible', provider: 'custom-openai-local', authMethod: 'optional_api_key', model: 'redirect-test',
+        customProvider: {
+          kind: 'openai-compatible', scope: 'local', name: 'Redirect test', usesApiKey: false,
+          chatCompletionsEndpoint: `http://127.0.0.1:${address.port}/v1/chat/completions`,
+        },
+      })).rejects.toThrow('did not complete the compatibility test')
+    } finally { await new Promise<void>((resolve, reject) => { server.close(error => { if (error === undefined) resolve(); else reject(error) }) }) }
+    expect(requests).toBe(1)
+  })
+
   it('stores one private credential reference without embedding the key', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-model-host-'))
     const credentials = join(root, 'config', 'dearmachine', 'backends.env')

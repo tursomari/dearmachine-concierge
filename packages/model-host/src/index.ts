@@ -10,12 +10,16 @@ import {
   type Credential,
   type CredentialInfo,
   type CredentialStore,
+  createModels,
+  createProvider,
   getSupportedThinkingLevels,
+  type Model,
   type Message as PiMessage,
   type Models,
   type ThinkingLevel,
   type Tool,
 } from '@earendil-works/pi-ai'
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { subscriptionDriver } from './subscription-drivers.ts'
 
 export { ANTHROPIC_SUBSCRIPTION_POLICY, subscriptionProviders } from './subscription-drivers.ts'
@@ -23,7 +27,17 @@ export { ANTHROPIC_SUBSCRIPTION_POLICY, subscriptionProviders } from './subscrip
 export const MODEL_HOST_PROTOCOL_VERSION = 1 as const
 export const MODEL_HOST_PROVIDER = 'machtiani-model-host'
 
-export type ModelHostAuthMethod = 'api_key' | 'subscription'
+export type ModelHostAuthMethod = 'api_key' | 'optional_api_key' | 'subscription'
+
+export type CustomOpenAIProviderScope = 'remote' | 'local'
+
+export interface CustomOpenAIProviderConfig {
+  kind: 'openai-compatible'
+  scope: CustomOpenAIProviderScope
+  name: string
+  chatCompletionsEndpoint: string
+  usesApiKey: boolean
+}
 
 export interface ModelHostProfile {
   version: 1
@@ -38,6 +52,7 @@ export interface ModelHostProfile {
     variable: string
   }
   runtimeProfile?: string
+  customProvider?: CustomOpenAIProviderConfig
 }
 
 export interface ModelHostMessage {
@@ -66,6 +81,7 @@ export interface ModelHostGenerateRequest {
   stop?: readonly string[]
   model?: string
   reasoningEffort?: string
+  toolChoice?: 'auto' | 'none' | 'required'
   signal?: AbortSignal
 }
 
@@ -127,17 +143,52 @@ export class ModelHostError extends Error {
   }
 }
 
+export const CUSTOM_OPENAI_REMOTE_PROVIDER = 'custom-openai-remote'
+export const CUSTOM_OPENAI_LOCAL_PROVIDER = 'custom-openai-local'
+
 export interface ApiKeyProviderDefinition {
-  id: 'openrouter' | 'deepseek' | 'openai'
+  id: 'openrouter' | 'deepseek' | 'openai' | typeof CUSTOM_OPENAI_REMOTE_PROVIDER | typeof CUSTOM_OPENAI_LOCAL_PROVIDER
   name: string
-  variable: 'OPENROUTER_API_KEY' | 'DEEPSEEK_API_KEY' | 'OPENAI_API_KEY'
+  variable: 'OPENROUTER_API_KEY' | 'DEEPSEEK_API_KEY' | 'OPENAI_API_KEY' | 'MACHTIANI_CUSTOM_OPENAI_REMOTE_API_KEY' | 'MACHTIANI_CUSTOM_OPENAI_LOCAL_API_KEY'
 }
 
 export const API_KEY_PROVIDERS: readonly ApiKeyProviderDefinition[] = [
   { id: 'openrouter', name: 'OpenRouter', variable: 'OPENROUTER_API_KEY' },
   { id: 'deepseek', name: 'DeepSeek', variable: 'DEEPSEEK_API_KEY' },
   { id: 'openai', name: 'OpenAI API', variable: 'OPENAI_API_KEY' },
+  { id: CUSTOM_OPENAI_REMOTE_PROVIDER, name: 'Custom OpenAI-compatible provider (remote)', variable: 'MACHTIANI_CUSTOM_OPENAI_REMOTE_API_KEY' },
+  { id: CUSTOM_OPENAI_LOCAL_PROVIDER, name: 'Custom OpenAI-compatible provider (local)', variable: 'MACHTIANI_CUSTOM_OPENAI_LOCAL_API_KEY' },
 ]
+
+function expectedCustomScope(provider: string): CustomOpenAIProviderScope | undefined {
+  if (provider === CUSTOM_OPENAI_REMOTE_PROVIDER) return 'remote'
+  if (provider === CUSTOM_OPENAI_LOCAL_PROVIDER) return 'local'
+  return undefined
+}
+
+/** Validate and normalize the exact Chat Completions URL supplied by a user. */
+export function validateCustomOpenAIEndpoint(value: string, scope: CustomOpenAIProviderScope): string {
+  if (value !== value.trim() || value.length > 4096) throw new ModelHostError('INVALID_REQUEST', 'The Chat Completions endpoint is not a valid single URL.')
+  let endpoint: URL
+  try { endpoint = new URL(value) } catch { throw new ModelHostError('INVALID_REQUEST', 'Enter a complete Chat Completions URL, such as https://provider.example/v1/chat/completions.') }
+  if (endpoint.username !== '' || endpoint.password !== '' || endpoint.search !== '' || endpoint.hash !== '') {
+    throw new ModelHostError('INVALID_REQUEST', 'The endpoint must not contain credentials, query parameters, or a fragment.')
+  }
+  const hostname = endpoint.hostname.toLocaleLowerCase()
+  const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
+  if (scope === 'remote') {
+    if (endpoint.protocol !== 'https:') throw new ModelHostError('INVALID_REQUEST', 'Remote custom providers require an HTTPS endpoint.')
+    if (loopback) throw new ModelHostError('INVALID_REQUEST', 'Choose the local custom-provider option for a loopback endpoint.')
+  } else {
+    if (endpoint.protocol !== 'http:' && endpoint.protocol !== 'https:') throw new ModelHostError('INVALID_REQUEST', 'Local custom providers require an HTTP or HTTPS endpoint.')
+    if (!loopback) throw new ModelHostError('INVALID_REQUEST', 'Local custom providers must use localhost, 127.0.0.1, or [::1].')
+  }
+  endpoint.pathname = endpoint.pathname.replace(/\/+$/u, '')
+  if (!endpoint.pathname.endsWith('/chat/completions')) {
+    throw new ModelHostError('INVALID_REQUEST', 'Enter the complete Chat Completions endpoint ending in /chat/completions.')
+  }
+  return endpoint.toString()
+}
 
 function providerDefinition(provider: string): ApiKeyProviderDefinition {
   const result = API_KEY_PROVIDERS.find(candidate => candidate.id === provider)
@@ -252,14 +303,40 @@ function validateProfile(value: unknown): asserts value is ModelHostProfile {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new ModelHostError('INVALID_REQUEST', 'The shared model profile is invalid.')
   const profile = value as Partial<ModelHostProfile>
   if (profile.version !== 1 || typeof profile.driver !== 'string' || typeof profile.provider !== 'string' ||
-    (profile.authMethod !== 'api_key' && profile.authMethod !== 'subscription') || typeof profile.model !== 'string' || profile.model === '') {
+    (profile.authMethod !== 'api_key' && profile.authMethod !== 'optional_api_key' && profile.authMethod !== 'subscription') || typeof profile.model !== 'string' || profile.model === '') {
     throw new ModelHostError('INVALID_REQUEST', 'The shared model profile is invalid.')
+  }
+  if (profile.reasoningEffort !== undefined && (typeof profile.reasoningEffort !== 'string' || profile.reasoningEffort.trim() === '' || /[\r\n\0]/u.test(profile.reasoningEffort))) {
+    throw new ModelHostError('INVALID_REQUEST', 'The reasoning level in the shared model profile is invalid.')
   }
   if (profile.authMethod === 'api_key') {
     const expected = providerDefinition(profile.provider)
     if (profile.driver !== 'pi-ai' || profile.credential?.kind !== 'environment-file' ||
       profile.credential.variable !== expected.variable || typeof profile.credential.path !== 'string' || profile.credential.path === '') {
       throw new ModelHostError('INVALID_REQUEST', 'The API-key model profile has an invalid credential reference.')
+    }
+    if (profile.customProvider !== undefined) throw new ModelHostError('INVALID_REQUEST', 'A built-in provider profile cannot contain custom endpoint settings.')
+  } else if (profile.authMethod === 'optional_api_key') {
+    const scope = expectedCustomScope(profile.provider)
+    const custom = profile.customProvider
+    if (profile.driver !== 'openai-compatible' || scope === undefined || custom?.kind !== 'openai-compatible' || custom.scope !== scope ||
+      typeof custom.name !== 'string' || custom.name.trim() === '' || custom.name !== custom.name.trim() || /[\r\n\0]/u.test(custom.name) ||
+      typeof custom.usesApiKey !== 'boolean') {
+      throw new ModelHostError('INVALID_REQUEST', 'The custom OpenAI-compatible model profile is invalid.')
+    }
+    validateCustomOpenAIEndpoint(custom.chatCompletionsEndpoint, scope)
+    if (custom.usesApiKey && profile.credential === undefined) {
+      throw new ModelHostError('INVALID_REQUEST', 'The custom provider is configured to use an API key, but its credential reference is missing.')
+    }
+    if (!custom.usesApiKey && profile.credential !== undefined) {
+      throw new ModelHostError('INVALID_REQUEST', 'The keyless custom provider must not contain a credential reference.')
+    }
+    if (profile.credential !== undefined) {
+      const expected = providerDefinition(profile.provider)
+      if (profile.credential.kind !== 'environment-file' || profile.credential.variable !== expected.variable ||
+        typeof profile.credential.path !== 'string' || profile.credential.path === '') {
+        throw new ModelHostError('INVALID_REQUEST', 'The custom provider profile has an invalid credential reference.')
+      }
     }
   } else {
     const combinations = new Map([
@@ -270,6 +347,7 @@ function validateProfile(value: unknown): asserts value is ModelHostProfile {
     if (combinations.get(profile.provider) !== profile.driver || typeof profile.runtimeProfile !== 'string' || profile.runtimeProfile === '') {
       throw new ModelHostError('INVALID_REQUEST', 'The subscription model profile has an invalid official-runtime reference.')
     }
+    if (profile.customProvider !== undefined) throw new ModelHostError('INVALID_REQUEST', 'A subscription profile cannot contain custom endpoint settings.')
   }
 }
 
@@ -306,7 +384,56 @@ class FileCredentialStore implements CredentialStore {
   }
 }
 
+function endpointBaseUrl(chatCompletionsEndpoint: string): string {
+  return chatCompletionsEndpoint.slice(0, -'/chat/completions'.length)
+}
+
+function customModels(profile: ModelHostProfile): Models {
+  const custom = profile.customProvider!
+  const normalizedEndpoint = validateCustomOpenAIEndpoint(custom.chatCompletionsEndpoint, custom.scope)
+  const credentialStore = new FileCredentialStore(profile)
+  const models = createModels({ credentials: credentialStore })
+  const model: Model<'openai-completions'> = {
+    id: profile.model,
+    name: profile.model,
+    api: 'openai-completions',
+    provider: profile.provider as Model<'openai-completions'>['provider'],
+    baseUrl: endpointBaseUrl(normalizedEndpoint),
+    reasoning: profile.reasoningEffort !== undefined,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 131072,
+    maxTokens: 8192,
+    compat: {
+      supportsUsageInStreaming: false,
+      maxTokensField: 'max_tokens',
+      ...(profile.reasoningEffort === undefined ? {} : { supportsReasoningEffort: true }),
+    },
+  }
+  models.setProvider(createProvider({
+    id: profile.provider,
+    name: custom.name,
+    baseUrl: model.baseUrl,
+    auth: {
+      apiKey: {
+        name: `${custom.name} API key`,
+        resolve: async () => {
+          if (profile.credential === undefined) {
+            return { auth: { apiKey: 'unused', headers: { Authorization: null } }, source: 'No API key' }
+          }
+          const key = await readApiKeyCredential(profile.credential.path, profile.provider)
+          return key === undefined ? undefined : { auth: { apiKey: key }, source: profile.credential.variable }
+        },
+      },
+    },
+    models: [model],
+    api: openAICompletionsApi(),
+  }))
+  return models
+}
+
 function hostModels(profile: ModelHostProfile): Models {
+  if (profile.authMethod === 'optional_api_key') return customModels(profile)
   return builtinModels({
     credentials: new FileCredentialStore(profile),
     authContext: {
@@ -403,12 +530,15 @@ export class ModelHost {
 
   async authenticated(): Promise<boolean> {
     if (this.profile.authMethod === 'subscription') return await subscriptionDriver(this.profile).authenticated()
+    if (this.profile.authMethod === 'optional_api_key' && this.profile.credential === undefined) return true
     if (this.profile.credential === undefined) return false
     return await readApiKeyCredential(this.profile.credential.path, this.profile.provider) !== undefined
   }
 
   async models(): Promise<readonly ModelHostModelInfo[]> {
-    return this.profile.authMethod === 'subscription' ? await subscriptionDriver(this.profile).models() : apiKeyModels(this.profile.provider)
+    if (this.profile.authMethod === 'subscription') return await subscriptionDriver(this.profile).models()
+    if (this.profile.authMethod === 'optional_api_key') return [{ id: this.profile.model, name: this.profile.model, reasoningEfforts: this.profile.reasoningEffort === undefined ? [] : [this.profile.reasoningEffort] }]
+    return apiKeyModels(this.profile.provider)
   }
 
   async login(interaction: ModelHostAuthInteraction, mode?: ModelHostLoginMode): Promise<void> {
@@ -432,7 +562,7 @@ export class ModelHost {
     const models = hostModels(this.profile)
     const modelId = request.model ?? this.profile.model
     const model = models.getModel(this.profile.provider, modelId)
-    if (model === undefined) throw new ModelHostError('MODEL_UNAVAILABLE', `The selected model ${modelId} is not in the pinned provider catalogue.`)
+    if (model === undefined) throw new ModelHostError('MODEL_UNAVAILABLE', `The selected model ${modelId} is not available from this provider configuration.`)
     const toolNames = new Map<string, string>()
     for (const message of request.messages) for (const call of message.toolCalls ?? []) toolNames.set(call.id, call.name)
     const prompt = systemPrompt(request)
@@ -446,6 +576,16 @@ export class ModelHost {
       ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
       ...(request.maxTokens === undefined ? {} : { maxTokens: request.maxTokens }),
       ...(request.stop === undefined ? {} : { stopSequences: [...request.stop] }),
+      // Chat Completions supports "required" although pi-ai's provider-neutral
+      // ToolChoice union currently exposes only "auto" and "none".
+      ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice as never }),
+      ...(this.profile.authMethod !== 'optional_api_key' ? {} : {
+        fetch: async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+          const response = await fetch(input, { ...init, redirect: 'manual' })
+          if (response.status >= 300 && response.status < 400) throw new Error('Custom provider redirects are not followed.')
+          return response
+        },
+      }),
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     }
     try {
@@ -456,6 +596,77 @@ export class ModelHost {
     } catch (error) {
       throw mappedError(error instanceof Error ? error.message : String(error))
     }
+  }
+}
+
+function compatibilityFailure(error: unknown): ModelHostError {
+  if (error instanceof ModelHostError) {
+    if (error.code === 'AUTH_REQUIRED') return new ModelHostError('AUTH_REQUIRED', 'The provider rejected the API key, or a required API key was not supplied.')
+    if (error.code === 'MODEL_UNAVAILABLE') return new ModelHostError('MODEL_UNAVAILABLE', 'The endpoint did not accept that model name. Check the provider’s canonical model documentation.')
+    if (error.code === 'RATE_LIMITED' || error.code === 'QUOTA_EXHAUSTED') return error
+  }
+  return new ModelHostError('UNSUPPORTED_CAPABILITY', 'The endpoint did not complete the compatibility test. Check that it is reachable and implements streaming Chat Completions with tools.')
+}
+
+/**
+ * Prove the exact custom endpoint, credentials, model, and optional reasoning
+ * setting can stream a tool call and continue after its result.
+ */
+export async function verifyCustomOpenAIProfile(profile: ModelHostProfile, signal?: AbortSignal): Promise<void> {
+  validateProfile(profile)
+  if (profile.authMethod !== 'optional_api_key') throw new ModelHostError('INVALID_REQUEST', 'Only custom OpenAI-compatible profiles use this compatibility test.')
+  const host = new ModelHost(profile)
+  const sessionId = `compatibility-${randomUUID()}`
+  const timeout = AbortSignal.timeout(120_000)
+  const requestSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
+  const firstMessages: ModelHostMessage[] = [{
+    role: 'user',
+    content: 'Call the compatibility_echo tool exactly once with value "ready". Do not answer in text before calling it.',
+  }]
+  let toolCall: { id: string; name: string; arguments: string } | undefined
+  let firstFinished = false
+  try {
+    for await (const event of host.generate({
+      caller: 'installer-compatibility-test',
+      sessionId,
+      messages: firstMessages,
+      tools: [{
+        name: 'compatibility_echo',
+        description: 'Return a small test value to prove tool calling works.',
+        parameters: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false },
+      }],
+      toolChoice: 'required',
+      maxTokens: 256,
+      signal: requestSignal,
+    })) {
+      if (event.type === 'tool-end' && event.name === 'compatibility_echo') toolCall = { id: event.id, name: event.name, arguments: event.arguments }
+      if (event.type === 'finish' && event.reason === 'tool-calls') firstFinished = true
+    }
+  } catch (error) { throw compatibilityFailure(error) }
+  if (toolCall === undefined || !firstFinished) {
+    throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'The model streamed a response but did not make the required tool call. Choose a model with Chat Completions tool support.')
+  }
+
+  let continuation = ''
+  let continuedNormally = false
+  try {
+    for await (const event of host.generate({
+      caller: 'installer-compatibility-test',
+      sessionId,
+      messages: [
+        ...firstMessages,
+        { role: 'assistant', content: '', toolCalls: [toolCall] },
+        { role: 'tool', content: '{"value":"ready"}', toolCallId: toolCall.id, toolName: toolCall.name },
+      ],
+      maxTokens: 128,
+      signal: requestSignal,
+    })) {
+      if (event.type === 'text-delta') continuation += event.text
+      if (event.type === 'finish' && event.reason === 'stop') continuedNormally = true
+    }
+  } catch (error) { throw compatibilityFailure(error) }
+  if (continuation.trim() === '' || !continuedNormally) {
+    throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'The model accepted a tool call but did not continue normally after the tool result.')
   }
 }
 

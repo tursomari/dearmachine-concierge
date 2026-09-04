@@ -34,6 +34,22 @@ installer never reads or copies subscription tokens.
 Official runtime subprocesses receive a small locale/certificate environment
 rather than the installer's ambient provider credentials.
 
+Custom OpenAI-compatible profiles deliberately use a separate driver and
+profile shape. They store a display name, the exact model ID, and a complete
+`/chat/completions` endpoint. Remote endpoints must use HTTPS and may not point
+at a literal loopback host. Local endpoints may use HTTP or HTTPS but must use
+`localhost`, `127.0.0.1`, or `[::1]`. Redirects are not followed. API keys are
+optional; when omitted, the client explicitly omits the Authorization header.
+When present, the key uses the same private credential-file boundary as the
+built-in providers. An optional reasoning level is sent only when the user
+selects one.
+
+The installer validates a custom profile with two streamed Chat Completions
+requests before it is selected: a required function call, followed by a normal
+assistant continuation after the function result. The selection is retained
+only after this live test passes. The protocol behavior follows the official
+[OpenAI Chat Completions reference](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions).
+
 OpenAI Codex subscription support is pinned to `@openai/codex` 0.153.2 and
 uses app-server browser-callback or device-code authentication, model discovery,
 streaming, cancellation, and dynamic tools. Browser sign-in is intended for a

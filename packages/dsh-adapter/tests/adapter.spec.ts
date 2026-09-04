@@ -53,8 +53,10 @@ describe('pinned DSH compatibility boundary', () => {
     const storedSettings = await readFile(join(root, 'settings.yaml'), 'utf8')
     expect(patch).toContain(`model: ${JSON.stringify(INSTALLER_MODEL)}`)
     expect(patch).not.toContain('apiKeyEnv:')
-    expect(patch).toContain('maxRetries: 3')
-    expect(patch).toContain('- PI_AI_ERROR')
+    expect(patch).toContain('id: machtiani-model-host')
+    expect(patch).toContain('id: machtiani-installer-tools')
+    expect(patch).toContain('id: goal\n  disabled: true')
+    expect(patch).toContain('timeoutMs: 3600000')
     expect(storedSettings).toContain(`reasoningEffort: "${INSTALLER_REASONING_EFFORT}"`)
     expect(profile).toContain('@deepseek-ai/dsh-sdk-app')
     expect(profile).not.toContain('@deepseek-ai/dsh-headless')
@@ -72,7 +74,7 @@ describe('pinned DSH compatibility boundary', () => {
     })
     const patch = await readFile(join(root, 'profiles/machtiani-installer/cordis.patch.yml'), 'utf8')
     const settings = await readFile(join(root, 'settings.yaml'), 'utf8')
-    expect(patch).toContain('"deepseek":')
+    expect(patch).toContain('provider: "machtiani-model-host"')
     expect(settings).toContain('model: "deepseek-v4-flash"')
     expect(settings).toContain('reasoningEffort: "high"')
     expect(`${patch}\n${settings}`).not.toContain('API_KEY')
@@ -86,7 +88,8 @@ describe('pinned DSH compatibility boundary', () => {
       const providers = setup.providers()
       expect(providers[0]?.id).toBe('openrouter')
       expect(providers.some(provider => provider.id === 'deepseek')).toBe(true)
-      expect(providers.some(provider => provider.id === 'openai-codex' && provider.authMethods[0]?.subscription)).toBe(true)
+      expect(providers.some(provider => provider.id === 'openai' && !provider.authMethods[0]?.subscription)).toBe(true)
+      expect(providers.some(provider => provider.id === 'openai-codex')).toBe(false)
       expect(providers.some(provider => provider.id === 'radius')).toBe(false)
       expect(setup.modelsFor('openrouter').find(model => model.id === 'z-ai/glm-5.3-flash')?.reasoningEfforts)
         .toEqual(['low', 'high', 'max'])
@@ -104,7 +107,7 @@ describe('pinned DSH compatibility boundary', () => {
     } finally {
       await setup.close()
     }
-    const credentials = join(root, '.credentials.yaml')
+    const credentials = join(root, 'backends.env')
     expect((await stat(credentials)).mode & 0o077).toBe(0)
     expect(await readFile(credentials, 'utf8')).toContain(secret)
 
@@ -126,7 +129,7 @@ describe('pinned DSH compatibility boundary', () => {
     await expect(loadInstallerModelSelection(root)).rejects.toThrow('private regular file')
   })
 
-  it('recognizes an existing environment credential without copying it to disk', async () => {
+  it('imports an existing environment credential into the shared private store', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-dsh-environment-auth-'))
     await chmod(root, 0o755)
     const setup = await InstallerModelSetup.open(root, { OPENROUTER_API_KEY: 'ambient-private-value' })
@@ -136,7 +139,9 @@ describe('pinned DSH compatibility boundary', () => {
       await setup.close()
     }
     expect((await stat(root)).mode & 0o077).toBe(0)
-    await expect(stat(join(root, '.credentials.yaml'))).rejects.toMatchObject({ code: 'ENOENT' })
+    const credentials = join(root, 'backends.env')
+    expect((await stat(credentials)).mode & 0o077).toBe(0)
+    expect(await readFile(credentials, 'utf8')).toContain('ambient-private-value')
   })
 
   it('normalizes only presentation-safe session events', () => {
@@ -150,6 +155,9 @@ describe('pinned DSH compatibility boundary', () => {
     expect(normalizeDshSessionEvent({
       type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'call-1', content: [] }] } },
     })).toEqual({ type: 'tool-end', id: 'call-1', failed: false })
+    expect(normalizeDshSessionEvent({
+      type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'call-2', content: [{ type: 'text', text: '[exit code: 124]' }] }] } },
+    })).toEqual({ type: 'tool-end', id: 'call-2', failed: true })
     expect(normalizeDshSessionEvent({
       type: 'turn/end', data: { reason: { kind: 'completed' } },
     })).toEqual({ type: 'turn-end', outcome: 'completed' })

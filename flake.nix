@@ -43,6 +43,10 @@
               cp -R package.json node_modules packages "$runtime/"
               makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-installer" \
                 --add-flags "$runtime/packages/app/dist/bin.mjs"
+              makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-model-host" \
+                --add-flags "$runtime/packages/model-host/dist/bin.mjs"
+              makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-installer-backend" \
+                --add-flags "$runtime/packages/backend-adapter/dist/bin.mjs"
               runHook postInstall
             '';
             passthru = {

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, isAbsolute, join } from 'node:path'
 import { InstallerTui, assertInteractiveTerminal } from '@dearmachine/machtiani-installer-tui'
-import { runFirstThreeStages, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
+import { messages, runFirstThreeStages, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
 import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credentials'
 import {
   DshAgentSession,
@@ -11,9 +11,11 @@ import {
   type InstallerAgentEvent,
   type InstallerModelSelection,
 } from '@dearmachine/machtiani-installer-dsh-adapter'
+import type { InstallationOutcome } from '@dearmachine/machtiani-installer-dsh-adapter/installer-tools'
 import { CredentialBridge } from './credential-bridge.ts'
 import { acquireInstallerLock } from './lock.ts'
 import { runInstallerModelWizard } from './model-wizard.ts'
+import { API_KEY_PROVIDERS, saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
 
@@ -103,7 +105,7 @@ export function installerAgentPrompt(contract: string, credentialHelper: string)
   const helper = `${JSON.stringify(process.execPath)} ${JSON.stringify(credentialHelper)}`
   return `You are the Machtiani Installer agent. Conduct the installation yourself in this one persistent session.
 
-The complete permanent contract is included below. Follow it exactly and read each stage file only when that contract permits. Use ordinary assistant responses for the conversation: ask exactly one question, end the turn, and wait for the human's next message. Do not use ask_user_question.
+The complete permanent contract is included below. The launcher has already shown its exact welcome, obtained explicit consent, and configured the shared provider, authentication, model, and reasoning level. Do not repeat those questions. Begin at Stage 1. At Stage 2, verify the saved shared model-host profile instead of asking for or collecting another LLM credential. Follow every remaining stage and read each stage file only when that contract permits. Use ordinary assistant responses for the conversation: ask exactly one question, end the turn, and wait for the human's next message. Do not use ask_user_question.
 
 The launcher owns the masked credential field. When the contract reaches an absent LLM credential, present its canonical credential message and then call the bash tool with exactly:
 ${helper} llm "<selected provider>"
@@ -119,11 +121,53 @@ Canonical messages must be presented exactly, without a preface or follow-up sen
 
 For every bash command that contains a pipeline, begin with \`set -o pipefail\`. Never append \`echo exit=$?\` to infer success; rely on the bash tool's actual result and inspect a nonzero failure before continuing.
 
-Begin now. Your first visible response must be only the contract's canonical welcome and consent message.
+\`dearmachine up --create --resume\` performs durable, model-backed bootstrap work and can be quiet for several minutes. Start that command with the bash tool's background option, monitor the returned job until it completes, and relay its stage progress in ordinary language. Never wrap it in a short shell timeout, never kill it merely because output pauses, and never start a second copy while the first job is alive.
+
+Begin now with Stage 1. Do not repeat the welcome or the provider/model questions already completed by the launcher.
+
+When the installation succeeds or cannot safely continue, call finish_installation with an evidence-based outcome. Do not merely print a terminal report.
 
 <installation_contract>
 ${contract}
 </installation_contract>`
+}
+
+async function waitForInstallationOutcome(path: string, signal: AbortSignal): Promise<InstallationOutcome> {
+  while (!signal.aborted) {
+    try {
+      const metadata = await lstat(path)
+      const owned = process.getuid === undefined || metadata.uid === process.getuid()
+      if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || (metadata.mode & 0o077) !== 0) {
+        throw new Error('installer outcome must be an owned private regular file')
+      }
+      const value = JSON.parse(await readFile(path, 'utf8')) as Partial<InstallationOutcome>
+      if (value.version !== 1 || !['success', 'partial', 'blocked'].includes(value.outcome ?? '') ||
+        typeof value.summary !== 'string' || !Array.isArray(value.receipts) || !value.receipts.every(receipt => typeof receipt === 'string')) {
+        throw new Error('installer outcome is invalid')
+      }
+      return value as InstallationOutcome
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    await new Promise<void>(resolve => {
+      const finish = () => {
+        signal.removeEventListener('abort', aborted)
+        resolve()
+      }
+      const timer = setTimeout(finish, 100)
+      timer.unref()
+      const aborted = () => { clearTimeout(timer); resolve() }
+      signal.addEventListener('abort', aborted, { once: true })
+    })
+  }
+  throw new Error('installer outcome wait was cancelled')
+}
+
+function renderInstallationOutcome(outcome: InstallationOutcome): string {
+  const heading = `Installation outcome — ${outcome.outcome.toLocaleUpperCase('en-US')}`
+  const receipts = outcome.receipts.length === 0 ? '' : `\n\n${outcome.receipts.map(receipt => `- ${receipt}`).join('\n')}`
+  const remaining = outcome.remainingAction === undefined ? '' : `\n\nNext: ${outcome.remainingAction}`
+  return `${heading}\n\n${outcome.summary}${receipts}${remaining}`
 }
 
 function renderAgentEvent(tui: InstallerTui, tools: Map<string, ReturnType<InstallerTui['beginTool']>>, event: InstallerAgentEvent): void {
@@ -198,10 +242,22 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const socketPath = join(paths.stateDirectory, `credential-${process.pid}-${randomUUID()}.sock`)
   const bridge = new CredentialBridge({ socketPath, tui, credentials })
   const credentialHelper = fileURLToPath(new URL('./credential-bin.mjs', import.meta.url))
+  const outcomePath = join(paths.stateDirectory, 'installation-outcome.json')
+  const outcomeWait = new AbortController()
   try {
     tui.start()
+    const consent = await tui.choose(messages.welcome, [
+      { value: 'continue', label: 'Continue', description: 'Begin guided installation' },
+      { value: 'not-now', label: 'Not now', description: 'Exit without changing anything' },
+    ], 'continue')
+    if (consent !== 'continue') {
+      tui.addAssistant(messages.notNow)
+      return
+    }
     tui.setProgress('Loading installer model choices')
-    setup = await InstallerModelSetup.open(dshHome)
+    const credentialPath = join(home, '.config', 'dearmachine', 'backends.env')
+    const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
+    setup = await InstallerModelSetup.open(dshHome, process.env, { credentialPath })
     tui.setProgress(undefined)
     wizard = runInstallerModelWizard(tui, setup)
     const configured = await Promise.race([
@@ -210,14 +266,30 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     ])
     if (configured.kind === 'exit') return
     const selection = configured.selection
+    const provider = API_KEY_PROVIDERS.find(candidate => candidate.id === selection.provider)
+    if (provider === undefined) throw new Error(`Unsupported shared model provider: ${selection.provider}`)
+    await saveModelHostProfile(modelProfilePath, {
+      version: 1,
+      driver: 'pi-ai',
+      provider: selection.provider,
+      authMethod: 'api_key',
+      model: selection.model,
+      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+      credential: { kind: 'environment-file', path: credentialPath, variable: provider.variable },
+    })
     await setup.close()
     setup = undefined
     tui.setProgress('Starting the installation assistant')
     await bridge.start()
+    await unlink(outcomePath).catch(error => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    })
     agent = new DshAgentSession({
       dshHome,
       workspace: source,
       selection,
+      modelProfilePath,
+      outcomePath,
       environment: { MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath },
       onEvent: event => { renderAgentEvent(tui, tools, event) },
       onStatus: status => { tui.setProgress(status === 'running' ? 'Machtiani is working' : undefined) },
@@ -225,12 +297,15 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     await agent.start()
     const contract = await readFile(join(source, 'INSTALL.md'), 'utf8')
     await agent.prompt(installerAgentPrompt(contract, credentialHelper))
-    const code = await Promise.race([
-      exitRequested.then(() => undefined),
-      agent.whenExited().then(exitCode => exitCode),
+    const completion = await Promise.race([
+      exitRequested.then(() => ({ kind: 'exit' as const })),
+      agent.whenExited().then(exitCode => ({ kind: 'agent-exit' as const, exitCode })),
+      waitForInstallationOutcome(outcomePath, outcomeWait.signal).then(outcome => ({ kind: 'outcome' as const, outcome })),
     ])
-    if (typeof code === 'number' || code === null) throw new Error(`The installation assistant exited unexpectedly (${code ?? 'unknown'}).`)
+    if (completion.kind === 'agent-exit') throw new Error(`The installation assistant exited unexpectedly (${completion.exitCode ?? 'unknown'}).`)
+    if (completion.kind === 'outcome') tui.addAssistant(renderInstallationOutcome(completion.outcome))
   } finally {
+    outcomeWait.abort()
     await agent?.shutdown().catch(() => {})
     await tui.dispose()
     await wizard?.catch(() => {})

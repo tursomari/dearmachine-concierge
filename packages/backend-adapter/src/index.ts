@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { access, lstat, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { access, lstat, mkdtemp, readFile, realpath, rm, symlink, unlink } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -111,9 +111,81 @@ export class AgentManagerBackendAdapter implements BackendPort {
   }
 }
 
-interface ProcessResult { code: number | null; stdout: string; stderr: string }
+export interface ProcessResult { code: number | null; stdout: string; stderr: string }
 
-async function runBounded(command: readonly string[], cwd: string, environment: NodeJS.ProcessEnv, timeoutMs: number): Promise<ProcessResult> {
+export interface ForgePreparationReceipt {
+  version: '2.13.21'
+  provider: string
+  model: string
+  credentialMigration: 'performed'
+  probe: 'passed'
+  compatibilitySurfaceCleanup: 'removed'
+}
+
+export interface ForgePreparationOptions {
+  home: string
+  providerEnvironmentPath: string
+  provider: string
+  model: string
+  forgeCommand?: string
+  timeoutMs?: number
+  run?: (command: readonly string[], cwd: string, environment: NodeJS.ProcessEnv, timeoutMs: number) => Promise<ProcessResult>
+}
+
+/**
+ * Performs the one verified Forge 2.13.21 API-key migration without leaving a
+ * broad home-directory credential surface behind. Call only after Forge was
+ * explicitly selected by the human.
+ */
+export async function prepareForge21321(options: ForgePreparationOptions): Promise<ForgePreparationReceipt> {
+  await loadPrivateEnvironment(options.providerEnvironmentPath)
+  const command = options.forgeCommand ?? 'forge'
+  const execute = options.run ?? runBounded
+  const environment = { ...process.env, HOME: options.home, FORGE_TERM: 'false' }
+  const versionResult = await execute([command, '--version'], options.home, environment, 30_000)
+  const version = /(?:^|\s)(2\.13\.21)(?:\s|$)/u.exec(`${versionResult.stdout}\n${versionResult.stderr}`)?.[1]
+  if (versionResult.code !== 0 || version !== '2.13.21') {
+    throw new Error('The installed Forge version is not the verified 2.13.21 compatibility target; inspect its current authentication flow instead.')
+  }
+  if (!['openrouter', 'deepseek', 'openai'].includes(options.provider)) {
+    throw new Error(`Forge 2.13.21 migration does not support provider ${options.provider}.`)
+  }
+  const compatibilityPath = join(options.home, '.env')
+  try {
+    await lstat(compatibilityPath)
+    throw new Error('Forge credential migration refused to replace the existing ~/.env path.')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const providerName = options.provider === 'openrouter' ? 'open_router' : options.provider
+  const probe = await mkdtemp(join(tmpdir(), 'machtiani-forge-prepare-'))
+  let linked = false
+  try {
+    await symlink(await realpath(options.providerEnvironmentPath), compatibilityPath)
+    linked = true
+    const configured = await execute([command, 'config', 'set', 'model', providerName, options.model], options.home, environment, 60_000)
+    if (configured.code !== 0) throw new Error('Forge did not accept the selected provider and model.')
+    await execute(['git', 'init', '--quiet'], probe, environment, 30_000)
+    const checked = await execute(
+      [command, '-C', probe, '--prompt', 'Reply with exactly READY. Do not run tools or alter files.'],
+      probe,
+      environment,
+      options.timeoutMs ?? 180_000,
+    )
+    if (checked.code !== 0 || !/(?:^|\s)READY(?:\s|$)/u.test(checked.stdout)) {
+      throw new Error('Forge credential migration completed, but its functional model probe failed.')
+    }
+  } finally {
+    if (linked) await unlink(compatibilityPath)
+    await rm(probe, { recursive: true, force: true })
+  }
+  return {
+    version: '2.13.21', provider: options.provider, model: options.model,
+    credentialMigration: 'performed', probe: 'passed', compatibilitySurfaceCleanup: 'removed',
+  }
+}
+
+export async function runBounded(command: readonly string[], cwd: string, environment: NodeJS.ProcessEnv, timeoutMs: number): Promise<ProcessResult> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {

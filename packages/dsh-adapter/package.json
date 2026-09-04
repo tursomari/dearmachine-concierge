@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"
+    },
+    "./installer-tools": {
+      "types": "./dist/installer-tools.d.mts",
+      "default": "./dist/installer-tools.mjs"
     }
   },
   "files": ["dist", "src"],
@@ -16,12 +20,14 @@
     "build": "tsdown"
   },
   "dependencies": {
+    "@dearmachine/machtiani-model-host": "workspace:*",
     "@deepseek-ai/cordis": "4.0.2",
     "@deepseek-ai/dsh": "0.1.2-rc.1",
     "@deepseek-ai/dsh-credentials": "0.1.2-rc.1",
     "@deepseek-ai/dsh-credentials-local": "0.1.2-rc.1",
     "@deepseek-ai/dsh-llm-pi-ai": "0.1.2-rc.1",
     "@deepseek-ai/dsh-sdk-jsonrpc-server": "0.1.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
     "@earendil-works/pi-ai": "0.84.4"
   }
 }

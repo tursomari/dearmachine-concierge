@@ -11,18 +11,6 @@ class RecordingRunner implements CommandRunner {
 
   async run(request: CommandRequest) {
     this.requests.push(request)
-    if (request.label === 'Configure Machtiani') {
-      const reasoningIndex = request.command.indexOf('--reasoning')
-      const reasoning = reasoningIndex === -1 ? '' : `effort = "${request.command[reasoningIndex + 1]}"\n`
-      await mkdir(join(this.home, '.machtiani'), { recursive: true })
-      await writeFile(join(this.home, '.machtiani', 'config.toml'), `default_model = "dearmachine"
-model = "z-ai/glm-5.3-flash"
-provider = "openrouter"
-api_key = "\${OPENROUTER_API_KEY}"
-${reasoning}
-`, { mode: 0o600 })
-    }
-    if (request.label === 'Check Machtiani provider') return { code: 0, stdout: 'MACHTIANI_PROVIDER_OK\n', stderr: '' }
     if (request.command[0] === 'dearmachine' && request.command[1] === 'status') {
       return { code: 0, stdout: 'DearMachine is running (PID 42).\npair-id\tsender@example.test\tinbox@example.test\tagentmail\n', stderr: '' }
     }
@@ -40,11 +28,13 @@ async function fixture() {
   await mkdir(join(home, '.config', 'dearmachine'), { recursive: true })
   await mkdir(join(sourceRoot, 'machtiani-harness'), { recursive: true })
   await mkdir(join(sourceRoot, 'dearmachine'), { recursive: true })
+  await mkdir(join(sourceRoot, 'machtiani-installer'), { recursive: true })
   await writeFile(join(home, '.config', 'dearmachine', 'backends.env'), 'OPENROUTER_API_KEY=product-test-secret\n', { mode: 0o600 })
   await writeFile(join(home, '.config', 'dearmachine', 'agentmail-api-key'), 'email-test-secret\n', { mode: 0o600 })
   const runner = new RecordingRunner(home)
-  const installer = new NativeProductInstaller({ home, sourceRoot, workspace, journalPath, runner, environment: { PATH: '/usr/bin:/bin' } })
-  return { home, sourceRoot, workspace, journalPath, runner, installer }
+  const verifyProvider = async () => {}
+  const installer = new NativeProductInstaller({ home, sourceRoot, workspace, journalPath, runner, environment: { PATH: '/usr/bin:/bin' }, verifyProvider })
+  return { home, sourceRoot, workspace, journalPath, runner, installer, verifyProvider }
 }
 
 const selection = {
@@ -63,6 +53,7 @@ describe('native product installer', () => {
     const installer = new NativeProductInstaller({
       home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
       journalPath: test.journalPath, runner: test.runner, environment: { PATH: '/usr/bin:/bin' },
+      verifyProvider: test.verifyProvider,
       liveEmailPollMs: 5, liveEmailTimeoutMs: 500,
     })
     const baseline = await installer.captureLiveEmailBaseline()
@@ -79,6 +70,7 @@ describe('native product installer', () => {
     const installer = new NativeProductInstaller({
       home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
       journalPath: test.journalPath, runner: test.runner, environment: { PATH: '/usr/bin:/bin' },
+      verifyProvider: test.verifyProvider,
     })
     await expect(installer.waitForLiveEmail('{"version":1}', () => {})).rejects.toThrow('baseline is invalid')
   })
@@ -89,37 +81,25 @@ describe('native product installer', () => {
     const installer = new NativeProductInstaller({
       home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
       journalPath: test.journalPath, runner: test.runner, environment: { PATH: '/usr/bin:/bin' },
+      verifyProvider: test.verifyProvider,
       progress: message => progress.push(message),
     })
     await expect(installer.install(selection)).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
     expect(test.runner.requests.map(request => request.label)).toEqual([
       'Source checkout preflight',
-      'Install Machtiani', 'Configure Machtiani',
-      'Initialize provider-check workspace', 'Configure provider-check identity', 'Configure provider-check email',
-      'Stage provider-check workspace', 'Commit provider-check workspace',
-      'Initialize Machtiani provider-check project', 'Synchronize Machtiani provider check', 'Check Machtiani provider',
+      'Install Machtiani', 'Install shared model host', 'Verify shared model host', 'Check Machtiani configuration',
       'Install Dear Machine', 'Verify installed commands', 'Configure selected backend', 'Create Dear Machine pair',
       'Verify Dear Machine status', 'Verify selected backend', 'Verify source checkout',
     ])
     expect(progress).toEqual(test.runner.requests.map(request => request.label))
     expect(test.runner.requests.flatMap(request => request.command).join('\n')).not.toContain('product-test-secret')
     expect(test.runner.requests.flatMap(request => request.command).join('\n')).not.toContain('email-test-secret')
-    expect(test.runner.requests.find(request => request.label === 'Configure Machtiani')?.command).toEqual([
-      'machtiani', 'init', '--no-interactive', '--config-scope', 'global', '--preset', 'openrouter',
-      '--model', 'z-ai/glm-5.3-flash', '--alias', 'dearmachine', '--api-key-env', 'OPENROUTER_API_KEY',
+    expect(test.runner.requests.find(request => request.label === 'Check Machtiani configuration')?.command).toEqual([
+      'machtiani', 'config', 'check',
     ])
-    expect(test.runner.requests.find(request => request.label === 'Synchronize Machtiani provider check')?.command).toEqual([
-      'machtiani', 'sync', '--model', 'dearmachine',
-      '--answer-model', 'dearmachine', '--file-discovery-model', 'dearmachine',
-    ])
-    expect(test.runner.requests.find(request => request.label === 'Check Machtiani provider')?.command).toEqual([
-      'machtiani', 'run', '--model', 'dearmachine', '--mode', 'code', '-p',
-      'Reply with exactly MACHTIANI_PROVIDER_OK without changing files.',
-    ])
-    expect(test.runner.requests.find(request => request.label === 'Initialize Machtiani provider-check project')?.cwd)
-      .toMatch(new RegExp(`^${test.workspace}/provider-check-`))
     expect(test.runner.requests.find(request => request.label === 'Configure selected backend')?.stdin).toBe('\n')
     expect(test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command).toContain('--new-inbox')
+    expect(test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.timeoutMs).toBeNull()
     expect(test.runner.requests.find(request => request.label === 'Verify selected backend')?.cwd).toBe(join(test.home, '.dearmachine', 'entrypoint', 'main'))
     expect(await readFile(join(test.home, '.dearmachine', 'config', 'dearmachine.toml'), 'utf8')).toBe(
       'version = 1\nbackends = ["codex-yolo"]\nresponse_tier = "formatted"\n',
@@ -142,13 +122,14 @@ describe('native product installer', () => {
       environment: { PATH: '/usr/bin:/bin' },
       existingInboxId: 'inbox-qse-owned',
       reasoningEffort: 'high',
+      verifyProvider: test.verifyProvider,
     })
     await installer.install(selection)
     const command = test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command
     expect(command).toContain('--inbox')
     expect(command).toContain('inbox-qse-owned')
     expect(command).not.toContain('--new-inbox')
-    expect(test.runner.requests.find(request => request.label === 'Configure Machtiani')?.command).toContain('high')
+    expect(await readFile(join(test.home, '.machtiani', 'config.toml'), 'utf8')).toContain('effort = "high"')
     const journal = await readFile(test.journalPath, 'utf8')
     expect(journal).toContain('"existingInboxIdHash"')
     expect(journal).toContain('"reasoningEffort": "high"')
@@ -186,7 +167,7 @@ describe('native product installer', () => {
     const test = await fixture()
     class FailingRunner extends RecordingRunner {
       override async run(request: CommandRequest) {
-        if (request.label === 'Synchronize Machtiani provider check') {
+        if (request.label === 'Check Machtiani configuration') {
           this.requests.push(request)
           throw new CommandExecutionError(request.label, 1, {
             code: 1,
@@ -206,8 +187,9 @@ describe('native product installer', () => {
       diagnosticPath,
       runner: new FailingRunner(test.home),
       environment: { PATH: '/usr/bin:/bin' },
+      verifyProvider: test.verifyProvider,
     })
-    await expect(installer.install(selection)).rejects.toThrow('Synchronize Machtiani provider check failed')
+    await expect(installer.install(selection)).rejects.toThrow('Check Machtiani configuration failed')
     const diagnostic = await readFile(diagnosticPath, 'utf8')
     expect(diagnostic).toContain('safe provider detail [REDACTED]')
     expect(diagnostic).toContain('safe transport detail [REDACTED]')
@@ -230,7 +212,7 @@ describe('native product installer', () => {
     const interrupted = new InterruptedPairRunner(test.home)
     const first = new NativeProductInstaller({
       home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
-      journalPath: test.journalPath, runner: interrupted, environment: { PATH: '/usr/bin:/bin' },
+      journalPath: test.journalPath, runner: interrupted, environment: { PATH: '/usr/bin:/bin' }, verifyProvider: test.verifyProvider,
     })
     await expect(first.install(selection)).rejects.toThrow('Create Dear Machine pair failed')
     expect(await readFile(test.journalPath, 'utf8')).toContain('"stage": "pair-creation-started"')
@@ -238,7 +220,7 @@ describe('native product installer', () => {
     const resumedRunner = new RecordingRunner(test.home)
     const resumed = new NativeProductInstaller({
       home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
-      journalPath: test.journalPath, runner: resumedRunner, environment: { PATH: '/usr/bin:/bin' },
+      journalPath: test.journalPath, runner: resumedRunner, environment: { PATH: '/usr/bin:/bin' }, verifyProvider: test.verifyProvider,
     })
     await expect(resumed.install(selection)).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
     expect(resumedRunner.requests.some(request => request.label === 'Create Dear Machine pair')).toBe(false)
@@ -258,7 +240,7 @@ describe('native product installer', () => {
     }
     const first = new NativeProductInstaller({
       home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
-      journalPath: test.journalPath, runner: new InterruptedPairRunner(test.home), environment: { PATH: '/usr/bin:/bin' },
+      journalPath: test.journalPath, runner: new InterruptedPairRunner(test.home), environment: { PATH: '/usr/bin:/bin' }, verifyProvider: test.verifyProvider,
     })
     await expect(first.install(selection)).rejects.toThrow('Create Dear Machine pair failed')
 
@@ -274,7 +256,7 @@ describe('native product installer', () => {
     const resumedRunner = new NoPairRunner(test.home)
     const resumed = new NativeProductInstaller({
       home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
-      journalPath: test.journalPath, runner: resumedRunner, environment: { PATH: '/usr/bin:/bin' },
+      journalPath: test.journalPath, runner: resumedRunner, environment: { PATH: '/usr/bin:/bin' }, verifyProvider: test.verifyProvider,
     })
     await expect(resumed.install(selection)).rejects.toThrow('will not request another remote inbox automatically')
     expect(resumedRunner.requests.some(request => request.label === 'Create Dear Machine pair')).toBe(false)

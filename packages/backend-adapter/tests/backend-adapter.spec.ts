@@ -1,8 +1,8 @@
-import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { AgentManagerBackendAdapter, loadPrivateEnvironment } from '../src/index.ts'
+import { AgentManagerBackendAdapter, loadPrivateEnvironment, prepareForge21321, type ProcessResult } from '../src/index.ts'
 
 describe('backend adapter', () => {
   it('discovers only supported executable names', async () => {
@@ -64,5 +64,55 @@ printf 'result=ok\n'
     await expect(adapter.check([candidate])).resolves.toEqual([
       { ...candidate, status: 'ready', summary: 'functional probe passed' },
     ])
+  })
+
+  it('prepares only the verified Forge version and always removes its temporary credential surface', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-forge-prepare-'))
+    const home = join(root, 'home')
+    const credential = join(root, 'backends.env')
+    await mkdir(home)
+    await writeFile(credential, 'OPENROUTER_API_KEY=forge-private-test-value\n', { mode: 0o600 })
+    const commands: string[][] = []
+    const run = async (command: readonly string[]): Promise<ProcessResult> => {
+      commands.push([...command])
+      if (command.includes('--version')) return { code: 0, stdout: 'forge 2.13.21\n', stderr: '' }
+      if (command[0] === 'git') return { code: 0, stdout: '', stderr: '' }
+      if (command.includes('--prompt')) return { code: 0, stdout: 'READY\n', stderr: '' }
+      return { code: 0, stdout: '', stderr: '' }
+    }
+    await expect(prepareForge21321({
+      home, providerEnvironmentPath: credential, provider: 'openrouter', model: 'z-ai/glm-5.3-flash', run,
+    })).resolves.toEqual({
+      version: '2.13.21', provider: 'openrouter', model: 'z-ai/glm-5.3-flash',
+      credentialMigration: 'performed', probe: 'passed', compatibilitySurfaceCleanup: 'removed',
+    })
+    await expect(lstat(join(home, '.env'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(commands.find(command => command.includes('model'))).toEqual([
+      'forge', 'config', 'set', 'model', 'open_router', 'z-ai/glm-5.3-flash',
+    ])
+    expect(JSON.stringify(commands)).not.toContain('forge-private-test-value')
+  })
+
+  it('cleans the Forge compatibility link after a failed probe and refuses an existing path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-forge-cleanup-'))
+    const home = join(root, 'home')
+    const credential = join(root, 'backends.env')
+    await mkdir(home)
+    await writeFile(credential, 'OPENROUTER_API_KEY=forge-private-test-value\n', { mode: 0o600 })
+    const failing = async (command: readonly string[]): Promise<ProcessResult> => {
+      if (command.includes('--version')) return { code: 0, stdout: '2.13.21\n', stderr: '' }
+      if (command[0] === 'git') return { code: 0, stdout: '', stderr: '' }
+      if (command.includes('--prompt')) return { code: 1, stdout: '', stderr: 'private diagnostic' }
+      return { code: 0, stdout: '', stderr: '' }
+    }
+    await expect(prepareForge21321({
+      home, providerEnvironmentPath: credential, provider: 'openrouter', model: 'model', run: failing,
+    })).rejects.toThrow('functional model probe failed')
+    await expect(lstat(join(home, '.env'))).rejects.toMatchObject({ code: 'ENOENT' })
+
+    await writeFile(join(home, '.env'), 'preserve=true\n', { mode: 0o600 })
+    await expect(prepareForge21321({
+      home, providerEnvironmentPath: credential, provider: 'openrouter', model: 'model', run: failing,
+    })).rejects.toThrow('refused to replace')
   })
 })

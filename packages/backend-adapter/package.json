@@ -5,6 +5,9 @@
   "type": "module",
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
+  "bin": {
+    "machtiani-installer-backend": "dist/bin.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",

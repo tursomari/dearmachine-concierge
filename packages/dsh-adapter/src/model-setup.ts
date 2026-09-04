@@ -1,24 +1,12 @@
-import { constants } from 'node:fs'
-import { access, chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
-import { type CredentialRecord } from '@deepseek-ai/dsh-credentials'
-import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
-import { recordKeyFor } from '@deepseek-ai/dsh-llm-pi-ai'
-import { builtinModels } from '@earendil-works/pi-ai/providers/all'
 import {
-  getSupportedThinkingLevels,
-  type AuthEvent,
-  type AuthInteraction,
-  type AuthPrompt,
-  type AuthType,
-  type Credential,
-  type CredentialInfo,
-  type CredentialStore,
-  type Models,
-} from '@earendil-works/pi-ai'
+  apiKeyModels,
+  apiKeyProviders,
+  readApiKeyCredential,
+  writeApiKeyCredential,
+} from '@dearmachine/machtiani-model-host'
 
 export type InstallerAuthMethodId = 'api_key' | 'oauth'
 
@@ -68,17 +56,6 @@ export interface InstallerAuthInteraction {
   notify(event: InstallerAuthEvent): void
 }
 
-const preferredProviders = [
-  'openrouter',
-  'deepseek',
-  'anthropic',
-  'openai-codex',
-  'openai',
-  'google',
-  'github-copilot',
-  'xai',
-] as const
-
 const selectionFilename = 'installer-model.json'
 
 async function ensurePrivateDirectory(path: string): Promise<void> {
@@ -91,180 +68,59 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   await chmod(path, 0o700)
 }
 
-function providerOrder(id: string): number {
-  const preferred = preferredProviders.indexOf(id as typeof preferredProviders[number])
-  return preferred < 0 ? preferredProviders.length : preferred
-}
-
-function credentialFromRecord(record: CredentialRecord | undefined): Credential | undefined {
-  if (record === undefined) return undefined
-  if (record.kind === 'api-key') {
-    return {
-      type: 'api_key',
-      ...(record.key === undefined ? {} : { key: record.key }),
-      ...(record.env === undefined ? {} : { env: { ...record.env } }),
-    }
-  }
-  return record.payload as Credential
-}
-
-function recordFromCredential(credential: Credential): CredentialRecord {
-  if (credential.type === 'api_key') {
-    return {
-      kind: 'api-key',
-      ...(credential.key === undefined ? {} : { key: credential.key }),
-      ...(credential.env === undefined ? {} : { env: { ...credential.env } }),
-    }
-  }
-  return { kind: 'grant', payload: JSON.parse(JSON.stringify(credential)) as unknown }
-}
-
-function credentialStore(ctx: Context): CredentialStore {
-  return {
-    async read(providerId) {
-      return credentialFromRecord(await ctx.credentials.readRecord(recordKeyFor(providerId)))
-    },
-    async list(): Promise<readonly CredentialInfo[]> {
-      const records = await ctx.credentials.listRecords()
-      return records.flatMap(record => {
-        const prefix = 'llm-pi-ai/'
-        const key = String(record.key)
-        if (!key.startsWith(prefix)) return []
-        return [{ providerId: key.slice(prefix.length), type: record.kind === 'api-key' ? 'api_key' as const : 'oauth' as const }]
-      })
-    },
-    async modify(providerId, mutate) {
-      return credentialFromRecord(await ctx.credentials.modifyRecord(recordKeyFor(providerId), async current => {
-        const next = await mutate(credentialFromRecord(current))
-        return next === undefined ? undefined : recordFromCredential(next)
-      }))
-    },
-    async delete(providerId) {
-      await ctx.credentials.deleteRecord(recordKeyFor(providerId))
-    },
-  }
-}
-
-function expanded(path: string): string {
-  if (path === '~') return homedir()
-  if (path.startsWith('~/')) return join(homedir(), path.slice(2))
-  return path
-}
-
-function authContext(environment: NodeJS.ProcessEnv) {
-  return {
-    env: async (name: string) => {
-      const value = environment[name]
-      return value === undefined || value === '' ? undefined : value
-    },
-    fileExists: async (path: string) => {
-      try {
-        await access(expanded(path), constants.F_OK)
-        return true
-      } catch {
-        return false
-      }
-    },
-  }
-}
-
-function authMethods(models: Models, providerId: string): InstallerAuthMethod[] {
-  const auth = models.getProvider(providerId)?.auth
-  if (auth === undefined) return []
-  return [
-    ...(auth.oauth === undefined ? [] : [{
-      id: 'oauth' as const,
-      label: auth.oauth.loginLabel ?? auth.oauth.name,
-      subscription: auth.oauth.isSubscription === true,
-    }]),
-    ...(auth.apiKey?.login === undefined ? [] : [{
-      id: 'api_key' as const,
-      label: auth.apiKey.name,
-      subscription: false,
-    }]),
-  ]
-}
-
-function toInstallerPrompt(prompt: AuthPrompt): InstallerAuthPrompt {
-  if (prompt.type === 'select') return {
-    type: 'select',
-    message: prompt.message,
-    options: prompt.options,
-    ...(prompt.signal === undefined ? {} : { signal: prompt.signal }),
-  }
-  return {
-    type: prompt.type,
-    message: prompt.message,
-    ...(prompt.placeholder === undefined ? {} : { placeholder: prompt.placeholder }),
-    ...(prompt.signal === undefined ? {} : { signal: prompt.signal }),
-  }
-}
-
-function toInstallerEvent(event: AuthEvent): InstallerAuthEvent {
-  return { ...event }
-}
-
-/** DSH-owned provider catalog and credential store exposed through installer-safe metadata. */
+/** API-key provider catalogue and private credential handoff used before DSH starts. */
 export class InstallerModelSetup {
   private constructor(
-    private readonly ctx: Context,
-    private readonly models: Models,
     readonly dshHome: string,
+    readonly credentialPath: string,
   ) {}
 
-  static async open(dshHome: string, environment: NodeJS.ProcessEnv = process.env): Promise<InstallerModelSetup> {
+  static async open(
+    dshHome: string,
+    environment: NodeJS.ProcessEnv = process.env,
+    options: { credentialPath?: string } = {},
+  ): Promise<InstallerModelSetup> {
     await ensurePrivateDirectory(dshHome)
-    const ctx = new Context()
-    try {
-      await ctx.plugin(LocalCredentialProvider, {
-        path: join(dshHome, '.credentials.yaml'),
-        watch: false,
-      })
-      return new InstallerModelSetup(ctx, builtinModels({
-        credentials: credentialStore(ctx),
-        authContext: authContext(environment),
-      }), dshHome)
-    } catch (error) {
-      await ctx.fiber.dispose().catch(() => {})
-      throw error
+    const credentialPath = options.credentialPath ?? join(dshHome, 'backends.env')
+    for (const provider of apiKeyProviders()) {
+      const ambient = environment[provider.variable]
+      if (ambient !== undefined && ambient !== '' && await readApiKeyCredential(credentialPath, provider.id) === undefined) {
+        await writeApiKeyCredential(credentialPath, provider.id, ambient)
+      }
     }
+    return new InstallerModelSetup(dshHome, credentialPath)
   }
 
   providers(): readonly InstallerProviderOption[] {
-    return this.models.getProviders()
-      .filter(provider => provider.getModels().length > 0 && authMethods(this.models, provider.id).length > 0)
-      .map(provider => ({ id: provider.id, name: provider.name, authMethods: authMethods(this.models, provider.id) }))
-      .sort((left, right) => providerOrder(left.id) - providerOrder(right.id) || left.name.localeCompare(right.name))
-  }
-
-  modelsFor(providerId: string): readonly InstallerModelOption[] {
-    return this.models.getModels(providerId).map(model => ({
-      id: model.id,
-      name: model.name,
-      reasoningEfforts: getSupportedThinkingLevels(model),
+    return apiKeyProviders().map(provider => ({
+      id: provider.id,
+      name: provider.name,
+      authMethods: [{ id: 'api_key', label: `${provider.name} API key`, subscription: false }],
     }))
   }
 
+  modelsFor(providerId: string): readonly InstallerModelOption[] {
+    return apiKeyModels(providerId)
+  }
+
   async isAuthenticated(providerId: string): Promise<boolean> {
-    return await this.models.checkAuth(providerId) !== undefined
+    return await readApiKeyCredential(this.credentialPath, providerId) !== undefined
   }
 
   async authenticate(providerId: string, method: InstallerAuthMethodId, interaction: InstallerAuthInteraction): Promise<void> {
-    const offered = authMethods(this.models, providerId)
-    if (!offered.some(candidate => candidate.id === method)) {
+    if (method !== 'api_key' || !this.providers().some(provider => provider.id === providerId)) {
       throw new Error(`${providerId} does not offer the selected authentication method`)
     }
-    const bridged: AuthInteraction = {
+    const provider = this.providers().find(candidate => candidate.id === providerId)!
+    const key = await interaction.prompt({
+      type: 'secret',
+      message: `Paste your ${provider.name} API key into the secure field and press Enter. It will be saved once for the installer and Dear Machine, and will never enter the conversation.`,
       ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
-      prompt: prompt => interaction.prompt(toInstallerPrompt(prompt)),
-      notify: event => { interaction.notify(toInstallerEvent(event)) },
-    }
-    await this.models.login(providerId, method as AuthType, bridged)
+    })
+    await writeApiKeyCredential(this.credentialPath, providerId, key)
   }
 
-  async close(): Promise<void> {
-    await this.ctx.fiber.dispose()
-  }
+  async close(): Promise<void> {}
 }
 
 function parsedSelection(value: unknown): InstallerModelSelection | undefined {

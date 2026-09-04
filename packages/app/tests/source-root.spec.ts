@@ -18,6 +18,9 @@ describe('installer source root', () => {
     expect(prompt).toContain('Canonical messages must be presented exactly')
     expect(prompt).toContain('system reminders')
     expect(prompt).toContain('set -o pipefail')
+    expect(prompt).toContain('dearmachine up --create --resume')
+    expect(prompt).toContain('background option')
+    expect(prompt).toContain('call finish_installation')
     expect(prompt).not.toContain('API_KEY=')
   })
 

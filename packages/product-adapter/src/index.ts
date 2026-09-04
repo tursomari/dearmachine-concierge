@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, mkdtemp, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, join } from 'node:path'
-import { loadPrivateEnvironment } from '@dearmachine/machtiani-installer-backends'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
+import { ModelHost } from '@dearmachine/machtiani-model-host'
 
 export interface CommandRequest {
   label: string
@@ -11,7 +11,8 @@ export interface CommandRequest {
   cwd: string
   environment: NodeJS.ProcessEnv
   stdin?: string
-  timeoutMs?: number
+  /** Null disables the per-command timeout for supervised durable work. */
+  timeoutMs?: number | null
 }
 
 export interface CommandResult {
@@ -41,7 +42,9 @@ export class CommandExecutionError extends Error {
 export class SpawnCommandRunner implements CommandRunner {
   async run(request: CommandRequest): Promise<CommandResult> {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), request.timeoutMs ?? 900_000)
+    const timer = request.timeoutMs === null
+      ? undefined
+      : setTimeout(() => controller.abort(), request.timeoutMs ?? 900_000)
     try {
       const result = await new Promise<CommandResult>((resolve, reject) => {
         const child = spawn(request.command[0]!, request.command.slice(1), {
@@ -67,7 +70,7 @@ export class SpawnCommandRunner implements CommandRunner {
       if (controller.signal.aborted) throw new Error(`${request.label} timed out before it completed.`)
       throw new Error(`${request.label} could not start.`)
     } finally {
-      clearTimeout(timer)
+      if (timer !== undefined) clearTimeout(timer)
     }
   }
 }
@@ -79,6 +82,8 @@ const providers: Readonly<Record<string, ProviderSpec>> = {
   openrouter: { preset: 'openrouter', variable: 'OPENROUTER_API_KEY' },
   deepseek: { preset: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
   'deepseek official': { preset: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
+  openai: { preset: 'openai', variable: 'OPENAI_API_KEY' },
+  'openai api': { preset: 'openai', variable: 'OPENAI_API_KEY' },
 }
 
 const transports: Readonly<Record<string, Omit<TransportSpec, 'credentialPath'>>> = {
@@ -141,7 +146,7 @@ function parseInbox(status: string, sender: string, transport: string): string {
   throw new Error('Dear Machine started, but its registered inbox could not be verified.')
 }
 
-async function verifiedMachtianiConfig(path: string, provider: ProviderSpec, model: string, reasoningEffort?: string): Promise<boolean> {
+async function verifiedMachtianiConfig(path: string, profilePath: string, model: string, reasoningEffort?: string): Promise<boolean> {
   let content: string
   try { content = await readFile(path, 'utf8') } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
@@ -151,8 +156,10 @@ async function verifiedMachtianiConfig(path: string, provider: ProviderSpec, mod
   const expected = [
     'default_model = "dearmachine"',
     `model = ${JSON.stringify(model)}`,
-    `provider = ${JSON.stringify(provider.preset)}`,
-    `api_key = "\${${provider.variable}}"`,
+    'provider = "dearmachine-host"',
+    'transport = "model-host"',
+    `profile = ${JSON.stringify(profilePath)}`,
+    'command = "machtiani-model-host"',
   ]
   if (reasoningEffort !== undefined) expected.push(`effort = ${JSON.stringify(reasoningEffort)}`)
   if (!expected.every(line => lines.has(line))) {
@@ -161,23 +168,10 @@ async function verifiedMachtianiConfig(path: string, provider: ProviderSpec, mod
   return true
 }
 
-async function requireMachtianiConfig(path: string, provider: ProviderSpec, model: string, reasoningEffort?: string): Promise<void> {
-  if (!await verifiedMachtianiConfig(path, provider, model, reasoningEffort)) {
+async function requireMachtianiConfig(path: string, profilePath: string, model: string, reasoningEffort?: string): Promise<void> {
+  if (!await verifiedMachtianiConfig(path, profilePath, model, reasoningEffort)) {
     throw new Error('Machtiani configuration was not created.')
   }
-}
-
-type ProductRun = (label: string, command: readonly string[], cwd?: string, stdin?: string) => Promise<CommandResult>
-
-async function prepareProviderCheckWorkspace(workspace: string, run: ProductRun): Promise<string> {
-  const root = await mkdtemp(join(workspace, 'provider-check-'))
-  await writeFile(join(root, 'README.md'), '# Machtiani Installer provider check\n', { flag: 'wx' })
-  await run('Initialize provider-check workspace', ['git', 'init', '--quiet'], root)
-  await run('Configure provider-check identity', ['git', 'config', 'user.name', 'Machtiani Installer'], root)
-  await run('Configure provider-check email', ['git', 'config', 'user.email', 'installer@localhost.invalid'], root)
-  await run('Stage provider-check workspace', ['git', 'add', 'README.md'], root)
-  await run('Commit provider-check workspace', ['git', 'commit', '--quiet', '-m', 'chore: initialize provider check'], root)
-  return root
 }
 
 export interface ProductInstallerOptions {
@@ -193,6 +187,8 @@ export interface ProductInstallerOptions {
   progress?(message: string): void
   environment?: NodeJS.ProcessEnv
   runner?: CommandRunner
+  modelProfilePath?: string
+  verifyProvider?(profilePath: string, model: string, reasoningEffort?: string): Promise<void>
 }
 
 export interface InstalledProducts { inboxAddress: string }
@@ -200,6 +196,7 @@ export interface InstalledProducts { inboxAddress: string }
 export type ProductStage =
   | 'started'
   | 'machtiani-installed'
+  | 'model-host-installed'
   | 'machtiani-configured'
   | 'provider-verified'
   | 'dearmachine-installed'
@@ -227,7 +224,7 @@ interface ProductJournal {
 }
 
 const stages: readonly ProductStage[] = [
-  'started', 'machtiani-installed', 'machtiani-configured', 'provider-verified',
+  'started', 'machtiani-installed', 'model-host-installed', 'machtiani-configured', 'provider-verified',
   'dearmachine-installed', 'backend-configured', 'pair-creation-started', 'pair-created', 'verified',
 ]
 
@@ -353,20 +350,15 @@ export class NativeProductInstaller {
     if (reasoningEffort !== undefined && (reasoningEffort.trim() === '' || /[\r\n\0]/u.test(reasoningEffort))) {
       throw new Error('The reasoning effort is invalid.')
     }
-    const provider = providerSpec(selection.provider)
+    providerSpec(selection.provider)
     const transport = transportSpec(selection.transport, this.options.home)
-    const providerEnvironment = await loadPrivateEnvironment(join(this.options.home, '.config', 'dearmachine', 'backends.env'))
-    const providerCredential = providerEnvironment[provider.variable]
-    if (providerCredential === undefined || providerCredential.trim() === '') {
-      throw new Error(`The private provider environment is missing ${provider.variable}.`)
-    }
+    const providerCredentialPath = join(this.options.home, '.config', 'dearmachine', 'backends.env')
+    await privateRegularFile(providerCredentialPath)
     await privateRegularFile(transport.credentialPath)
-    const transportCredential = (await readFile(transport.credentialPath, 'utf8')).trim()
 
     const environment: NodeJS.ProcessEnv = {
       ...process.env,
       ...this.options.environment,
-      ...providerEnvironment,
       HOME: this.options.home,
       PATH: commandPath({ ...process.env, ...this.options.environment }, this.options.home),
       [transport.variable]: transport.credentialPath,
@@ -374,11 +366,13 @@ export class NativeProductInstaller {
     }
     const harness = join(this.options.sourceRoot, 'machtiani-harness')
     const dearMachine = join(this.options.sourceRoot, 'dearmachine')
+    const installer = join(this.options.sourceRoot, 'machtiani-installer')
     const machtianiConfigPath = join(this.options.home, '.machtiani', 'config.toml')
+    const modelProfilePath = this.options.modelProfilePath ?? join(this.options.home, '.config', 'machtiani', 'model-profile.json')
     const deviceConfig = join(this.options.home, '.dearmachine', 'config', 'dearmachine.toml')
     const entryPoint = join(this.options.home, '.dearmachine', 'entrypoint', 'main')
-    const run = async (label: string, command: readonly string[], cwd = this.options.workspace, stdin?: string): Promise<CommandResult> => {
-      const request: CommandRequest = { label, command, cwd, environment }
+    const run = async (label: string, command: readonly string[], cwd = this.options.workspace, stdin?: string, timeoutMs?: number | null): Promise<CommandResult> => {
+      const request: CommandRequest = { label, command, cwd, environment, ...(timeoutMs === undefined ? {} : { timeoutMs }) }
       if (stdin !== undefined) request.stdin = stdin
       try {
         this.options.progress?.(label)
@@ -386,9 +380,7 @@ export class NativeProductInstaller {
       } catch (error) {
         if (error instanceof CommandExecutionError && this.options.diagnosticPath !== undefined) {
           const captured = error.privateDiagnostic()
-          const redact = (value: string): string => [providerCredential, transportCredential]
-            .filter(secret => secret !== '')
-            .reduce((result, secret) => result.split(secret).join('[REDACTED]'), value)
+          const redact = (value: string): string => value.replace(/(?:sk-or-v1-|sk-)[A-Za-z0-9_-]+|[A-Za-z0-9_-]*secret[A-Za-z0-9_-]*/giu, '[REDACTED]')
           await writePrivate(this.options.diagnosticPath, `${JSON.stringify({
             label: error.label,
             code: error.code,
@@ -429,35 +421,25 @@ export class NativeProductInstaller {
       await advance('machtiani-installed')
     }
 
+    if (!atLeast(journal.stage, 'model-host-installed')) {
+      await run('Install shared model host', ['nix', 'profile', 'install', `path:${installer}`], installer)
+      await run('Verify shared model host', ['sh', '-c', 'command -v machtiani-model-host >/dev/null'])
+      await advance('model-host-installed')
+    }
+
     if (!atLeast(journal.stage, 'machtiani-configured')) {
-      if (!await verifiedMachtianiConfig(machtianiConfigPath, provider, selection.model, reasoningEffort)) {
-        const configureCommand = [
-          'machtiani', 'init', '--no-interactive', '--config-scope', 'global',
-          '--preset', provider.preset, '--model', selection.model, '--alias', 'dearmachine', '--api-key-env', provider.variable,
-        ]
-        if (reasoningEffort !== undefined) configureCommand.push('--reasoning', reasoningEffort)
-        await run('Configure Machtiani', configureCommand, this.options.workspace)
-        await requireMachtianiConfig(machtianiConfigPath, provider, selection.model, reasoningEffort)
+      if (!await verifiedMachtianiConfig(machtianiConfigPath, modelProfilePath, selection.model, reasoningEffort)) {
+        const config = `default_model = "dearmachine"\nshell_agent_model = "dearmachine"\nanswer_model = "dearmachine"\nfile_discovery_model = "dearmachine"\n\n[providers.dearmachine-host]\ntransport = "model-host"\nprofile = ${JSON.stringify(modelProfilePath)}\ncommand = "machtiani-model-host"\n\n[models.dearmachine]\nprovider = "dearmachine-host"\nmodel = ${JSON.stringify(selection.model)}\ncontext_length = 131072\n${reasoningEffort === undefined ? '' : `\n[models.dearmachine.params.reasoning]\neffort = ${JSON.stringify(reasoningEffort)}\n`}`
+        await writePrivate(machtianiConfigPath, config)
+        await run('Check Machtiani configuration', ['machtiani', 'config', 'check'], this.options.workspace)
+        await requireMachtianiConfig(machtianiConfigPath, modelProfilePath, selection.model, reasoningEffort)
       }
       await advance('machtiani-configured')
     }
 
     if (!atLeast(journal.stage, 'provider-verified')) {
-      const providerCheckRoot = await prepareProviderCheckWorkspace(this.options.workspace, run)
-      await run('Initialize Machtiani provider-check project', [
-        'machtiani', 'init', '--no-interactive', '--config-scope', 'global',
-      ], providerCheckRoot)
-      await run('Synchronize Machtiani provider check', [
-        'machtiani', 'sync', '--model', 'dearmachine',
-        '--answer-model', 'dearmachine', '--file-discovery-model', 'dearmachine',
-      ], providerCheckRoot)
-      const providerCheck = await run(
-        'Check Machtiani provider',
-        ['machtiani', 'run', '--model', 'dearmachine', '--mode', 'code', '-p', 'Reply with exactly MACHTIANI_PROVIDER_OK without changing files.'],
-        providerCheckRoot,
-        'c\n',
-      )
-      if (!providerCheck.stdout.includes('MACHTIANI_PROVIDER_OK')) throw new Error('Machtiani completed its live provider check without the expected confirmation.')
+      const verify = this.options.verifyProvider ?? verifyModelHostProvider
+      await verify(modelProfilePath, selection.model, reasoningEffort)
       await advance('provider-verified')
     }
 
@@ -491,11 +473,11 @@ export class NativeProductInstaller {
         await advance('pair-creation-started')
         const inboxArguments = existingInboxId === undefined ? ['--new-inbox'] : ['--inbox', existingInboxId]
         await run('Create Dear Machine pair', [
-          'dearmachine', 'up', '--create', '--email', selection.authorizedSender,
+          'dearmachine', 'up', '--create', '--resume', '--email', selection.authorizedSender,
           ...inboxArguments, '--transport', transport.id,
           '--project', entryPoint, '--entry-point-repo', entryPoint,
           '--config', deviceConfig, '--poll-interval', '5s', '--magnifica-humanitas', '--verbose',
-        ])
+        ], this.options.workspace, undefined, null)
         await advance('pair-created')
       }
     }
@@ -510,4 +492,15 @@ export class NativeProductInstaller {
     await advance('verified', inboxAddress)
     return { inboxAddress }
   }
+}
+
+async function verifyModelHostProvider(profilePath: string, model: string, reasoningEffort?: string): Promise<void> {
+  const host = await ModelHost.open(profilePath)
+  let reply = ''
+  for await (const event of host.generate({
+    caller: 'installer-validation', sessionId: 'provider-check', model,
+    messages: [{ role: 'user', content: 'Reply with exactly MACHTIANI_PROVIDER_OK.' }],
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+  })) if (event.type === 'text-delta') reply += event.text
+  if (!reply.includes('MACHTIANI_PROVIDER_OK')) throw new Error('The shared model host completed its live provider check without the expected confirmation.')
 }

@@ -94,7 +94,7 @@ function preferredEffort(efforts: readonly string[], current: string | undefined
 async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, providerId: string): Promise<void> {
   if (await setup.isAuthenticated(providerId)) {
     const provider = setup.providers().find(candidate => candidate.id === providerId)
-    tui.addAssistant(`Your existing ${provider?.name ?? providerId} sign-in is available. It will be used only by this installer.`)
+    tui.addAssistant(`Your existing ${provider?.name ?? providerId} sign-in is available. It will be used by this installer and by Machtiani for Dear Machine.`)
     return
   }
 
@@ -153,7 +153,7 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
   const current = isKnownInstallerModelSelection(setup, stored) ? stored : undefined
   const providers = providerChoices(setup)
   const providerId = await tui.choose(
-    'First, choose the AI service for this installation assistant. This choice is only for the installer; Dear Machine’s provider and backend are selected later.',
+    'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
     providers,
     current?.provider,
   )
@@ -162,7 +162,7 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
   const provider = setup.providers().find(candidate => candidate.id === providerId)
   const models = setup.modelsFor(providerId)
   const modelId = await tui.choose(
-    `Which ${provider?.name ?? providerId} model should conduct the installation? Type to filter the model list.`,
+    `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
     models.map(model => ({
       value: model.id,
       label: model.name,
@@ -196,6 +196,6 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
     ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
   }
   await saveInstallerModelSelection(setup.dshHome, selection)
-  tui.addAssistant(`Ready. This installation will use ${provider?.name ?? providerId} — ${model.name}${reasoningEffort === undefined ? '' : ` — ${reasoningEffort} reasoning`}.`)
+  tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${provider?.name ?? providerId} — ${model.name}${reasoningEffort === undefined ? '' : ` — ${reasoningEffort} reasoning`}.`)
   return selection
 }

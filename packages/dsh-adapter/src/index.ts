@@ -4,6 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import type { InstallerModelSelection } from './model-setup.ts'
+import { MODEL_HOST_PROVIDER } from '@dearmachine/machtiani-model-host'
 
 export {
   InstallerModelSetup,
@@ -45,36 +46,66 @@ const profilePackage = `{
   }
 }\n`
 
+function modelHostPlugin(): string {
+  const require = createRequire(import.meta.url)
+  return require.resolve('@dearmachine/machtiani-model-host/dsh-plugin')
+}
+
+function installerToolsPlugin(): string {
+  const require = createRequire(import.meta.url)
+  return require.resolve('@dearmachine/machtiani-installer-dsh-adapter/installer-tools')
+}
+
 function profilePatch(selection: InstallerModelSelection): string {
   return `- id: agent-default-model
   config:
-    provider: ${JSON.stringify(selection.provider)}
+    provider: ${JSON.stringify(MODEL_HOST_PROVIDER)}
     model: ${JSON.stringify(selection.model)}
 - id: llm-pi-ai
+  disabled: true
+- id: bash-sandbox
   config:
-    providers:
-      ${JSON.stringify(selection.provider)}:
-        retryPolicy:
-          mode: normal
-          maxRetries: 3
-          retryableCodes:
-            - EMPTY_RESPONSE
-            - RATE_LIMIT
-            - SERVER
-            - TIMEOUT
-            - TRANSPORT
-            - PI_AI_ERROR
+    timeoutMs: 3600000
+- id: goal
+  disabled: true
+- id: goal-round-driver
+  disabled: true
+- id: command-goal
+  disabled: true
+- id: tool-goal
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: tool-todo
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-list-agents
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
 - id: session-telemetry-otel
   disabled: true
 - id: sdk-app-startup
   config:
     profile: machtiani-installer
+- insert:
+    - id: machtiani-model-host
+      name: ${JSON.stringify(modelHostPlugin())}
+    - id: machtiani-installer-tools
+      name: ${JSON.stringify(installerToolsPlugin())}
 `
 }
 
 function settings(selection: InstallerModelSelection): string {
   return `agent-default-model:
-  provider: ${JSON.stringify(selection.provider)}
+  provider: ${JSON.stringify(MODEL_HOST_PROVIDER)}
   model: ${JSON.stringify(selection.model)}
 ${selection.reasoningEffort === undefined ? '' : `  reasoningEffort: ${JSON.stringify(selection.reasoningEffort)}\n`}`
 }
@@ -101,6 +132,7 @@ export interface DshTaskOptions {
   environment?: NodeJS.ProcessEnv
   signal?: AbortSignal
   selection?: InstallerModelSelection
+  modelProfilePath?: string
 }
 
 export interface DshTaskResult {
@@ -127,6 +159,8 @@ export interface DshAgentSessionOptions {
   onEvent?(event: InstallerAgentEvent): void
   onStatus?(status: InstallerAgentStatus): void
   selection?: InstallerModelSelection
+  modelProfilePath: string
+  outcomePath: string
 }
 
 export class DshTaskExecutionError extends Error {
@@ -182,7 +216,14 @@ export function normalizeDshSessionEvent(value: unknown): InstallerAgentEvent | 
     const blocks = Array.isArray(message?.content) ? message.content : []
     const result = blocks.map(record).find(block => block?.type === 'tool-result')
     if (typeof result?.toolCallId === 'string') {
-      return { type: 'tool-end', id: result.toolCallId, failed: result.isError === true || data?.error !== undefined }
+      const raw = record(data?.result)
+      const rendered = Array.isArray(result.content)
+        ? result.content.map(record).filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block!.text as string).join('\n')
+        : ''
+      const structuredFailure = raw?.timedOut === true || raw?.aborted === true || raw?.signal !== null && raw?.signal !== undefined ||
+        typeof raw?.exitCode === 'number' && raw.exitCode !== 0
+      const renderedFailure = /\[(?:timed out after \d+ms|killed by signal: [^\]]+|exit code: (?!0\])\d+)\]/u.test(rendered)
+      return { type: 'tool-end', id: result.toolCallId, failed: result.isError === true || data?.error !== undefined || structuredFailure || renderedFailure }
     }
   }
   if (event?.type === 'turn/end') {
@@ -231,6 +272,8 @@ export class DshAgentSession {
         DSH_HOME: this.options.dshHome,
         DSH_PERMISSION_MODE: 'danger-full-access',
         DSH_TELEMETRY_DISABLED: '1',
+        MACHTIANI_MODEL_PROFILE: this.options.modelProfilePath,
+        MACHTIANI_INSTALLER_OUTCOME: this.options.outcomePath,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -253,7 +296,7 @@ export class DshAgentSession {
     })
     await this.request('initialize', {
       cwd: this.options.workspace,
-      provider: selection.provider,
+      provider: MODEL_HOST_PROVIDER,
       model: selection.model,
       ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
     })
@@ -337,7 +380,13 @@ export async function runDshTask(options: DshTaskOptions): Promise<DshTaskResult
   return await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [dshBin(), '--profile', 'machtiani-installer', options.task], {
       cwd: options.workspace,
-      env: { ...process.env, ...options.environment, DSH_HOME: options.dshHome, DSH_PERMISSION_MODE: 'workspace-write' },
+      env: {
+        ...process.env,
+        ...options.environment,
+        DSH_HOME: options.dshHome,
+        DSH_PERMISSION_MODE: 'workspace-write',
+        ...(options.modelProfilePath === undefined ? {} : { MACHTIANI_MODEL_PROFILE: options.modelProfilePath }),
+      },
       signal: options.signal,
       stdio: ['ignore', 'pipe', 'pipe'],
     })

@@ -11,6 +11,16 @@ const catalog = [
   { name: 'OMP', id: 'omp', command: 'omp' },
 ] as const
 
+const privateEnvironmentName = /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|ACCESS_KEY(?:_ID)?)$/u
+
+function backendBaseEnvironment(overrides: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  const environment = { ...process.env, ...overrides }
+  for (const name of Object.keys(environment)) {
+    if (privateEnvironmentName.test(name)) delete environment[name]
+  }
+  return environment
+}
+
 async function executableOnPath(command: string, pathValue: string): Promise<string | undefined> {
   for (const directory of pathValue.split(delimiter)) {
     if (directory === '') continue
@@ -77,15 +87,15 @@ export class AgentManagerBackendAdapter implements BackendPort {
 
   private async checkOne(candidate: BackendCandidate, providerEnvironment: NodeJS.ProcessEnv): Promise<BackendReadiness> {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-backend-health-'))
+    const environment = backendBaseEnvironment(this.options.environment)
     try {
-      await runBounded(['git', 'init', '--quiet'], root, { ...process.env, ...this.options.environment }, 30_000)
+      await runBounded(['git', 'init', '--quiet'], root, environment, 30_000)
       const command = this.options.managerCommand ?? ['agent-manager']
       const result = await runBounded(
         [...command, 'backend', 'health', candidate.id],
         root,
         {
-          ...process.env,
-          ...this.options.environment,
+          ...environment,
           ...providerEnvironment,
           DEARMACHINE_BACKENDS: JSON.stringify([candidate.id]),
         },

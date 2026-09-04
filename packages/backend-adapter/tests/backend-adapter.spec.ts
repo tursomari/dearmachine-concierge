@@ -56,11 +56,21 @@ printf 'backend=%s\\nresult=ok\\n' "$3"
     await writeFile(manager, `#!/usr/bin/env bash
 set -euo pipefail
 test -z "\${OPENROUTER_API_KEY:-}"
+test -z "\${GITHUB_TOKEN:-}"
+test -z "\${AGENTMAIL_API_KEY:-}"
 printf 'result=ok\n'
 `)
     await chmod(manager, 0o700)
     const candidate = { name: 'Forge', id: 'forge', executable: '/test/forge' }
-    const adapter = new AgentManagerBackendAdapter({ managerCommand: [manager], providerEnvironmentPath })
+    const adapter = new AgentManagerBackendAdapter({
+      managerCommand: [manager],
+      providerEnvironmentPath,
+      environment: {
+        OPENROUTER_API_KEY: 'ambient-provider-secret',
+        GITHUB_TOKEN: 'ambient-login-secret',
+        AGENTMAIL_API_KEY: 'ambient-email-secret',
+      },
+    })
     await expect(adapter.check([candidate])).resolves.toEqual([
       { ...candidate, status: 'ready', summary: 'functional probe passed' },
     ])

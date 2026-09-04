@@ -1,5 +1,51 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`Machtiani Installer TUI > lays out a searchable wizard choice at 48x12 1`] = `
+"terminal 48x12 buffer=normal length=14 base=2 viewport=2
+lifecycle started=1 stopped=0 progress=inactive
+title "Machtiani Installer"
+cursor hidden column=10 viewportRow=5 bufferRow=7
+viewport
+2| <blank>
+3| "Machtiani                                       "
+4| "Choose the AI service for this installation     "
+5| "assistant.                                      "
+6| <blank>
+7| "Filter: >                                       "
+  style 10-10 inverse
+8| <blank>
+9| "→ OpenRouter                      subscription"
+10| "  DeepSeek                        API credenti"
+11| "  OpenAI Codex                    subscription"
+12| <blank>
+13| "type to filter • ↑/↓ move • Enter select • Esc …"
+"
+`;
+
+exports[`Machtiani Installer TUI > lays out a searchable wizard choice at 80x24 1`] = `
+"terminal 80x24 buffer=normal length=24 base=0 viewport=0
+lifecycle started=1 stopped=0 progress=inactive
+title "Machtiani Installer"
+cursor hidden column=10 viewportRow=6 bufferRow=6
+viewport
+0| " MACHTIANI INSTALLER                                                            "
+1| " A guided setup for Dear Machine                                                "
+2| <blank>
+3| "Machtiani                                                                       "
+4| "Choose the AI service for this installation assistant.                          "
+5| <blank>
+6| "Filter: >                                                                       "
+  style 10-10 inverse
+7| <blank>
+8| "→ OpenRouter                      subscription sign-in or API credentials"
+9| "  DeepSeek                        API credentials"
+10| "  OpenAI Codex                    subscription sign-in"
+11| <blank>
+12| "type to filter • ↑/↓ move • Enter select • Esc clear"
+13-23| <blank>
+"
+`;
+
 exports[`Machtiani Installer TUI > renders branded welcome and a question at 48x12 1`] = `
 "terminal 48x12 buffer=normal length=12 base=0 viewport=0
 lifecycle started=1 stopped=0 progress=inactive

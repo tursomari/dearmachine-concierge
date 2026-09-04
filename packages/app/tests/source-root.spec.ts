@@ -1,20 +1,11 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { assertInstallerAgentCredential, installerAgentPrompt, installerTurnMessage, validatedSourceRoot } from '../src/index.ts'
+import { installerAgentPrompt, installerTurnMessage, validatedSourceRoot } from '../src/index.ts'
 
 describe('installer source root', () => {
-  it('accepts an environment credential or an isolated private DSH store', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'machtiani-agent-credential-'))
-    await expect(assertInstallerAgentCredential(root, {})).rejects.toThrow('installer agent credential is missing')
-    await expect(assertInstallerAgentCredential(root, { OPENROUTER_API_KEY: '' })).rejects.toThrow('OPENROUTER_API_KEY is empty')
-    await expect(assertInstallerAgentCredential(root, { OPENROUTER_API_KEY: 'private-value' })).resolves.toBeUndefined()
-    await writeFile(join(root, '.credentials.yaml'), '{"version":1,"refs":{"OPENROUTER_API_KEY":"private-value"}}\n', { mode: 0o600 })
-    await expect(assertInstallerAgentCredential(root, {})).resolves.toBeUndefined()
-  })
-
   it('gives one agent the contract and transcript-free credential bridge commands', () => {
     const prompt = installerAgentPrompt('INSTALLATION CONTRACT', '/private/credential-helper.mjs')
     expect(prompt).toContain('INSTALLATION CONTRACT')

@@ -1,15 +1,18 @@
-import { mkdtemp, readFile, stat } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   DSH_NPM_VERSION,
   DSH_SOURCE_REVISION,
+  InstallerModelSetup,
   DshTaskExecutionError,
   INSTALLER_MODEL,
   INSTALLER_REASONING_EFFORT,
   normalizeDshSessionEvent,
   prepareIsolatedDshHome,
+  loadInstallerModelSelection,
+  saveInstallerModelSelection,
 } from '../src/index.ts'
 
 describe('pinned DSH compatibility boundary', () => {
@@ -24,16 +27,92 @@ describe('pinned DSH compatibility boundary', () => {
     const patch = await readFile(join(root, 'profiles/machtiani-installer/cordis.patch.yml'), 'utf8')
     const profile = await readFile(join(root, 'profiles/machtiani-installer/package.json'), 'utf8')
     const storedSettings = await readFile(join(root, 'settings.yaml'), 'utf8')
-    expect(patch).toContain(`model: ${INSTALLER_MODEL}`)
-    expect(patch).toContain('apiKeyEnv: OPENROUTER_API_KEY')
+    expect(patch).toContain(`model: ${JSON.stringify(INSTALLER_MODEL)}`)
+    expect(patch).not.toContain('apiKeyEnv:')
     expect(patch).toContain('maxRetries: 3')
     expect(patch).toContain('- PI_AI_ERROR')
-    expect(storedSettings).toContain(`reasoningEffort: ${INSTALLER_REASONING_EFFORT}`)
+    expect(storedSettings).toContain(`reasoningEffort: "${INSTALLER_REASONING_EFFORT}"`)
     expect(profile).toContain('@deepseek-ai/dsh-sdk-app')
     expect(profile).not.toContain('@deepseek-ai/dsh-headless')
     expect(patch).toContain('profile: machtiani-installer')
     expect(`${patch}\n${storedSettings}`).not.toMatch(/(?:sk-or-v1-|api[_-]?key\s*:\s*[^A-Z\s])/iu)
     expect((await stat(join(root, 'settings.yaml'))).mode & 0o077).toBe(0)
+  })
+
+  it('writes a selected catalog route without placing credentials in configuration', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-dsh-selection-'))
+    await prepareIsolatedDshHome(root, {
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      reasoningEffort: 'high',
+    })
+    const patch = await readFile(join(root, 'profiles/machtiani-installer/cordis.patch.yml'), 'utf8')
+    const settings = await readFile(join(root, 'settings.yaml'), 'utf8')
+    expect(patch).toContain('"deepseek":')
+    expect(settings).toContain('model: "deepseek-v4-flash"')
+    expect(settings).toContain('reasoningEffort: "high"')
+    expect(`${patch}\n${settings}`).not.toContain('API_KEY')
+  })
+
+  it('uses the pinned provider catalog and DSH private credential store', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-dsh-model-setup-'))
+    const secret = 'model-setup-private-value'
+    const setup = await InstallerModelSetup.open(root, {})
+    try {
+      const providers = setup.providers()
+      expect(providers[0]?.id).toBe('openrouter')
+      expect(providers.some(provider => provider.id === 'deepseek')).toBe(true)
+      expect(providers.some(provider => provider.id === 'openai-codex' && provider.authMethods[0]?.subscription)).toBe(true)
+      expect(providers.some(provider => provider.id === 'radius')).toBe(false)
+      expect(setup.modelsFor('openrouter').find(model => model.id === 'z-ai/glm-5.3-flash')?.reasoningEfforts)
+        .toEqual(['low', 'high', 'max'])
+      expect(setup.modelsFor('deepseek').find(model => model.id === 'deepseek-v4-flash')?.reasoningEfforts)
+        .toEqual(['off', 'low', 'high', 'max'])
+      expect(await setup.isAuthenticated('openrouter')).toBe(false)
+      await setup.authenticate('openrouter', 'api_key', {
+        prompt: async prompt => {
+          expect(prompt.type).toBe('secret')
+          return secret
+        },
+        notify: () => {},
+      })
+      expect(await setup.isAuthenticated('openrouter')).toBe(true)
+    } finally {
+      await setup.close()
+    }
+    const credentials = join(root, '.credentials.yaml')
+    expect((await stat(credentials)).mode & 0o077).toBe(0)
+    expect(await readFile(credentials, 'utf8')).toContain(secret)
+
+    const restarted = await InstallerModelSetup.open(root, {})
+    try {
+      expect(await restarted.isAuthenticated('openrouter')).toBe(true)
+    } finally {
+      await restarted.close()
+    }
+  })
+
+  it('persists only non-secret model selection in a private restart file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-dsh-model-selection-'))
+    const selection = { provider: 'openrouter', model: 'z-ai/glm-5.3-flash', reasoningEffort: 'high' }
+    await saveInstallerModelSelection(root, selection)
+    expect(await loadInstallerModelSelection(root)).toEqual(selection)
+    expect((await stat(join(root, 'installer-model.json'))).mode & 0o077).toBe(0)
+    await chmod(join(root, 'installer-model.json'), 0o644)
+    await expect(loadInstallerModelSelection(root)).rejects.toThrow('private regular file')
+  })
+
+  it('recognizes an existing environment credential without copying it to disk', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-dsh-environment-auth-'))
+    await chmod(root, 0o755)
+    const setup = await InstallerModelSetup.open(root, { OPENROUTER_API_KEY: 'ambient-private-value' })
+    try {
+      expect(await setup.isAuthenticated('openrouter')).toBe(true)
+    } finally {
+      await setup.close()
+    }
+    expect((await stat(root)).mode & 0o077).toBe(0)
+    await expect(stat(join(root, '.credentials.yaml'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('normalizes only presentation-safe session events', () => {

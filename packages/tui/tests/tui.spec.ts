@@ -7,7 +7,7 @@ const open = async (columns = 80, rows = 24, onExit?: () => void): Promise<{
   tui: InstallerTui
 }> => {
   const terminal = new HeadlessTerminal(columns, rows)
-  const tui = new InstallerTui({ terminal, color: false, onExit })
+  const tui = new InstallerTui({ terminal, color: false, ...(onExit === undefined ? {} : { onExit }) })
   tui.start()
   await terminal.waitForFrame()
   return { terminal, tui }
@@ -47,6 +47,56 @@ describe('Machtiani Installer TUI', () => {
     await expect(answer).resolves.toBe('OpenRouter')
     await harness.terminal.waitForFrame()
     expect(await harness.terminal.snapshot()).toContain('OpenRouter')
+  })
+
+  it('filters and selects wizard choices without model interpretation', async () => {
+    const harness = await open()
+    opened.push(harness)
+    const answer = harness.tui.choose('Choose the installer model provider.', [
+      { value: 'openrouter', label: 'OpenRouter', description: 'Many hosted models' },
+      { value: 'deepseek', label: 'DeepSeek', description: 'DeepSeek models' },
+    ])
+    await harness.terminal.waitForFrame()
+    const initial = await harness.terminal.snapshot()
+    expect(initial).toContain('Filter:')
+    expect(initial).toContain('OpenRouter')
+    expect(initial).toContain('DeepSeek')
+    harness.terminal.send('deep')
+    harness.terminal.send('\r')
+    await expect(answer).resolves.toBe('deepseek')
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot({ includeScrollback: true })).toContain('DeepSeek')
+  })
+
+  it.each([
+    [80, 24],
+    [48, 12],
+  ])('lays out a searchable wizard choice at %ix%i', async (columns, rows) => {
+    const harness = await open(columns, rows)
+    opened.push(harness)
+    void harness.tui.choose('Choose the AI service for this installation assistant.', [
+      { value: 'openrouter', label: 'OpenRouter', description: 'subscription sign-in or API credentials' },
+      { value: 'deepseek', label: 'DeepSeek', description: 'API credentials' },
+      { value: 'openai-codex', label: 'OpenAI Codex', description: 'subscription sign-in' },
+    ]).catch(() => {})
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot()).toMatchSnapshot()
+  })
+
+  it('withdraws a wizard choice when its provider flow finishes elsewhere', async () => {
+    const harness = await open()
+    opened.push(harness)
+    const controller = new AbortController()
+    const answer = harness.tui.choose('Choose one.', [
+      { value: 'one', label: 'One' },
+      { value: 'two', label: 'Two' },
+    ], undefined, controller.signal)
+    controller.abort()
+    await expect(answer).rejects.toThrow('withdrawn')
+    const ordinary = harness.tui.ask({ message: 'Continue?' })
+    harness.terminal.send('yes')
+    harness.terminal.send('\r')
+    await expect(ordinary).resolves.toBe('yes')
   })
 
   it('accepts bracketed-paste secret input without rendering or transcribing it', async () => {

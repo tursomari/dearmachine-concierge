@@ -3,12 +3,34 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import type { InstallerModelSelection } from './model-setup.ts'
+
+export {
+  InstallerModelSetup,
+  isKnownInstallerModelSelection,
+  loadInstallerModelSelection,
+  saveInstallerModelSelection,
+  type InstallerAuthEvent,
+  type InstallerAuthInteraction,
+  type InstallerAuthMethod,
+  type InstallerAuthMethodId,
+  type InstallerAuthPrompt,
+  type InstallerModelOption,
+  type InstallerModelSelection,
+  type InstallerProviderOption,
+} from './model-setup.ts'
 
 export const DSH_NPM_VERSION = '0.1.2-rc.1'
 export const DSH_SOURCE_REVISION = '76fda729799fe9b3848dbe2c211d4b231032b81e'
 export const INSTALLER_PROVIDER = 'openrouter'
 export const INSTALLER_MODEL = 'z-ai/glm-5.3-flash'
 export const INSTALLER_REASONING_EFFORT = 'high'
+
+export const DEFAULT_INSTALLER_MODEL_SELECTION: InstallerModelSelection = {
+  provider: INSTALLER_PROVIDER,
+  model: INSTALLER_MODEL,
+  reasoningEffort: INSTALLER_REASONING_EFFORT,
+}
 
 const profilePackage = `{
   "name": "machtiani-installer-dsh-profile",
@@ -22,15 +44,15 @@ const profilePackage = `{
   }
 }\n`
 
-const profilePatch = `- id: agent-default-model
+function profilePatch(selection: InstallerModelSelection): string {
+  return `- id: agent-default-model
   config:
-    provider: openrouter
-    model: z-ai/glm-5.3-flash
+    provider: ${JSON.stringify(selection.provider)}
+    model: ${JSON.stringify(selection.model)}
 - id: llm-pi-ai
   config:
     providers:
-      openrouter:
-        apiKeyEnv: OPENROUTER_API_KEY
+      ${JSON.stringify(selection.provider)}:
         retryPolicy:
           mode: normal
           maxRetries: 3
@@ -41,32 +63,33 @@ const profilePatch = `- id: agent-default-model
             - TIMEOUT
             - TRANSPORT
             - PI_AI_ERROR
-        models:
-          - id: z-ai/glm-5.3-flash
-            reasoningEfforts:
-              high: high
 - id: session-telemetry-otel
   disabled: true
 - id: sdk-app-startup
   config:
     profile: machtiani-installer
 `
+}
 
-const settings = `agent-default-model:
-  provider: openrouter
-  model: z-ai/glm-5.3-flash
-  reasoningEffort: high
-`
+function settings(selection: InstallerModelSelection): string {
+  return `agent-default-model:
+  provider: ${JSON.stringify(selection.provider)}
+  model: ${JSON.stringify(selection.model)}
+${selection.reasoningEffort === undefined ? '' : `  reasoningEffort: ${JSON.stringify(selection.reasoningEffort)}\n`}`
+}
 
-export async function prepareIsolatedDshHome(dshHome: string): Promise<void> {
+export async function prepareIsolatedDshHome(
+  dshHome: string,
+  selection: InstallerModelSelection = DEFAULT_INSTALLER_MODEL_SELECTION,
+): Promise<void> {
   const profile = join(dshHome, 'profiles', 'machtiani-installer')
   await mkdir(profile, { recursive: true, mode: 0o700 })
   await Promise.all([
     writeFile(join(profile, 'cordis.yml'), '[]\n', { mode: 0o600 }),
-    writeFile(join(profile, 'cordis.patch.yml'), profilePatch, { mode: 0o600 }),
+    writeFile(join(profile, 'cordis.patch.yml'), profilePatch(selection), { mode: 0o600 }),
     writeFile(join(profile, 'package.json'), profilePackage, { mode: 0o600 }),
     writeFile(join(profile, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n', { mode: 0o600 }),
-    writeFile(join(dshHome, 'settings.yaml'), settings, { mode: 0o600 }),
+    writeFile(join(dshHome, 'settings.yaml'), settings(selection), { mode: 0o600 }),
   ])
 }
 
@@ -76,6 +99,7 @@ export interface DshTaskOptions {
   task: string
   environment?: NodeJS.ProcessEnv
   signal?: AbortSignal
+  selection?: InstallerModelSelection
 }
 
 export interface DshTaskResult {
@@ -101,6 +125,7 @@ export interface DshAgentSessionOptions {
   environment?: NodeJS.ProcessEnv
   onEvent?(event: InstallerAgentEvent): void
   onStatus?(status: InstallerAgentStatus): void
+  selection?: InstallerModelSelection
 }
 
 export class DshTaskExecutionError extends Error {
@@ -195,7 +220,8 @@ export class DshAgentSession {
 
   async start(): Promise<void> {
     if (this.child !== undefined) throw new Error('the DSH installer session is already started')
-    await prepareIsolatedDshHome(this.options.dshHome)
+    const selection = this.options.selection ?? DEFAULT_INSTALLER_MODEL_SELECTION
+    await prepareIsolatedDshHome(this.options.dshHome, selection)
     const child = spawn(process.execPath, [dshBin(), '--profile', 'machtiani-installer'], {
       cwd: this.options.workspace,
       env: {
@@ -226,9 +252,9 @@ export class DshAgentSession {
     })
     await this.request('initialize', {
       cwd: this.options.workspace,
-      provider: INSTALLER_PROVIDER,
-      model: INSTALLER_MODEL,
-      reasoningEffort: INSTALLER_REASONING_EFFORT,
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
     })
   }
 
@@ -301,7 +327,7 @@ export class DshAgentSession {
 
 /** The sole process-facing compatibility seam for the pinned DSH runtime. */
 export async function runDshTask(options: DshTaskOptions): Promise<DshTaskResult> {
-  await prepareIsolatedDshHome(options.dshHome)
+  await prepareIsolatedDshHome(options.dshHome, options.selection)
   return await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [dshBin(), '--profile', 'machtiani-installer', options.task], {
       cwd: options.workspace,

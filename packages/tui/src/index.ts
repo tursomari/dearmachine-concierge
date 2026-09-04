@@ -19,10 +19,12 @@ import {
 import { displayText } from './text.ts'
 import { createInstallerTheme, editorTheme, markdownTheme, type InstallerTheme } from './theme.ts'
 import { MaskedInput } from './masked-input.ts'
+import { ChoiceInput, type InstallerChoice } from './choice-input.ts'
 
 export interface InstallerQuestion {
   message: string
   options?: readonly string[]
+  signal?: AbortSignal
 }
 
 export interface InstallerTuiOptions {
@@ -54,13 +56,16 @@ export class InstallerTui {
   private readonly maskedInput = new MaskedInput()
   private readonly secureInputLabel: Text
   private readonly inputSlot = new Container()
+  private choiceInput: ChoiceInput | undefined
   private readonly theme: InstallerTheme
   private readonly markdown
   private readonly removeInputListener: () => void
   private pendingQuestion: {
     resolve(value: string): void
     reject(error: Error): void
-    secret: boolean
+    mode: 'text' | 'secret' | 'choice'
+    signal?: AbortSignal
+    onAbort?: () => void
   } | undefined
   private started = false
   private stopped = false
@@ -94,11 +99,8 @@ export class InstallerTui {
     this.ui.setFocus(this.editor)
     this.removeInputListener = this.ui.addInputListener(data => {
       if (matchesKey(data, Key.ctrl('c'))) {
-        if (this.pendingQuestion?.secret === true) {
-          const pending = this.pendingQuestion
-          this.pendingQuestion = undefined
-          this.deactivateSecretInput()
-          pending.reject(new SecretInputCancelledError())
+        if (this.pendingQuestion?.mode === 'secret') {
+          this.cancelPending(new SecretInputCancelledError())
         } else {
           this.options.onExit?.()
         }
@@ -184,12 +186,13 @@ export class InstallerTui {
     if (this.pendingQuestion !== undefined) {
       return Promise.reject(new Error('the installer supports exactly one active question'))
     }
+    if (question.signal?.aborted === true) return Promise.reject(new Error('the installer question was withdrawn'))
     const suffix = question.options === undefined || question.options.length === 0
       ? ''
       : `\n\n${question.options.map((option, index) => `${index + 1}. ${option}`).join('\n')}`
     this.addAssistant(question.message + suffix)
     return new Promise<string>((resolve, reject) => {
-      this.pendingQuestion = { resolve, reject, secret: false }
+      this.setPending('text', resolve, reject, question.signal)
     })
   }
 
@@ -202,10 +205,11 @@ export class InstallerTui {
   }
 
   /** Switch to transcript-free masked input after the agent presented its prompt. */
-  captureSecret(): Promise<string> {
+  captureSecret(signal?: AbortSignal): Promise<string> {
     if (this.pendingQuestion !== undefined) {
       return Promise.reject(new Error('the installer supports exactly one active question'))
     }
+    if (signal?.aborted === true) return Promise.reject(new Error('the installer question was withdrawn'))
     this.suspendedProgressMessage = this.progressMessage
     this.setProgress(undefined)
     this.inputSlot.removeChild(this.editor)
@@ -214,7 +218,39 @@ export class InstallerTui {
     this.ui.setFocus(this.maskedInput)
     this.requestRender()
     return new Promise<string>((resolve, reject) => {
-      this.pendingQuestion = { resolve, reject, secret: true }
+      this.setPending('secret', resolve, reject, signal)
+    })
+  }
+
+  choose(
+    message: string,
+    choices: readonly InstallerChoice[],
+    selectedValue?: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (this.pendingQuestion !== undefined) {
+      return Promise.reject(new Error('the installer supports exactly one active question'))
+    }
+    if (choices.length === 0) return Promise.reject(new Error('the installer choice list is empty'))
+    if (signal?.aborted === true) return Promise.reject(new Error('the installer question was withdrawn'))
+    this.addAssistant(message)
+    this.setProgress(undefined)
+    this.inputSlot.removeChild(this.editor)
+    const input = new ChoiceInput(choices, selectedValue, 9, this.theme)
+    this.choiceInput = input
+    this.inputSlot.addChild(input)
+    this.ui.setFocus(input)
+    this.requestRender()
+    return new Promise<string>((resolve, reject) => {
+      this.setPending('choice', resolve, reject, signal)
+      input.onSubmit = choice => {
+        if (this.pendingQuestion?.mode !== 'choice' || this.choiceInput !== input) return
+        this.removePendingAbortListener(this.pendingQuestion)
+        this.pendingQuestion = undefined
+        this.deactivateChoiceInput()
+        this.addUser(choice.label)
+        resolve(choice.value)
+      }
     })
   }
 
@@ -231,6 +267,7 @@ export class InstallerTui {
     this.suspendedProgressMessage = undefined
     const pending = this.pendingQuestion
     this.pendingQuestion = undefined
+    if (pending !== undefined) this.removePendingAbortListener(pending)
     this.maskedInput.clear()
     pending?.reject(new Error('the installer closed before the question was answered'))
     this.removeInputListener()
@@ -260,9 +297,11 @@ export class InstallerTui {
     const text = secret ? value : value.trim()
     if (text === '') return
     const pending = this.pendingQuestion
-    if (pending !== undefined && pending.secret !== secret) return
+    if (pending?.mode === 'choice') return
+    if (pending !== undefined && (pending.mode === 'secret') !== secret) return
     if (secret) {
       if (pending === undefined) return
+      this.removePendingAbortListener(pending)
       this.pendingQuestion = undefined
       this.deactivateSecretInput()
       pending.resolve(text)
@@ -272,6 +311,7 @@ export class InstallerTui {
     this.editor.setText('')
     this.addUser(text)
     if (pending !== undefined) {
+      this.removePendingAbortListener(pending)
       this.pendingQuestion = undefined
       pending.resolve(text)
       return
@@ -289,6 +329,47 @@ export class InstallerTui {
     this.suspendedProgressMessage = undefined
     if (resumeProgress !== undefined) this.setProgress(resumeProgress)
     this.requestRender()
+  }
+
+  private deactivateChoiceInput(): void {
+    const input = this.choiceInput
+    if (input !== undefined) this.inputSlot.removeChild(input)
+    this.choiceInput = undefined
+    this.inputSlot.addChild(this.editor)
+    this.ui.setFocus(this.editor)
+    this.requestRender()
+  }
+
+  private setPending(
+    mode: 'text' | 'secret' | 'choice',
+    resolve: (value: string) => void,
+    reject: (error: Error) => void,
+    signal: AbortSignal | undefined,
+  ): void {
+    const pending: NonNullable<InstallerTui['pendingQuestion']> = { resolve, reject, mode }
+    this.pendingQuestion = pending
+    if (signal !== undefined) {
+      pending.signal = signal
+      pending.onAbort = () => { this.cancelPending(new Error('the installer question was withdrawn')) }
+      signal.addEventListener('abort', pending.onAbort, { once: true })
+      if (signal.aborted) this.cancelPending(new Error('the installer question was withdrawn'))
+    }
+  }
+
+  private cancelPending(error: Error): void {
+    const pending = this.pendingQuestion
+    if (pending === undefined) return
+    this.pendingQuestion = undefined
+    this.removePendingAbortListener(pending)
+    if (pending.mode === 'secret') this.deactivateSecretInput()
+    if (pending.mode === 'choice') this.deactivateChoiceInput()
+    pending.reject(error)
+  }
+
+  private removePendingAbortListener(pending: NonNullable<InstallerTui['pendingQuestion']>): void {
+    if (pending.signal !== undefined && pending.onAbort !== undefined) {
+      pending.signal.removeEventListener('abort', pending.onAbort)
+    }
   }
 
   private requestRender(): void {
@@ -319,3 +400,4 @@ export function assertInteractiveTerminal(
 
 export { displayText } from './text.ts'
 export { createInstallerTheme } from './theme.ts'
+export type { InstallerChoice } from './choice-input.ts'

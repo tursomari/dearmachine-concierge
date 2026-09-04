@@ -9,6 +9,8 @@ native installation path:
 
 - an exact DeepSeek Harness package and source pin;
 - a narrow process adapter and isolated DSH profile;
+- a launch-time wizard backed by the pinned DSH provider catalog for choosing
+  the installer's provider, sign-in method, model, and reasoning level;
 - a maintained, Machtiani-branded derivative of the last official DSH TUI;
 - terminal snapshots, real-PTY lifecycle checks, and a single-process lock;
 - the canonical consent, environment, LLM, and email workflow as a no-mutation
@@ -65,12 +67,20 @@ Run the guided configuration against an umbrella checkout with:
 nix run '.#' -- --install --source-root /absolute/path/to/machtiani
 ```
 
+The launch-time wizard first asks which AI service and model should conduct the
+installation. It offers the sign-in methods supplied by the pinned DSH model
+provider integration, preferring subscription or browser sign-in when one is
+available, and asks for a supported reasoning level. This configures only the
+Machtiani Installer; Dear Machine's provider and backend remain later, explicit
+choices in the guided conversation. No configuration flag is required.
+
 The TUI captures required API keys in masked fields and writes them directly to
-private mode-`0600` files; the values never enter the transcript or DSH event
-stream. With permission, the installer then runs isolated backend health
-probes, installs and starts Machtiani and Dear Machine, asks for one live test
-email, follows that message through the selected backend, and reports success
-only after the reply is sent.
+private mode-`0600` storage; the values never enter the transcript or DSH event
+stream. A key-entry field can be cancelled with Ctrl+C without exiting the
+installer; Ctrl+C from ordinary input exits. With permission, the installer
+then runs isolated backend health probes, installs and starts Machtiani and
+Dear Machine, asks for one live test email, follows that message through the
+selected backend, and reports success only after the reply is sent.
 
 Run the live DSH recursion smoke test only with a disposable or explicitly
 authorized OpenRouter credential already present in the environment:

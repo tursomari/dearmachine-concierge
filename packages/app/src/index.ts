@@ -1,32 +1,21 @@
 import { randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, isAbsolute, join } from 'node:path'
 import { InstallerTui, assertInteractiveTerminal } from '@dearmachine/machtiani-installer-tui'
 import { runFirstThreeStages, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
 import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credentials'
-import { DshAgentSession, type InstallerAgentEvent } from '@dearmachine/machtiani-installer-dsh-adapter'
+import {
+  DshAgentSession,
+  InstallerModelSetup,
+  type InstallerAgentEvent,
+  type InstallerModelSelection,
+} from '@dearmachine/machtiani-installer-dsh-adapter'
 import { CredentialBridge } from './credential-bridge.ts'
 import { acquireInstallerLock } from './lock.ts'
+import { runInstallerModelWizard } from './model-wizard.ts'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
-
-export async function assertInstallerAgentCredential(dshHome: string, environment: NodeJS.ProcessEnv = process.env): Promise<void> {
-  if (environment.OPENROUTER_API_KEY !== undefined) {
-    if (environment.OPENROUTER_API_KEY.trim() === '') {
-      throw new Error('OPENROUTER_API_KEY is empty. Export the installer agent credential before starting Machtiani Installer.')
-    }
-    return
-  }
-  try {
-    const metadata = await lstat(join(dshHome, '.credentials.yaml'))
-    const owned = process.getuid === undefined || metadata.uid === process.getuid()
-    if (metadata.isFile() && !metadata.isSymbolicLink() && metadata.size > 0 && (metadata.mode & 0o077) === 0 && owned) return
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-  throw new Error('The installer agent credential is missing. Export OPENROUTER_API_KEY before starting Machtiani Installer.')
-}
 
 export function defaultInstallerPaths(environment: NodeJS.ProcessEnv = process.env): InstallerPaths {
   const home = environment.HOME
@@ -189,7 +178,6 @@ export function installerTurnMessage(event: Extract<InstallerAgentEvent, { type:
 export async function runInstaller(sourceRoot: string, paths = defaultInstallerPaths()): Promise<void> {
   assertInteractiveTerminal()
   const dshHome = join(paths.stateDirectory, 'dsh')
-  await assertInstallerAgentCredential(dshHome)
   const source = await validatedSourceRoot(sourceRoot)
   const home = process.env.HOME
   if (home === undefined || home === '') throw new Error('HOME is required to run the installer agent')
@@ -198,6 +186,8 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   let requestExit!: () => void
   const exitRequested = new Promise<void>(resolve => { requestExit = resolve })
   let agent: DshAgentSession | undefined
+  let setup: InstallerModelSetup | undefined
+  let wizard: Promise<InstallerModelSelection> | undefined
   const tools = new Map<string, ReturnType<InstallerTui['beginTool']>>()
   const tui = new InstallerTui({
     onSubmit: async text => { await agent?.prompt(text) },
@@ -209,11 +199,24 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const credentialHelper = fileURLToPath(new URL('./credential-bin.mjs', import.meta.url))
   try {
     tui.start()
+    tui.setProgress('Loading installer model choices')
+    setup = await InstallerModelSetup.open(dshHome)
+    tui.setProgress(undefined)
+    wizard = runInstallerModelWizard(tui, setup)
+    const configured = await Promise.race([
+      wizard.then(selection => ({ kind: 'selection' as const, selection })),
+      exitRequested.then(() => ({ kind: 'exit' as const })),
+    ])
+    if (configured.kind === 'exit') return
+    const selection = configured.selection
+    await setup.close()
+    setup = undefined
     tui.setProgress('Starting the installation assistant')
     await bridge.start()
     agent = new DshAgentSession({
       dshHome,
       workspace: source,
+      selection,
       environment: { MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath },
       onEvent: event => { renderAgentEvent(tui, tools, event) },
       onStatus: status => { tui.setProgress(status === 'running' ? 'Machtiani is working' : undefined) },
@@ -229,6 +232,8 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   } finally {
     await agent?.shutdown().catch(() => {})
     await tui.dispose()
+    await wizard?.catch(() => {})
+    await setup?.close().catch(() => {})
     await bridge.close()
     await lock.release()
   }
@@ -236,3 +241,4 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
 
 export { acquireInstallerLock, InstallerAlreadyRunningError } from './lock.ts'
 export { validatedSourceRoot }
+export { runInstallerModelWizard } from './model-wizard.ts'

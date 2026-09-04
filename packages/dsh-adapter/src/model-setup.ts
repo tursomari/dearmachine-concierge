@@ -11,11 +11,12 @@ import {
   writeApiKeyCredential,
 } from '@dearmachine/machtiani-model-host'
 
-export type InstallerAuthMethodId = 'api_key' | 'oauth'
+export type InstallerAuthMethodId = 'api_key' | 'oauth' | 'device_code'
 
 export interface InstallerAuthMethod {
   id: InstallerAuthMethodId
   label: string
+  description?: string
   subscription: boolean
 }
 
@@ -49,7 +50,7 @@ export type InstallerAuthPrompt =
 
 export type InstallerAuthEvent =
   | { type: 'info'; message: string; links?: readonly { url: string; label?: string }[] }
-  | { type: 'auth_url'; url: string; instructions?: string }
+  | { type: 'auth_url'; url: string; instructions?: string; waitForCompletion?: boolean }
   | { type: 'device_code'; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number }
   | { type: 'progress'; message: string }
 
@@ -101,15 +102,16 @@ export class InstallerModelSetup {
     const subscriptions: InstallerProviderOption[] = subscriptionProviders(this.environment).map(provider => ({
         id: provider.id,
         name: provider.name,
-        authMethods: [{
-          id: 'oauth',
-          label: provider.id === 'openai-codex'
-            ? 'Sign in with ChatGPT'
-            : provider.id === 'github-copilot'
-              ? 'Sign in with GitHub'
-              : 'Sign in with Claude',
-          subscription: true,
-        }],
+        authMethods: provider.id === 'openai-codex'
+          ? [
+              { id: 'oauth', label: 'Sign in with ChatGPT in your browser', description: 'Best for a local desktop install', subscription: true },
+              { id: 'device_code', label: 'Sign in with a device code', description: 'Best for SSH, containers, or headless installs', subscription: true },
+            ]
+          : [{
+              id: 'oauth',
+              label: provider.id === 'github-copilot' ? 'Sign in with GitHub' : 'Sign in with Claude',
+              subscription: true,
+            }],
       }))
     const apiKeys: InstallerProviderOption[] = apiKeyProviders().map(provider => ({
       id: provider.id,
@@ -134,8 +136,11 @@ export class InstallerModelSetup {
     if (selected === undefined || !selected.authMethods.some(candidate => candidate.id === method)) {
       throw new Error(`${providerId} does not offer the selected authentication method`)
     }
-    if (method === 'oauth') {
-      await new ModelHost(this.profileFor({ provider: providerId, model: 'pending' })).login(interaction)
+    if (method === 'oauth' || method === 'device_code') {
+      await new ModelHost(this.profileFor({ provider: providerId, model: 'pending' })).login(
+        interaction,
+        method === 'device_code' ? 'device_code' : 'browser',
+      )
       return
     }
     const provider = this.providers().find(candidate => candidate.id === providerId)!

@@ -104,6 +104,27 @@ describe('shared model host profile', () => {
     expect(captured).toContain('"text":"service-session"')
   })
 
+  it('forwards the selected subscription login mode over the private protocol', async () => {
+    const input = new PassThrough()
+    const output = new PassThrough()
+    let captured = ''
+    output.setEncoding('utf8').on('data', chunk => { captured += String(chunk) })
+    const modes: unknown[] = []
+    const host = {
+      profile: { provider: 'openai-codex', authMethod: 'subscription' as const },
+      authenticated: async () => false,
+      models: () => [],
+      login: async (_interaction: unknown, mode: unknown) => { modes.push(mode) },
+      logout: async () => {},
+      async * generate() {},
+    }
+    const serving = serveModelHost('/private/profile', input, output, async () => host as never)
+    input.end(`${JSON.stringify({ v: 1, id: 'login', method: 'auth/login', params: { mode: 'device_code' } })}\n`)
+    await serving
+    expect(modes).toEqual(['device_code'])
+    expect(captured).toContain('"id":"login","result":{"authenticated":true}')
+  })
+
   it('does not expose upstream secret-bearing errors on the wire', async () => {
     const input = new PassThrough()
     const output = new PassThrough()

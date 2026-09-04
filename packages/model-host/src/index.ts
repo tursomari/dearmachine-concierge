@@ -71,9 +71,11 @@ export interface ModelHostGenerateRequest {
 
 export type ModelHostAuthEvent =
   | { type: 'info'; message: string; links?: readonly { url: string; label?: string }[] }
-  | { type: 'auth_url'; url: string; instructions?: string }
+  | { type: 'auth_url'; url: string; instructions?: string; waitForCompletion?: boolean }
   | { type: 'device_code'; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number }
   | { type: 'progress'; message: string }
+
+export type ModelHostLoginMode = 'browser' | 'device_code'
 
 export interface ModelHostAuthInteraction {
   signal?: AbortSignal
@@ -84,7 +86,7 @@ export interface ModelHostAuthInteraction {
 export interface ModelHostRuntimeDriver {
   authenticated(): Promise<boolean>
   models(): Promise<readonly ModelHostModelInfo[]>
-  login(interaction: ModelHostAuthInteraction): Promise<void>
+  login(interaction: ModelHostAuthInteraction, mode?: ModelHostLoginMode): Promise<void>
   logout(): Promise<void>
   generate(request: ModelHostGenerateRequest): AsyncIterable<ModelHostEvent>
 }
@@ -409,9 +411,9 @@ export class ModelHost {
     return this.profile.authMethod === 'subscription' ? await subscriptionDriver(this.profile).models() : apiKeyModels(this.profile.provider)
   }
 
-  async login(interaction: ModelHostAuthInteraction): Promise<void> {
+  async login(interaction: ModelHostAuthInteraction, mode?: ModelHostLoginMode): Promise<void> {
     if (this.profile.authMethod !== 'subscription') throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'API-key sign-in is collected through the secure installer field.')
-    await subscriptionDriver(this.profile).login(interaction)
+    await subscriptionDriver(this.profile).login(interaction, mode)
   }
 
   async logout(): Promise<void> {
@@ -524,10 +526,14 @@ export async function serveModelHost(
       else if (request.method === 'auth/status') send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { authenticated: await host.authenticated(), method: host.profile.authMethod } })
       else if (request.method === 'auth/login') {
         if (host.profile.authMethod !== 'subscription') throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'API-key sign-in uses the installer secure field.')
+        const mode = (request.params as { mode?: unknown } | undefined)?.mode
+        if (mode !== undefined && mode !== 'browser' && mode !== 'device_code') {
+          throw new ModelHostError('INVALID_REQUEST', 'Authentication mode must be browser or device_code.')
+        }
         await host.login({
           prompt: async () => { throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'This sign-in requires the interactive Machtiani Installer.') },
           notify: event => send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, event: { type: 'auth', auth: event } }),
-        })
+        }, mode)
         send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { authenticated: true } })
       }
       else if (request.method === 'auth/logout') {

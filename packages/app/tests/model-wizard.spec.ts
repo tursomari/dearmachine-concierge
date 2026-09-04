@@ -136,7 +136,10 @@ describe('installer model setup wizard', () => {
       providers: () => [{
         id: 'openai-codex',
         name: 'OpenAI Codex',
-        authMethods: [{ id: 'oauth', label: 'OpenAI (ChatGPT Plus/Pro)', subscription: true }],
+        authMethods: [
+          { id: 'oauth', label: 'Sign in with ChatGPT in your browser', subscription: true },
+          { id: 'device_code', label: 'Sign in with a device code', subscription: true },
+        ],
       }],
       modelsFor: async () => [{ id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', reasoningEfforts: ['low', 'high'] }],
       isAuthenticated: async () => false,
@@ -157,8 +160,8 @@ describe('installer model setup wizard', () => {
     }
     const tui = new ScriptedTui([
       'openai-codex',
-      'oauth',
-      'oauth',
+      'device_code',
+      'device_code',
       'gpt-5.3-codex',
       'high',
     ])
@@ -171,6 +174,38 @@ describe('installer model setup wizard', () => {
     expect(tui.externalWaits).toEqual(['Waiting for browser sign-in…'])
     expect(tui.progress).toContain('Waiting for sign-in')
     expect(tui.messages).toContain('Sign-in was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
+  })
+
+  it('keeps ChatGPT browser callback login in a cancellable waiting state', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-browser-'))
+    const authentications: InstallerAuthMethodId[] = []
+    const setup: Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'> = {
+      dshHome: root,
+      providers: () => [{
+        id: 'openai-codex',
+        name: 'OpenAI Codex subscription',
+        authMethods: [
+          { id: 'oauth', label: 'Sign in with ChatGPT in your browser', description: 'Best for a local desktop install', subscription: true },
+          { id: 'device_code', label: 'Sign in with a device code', description: 'Best for SSH, containers, or headless installs', subscription: true },
+        ],
+      }],
+      modelsFor: async () => [{ id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', reasoningEfforts: ['high'] }],
+      isAuthenticated: async () => false,
+      authenticate: async (_provider, method, interaction) => {
+        authentications.push(method)
+        interaction.notify({
+          type: 'auth_url',
+          url: 'https://example.invalid/browser',
+          instructions: 'Open this page and sign in with ChatGPT.',
+          waitForCompletion: true,
+        })
+      },
+    }
+    const tui = new ScriptedTui(['openai-codex', 'oauth', 'gpt-5.3-codex', 'high'])
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toMatchObject({ provider: 'openai-codex' })
+    expect(authentications).toEqual(['oauth'])
+    expect(tui.messages).toContain('Open this page and sign in with ChatGPT.\n\nhttps://example.invalid/browser')
+    expect(tui.externalWaits).toEqual(['Waiting for browser sign-in…'])
   })
 
   it('turns a device-code enablement failure into an actionable retry', async () => {

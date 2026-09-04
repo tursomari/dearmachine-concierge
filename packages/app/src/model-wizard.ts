@@ -126,7 +126,7 @@ async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, provider
       provider.authMethods.map(candidate => ({
         value: candidate.id,
         label: candidate.label,
-        description: candidate.subscription ? 'Uses your existing subscription' : 'Saved privately for this installer',
+        description: candidate.description ?? (candidate.subscription ? 'Uses your existing subscription' : 'Saved privately for this installer'),
       })),
       provider.authMethods[0]?.id,
     ) as InstallerAuthMethodId
@@ -139,7 +139,7 @@ async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, provider
         prompt: prompt => authPrompt(tui, prompt, controller.signal),
         notify: event => {
           authEvent(tui, event)
-          if (event.type === 'device_code' && externalWait === undefined) {
+          if ((event.type === 'device_code' || (event.type === 'auth_url' && event.waitForCompletion === true)) && externalWait === undefined) {
             tui.setProgress('Waiting for sign-in')
             externalWait = tui.beginExternalWait('Waiting for browser sign-in…')
           }

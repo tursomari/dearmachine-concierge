@@ -89,7 +89,14 @@ describe('pinned DSH compatibility boundary', () => {
       expect(providers.some(provider => provider.id === 'openrouter')).toBe(true)
       expect(providers.some(provider => provider.id === 'deepseek')).toBe(true)
       expect(providers.some(provider => provider.id === 'openai' && !provider.authMethods[0]?.subscription)).toBe(true)
-      expect(providers.some(provider => provider.id === 'openai-codex' && provider.authMethods[0]?.subscription)).toBe(true)
+      expect(providers.find(provider => provider.id === 'openai-codex')).toEqual({
+        id: 'openai-codex',
+        name: 'OpenAI Codex subscription',
+        authMethods: [
+          { id: 'oauth', label: 'Sign in with ChatGPT in your browser', description: 'Best for a local desktop install', subscription: true },
+          { id: 'device_code', label: 'Sign in with a device code', description: 'Best for SSH, containers, or headless installs', subscription: true },
+        ],
+      })
       expect(providers.some(provider => provider.id === 'github-copilot' && provider.authMethods[0]?.subscription)).toBe(true)
       expect(providers.find(provider => provider.id === 'anthropic-claude')).toEqual({
         id: 'anthropic-claude',

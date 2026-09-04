@@ -36,7 +36,9 @@ class FakeCodexServer implements CodexAppServerPort {
     if (method === 'model/list') return { data: [{ id: 'gpt-test', displayName: 'GPT Test', supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }] }
     if (method === 'account/login/start') {
       setTimeout(() => this.emit({ method: 'account/login/completed', params: { loginId: 'login-1', success: true } }), 0)
-      return { loginId: 'login-1', verificationUrl: 'https://example.invalid/device', userCode: 'CODE-123' }
+      return (params as { type?: string } | undefined)?.type === 'chatgptDeviceCode'
+        ? { loginId: 'login-1', verificationUrl: 'https://example.invalid/device', userCode: 'CODE-123' }
+        : { loginId: 'login-1', authUrl: 'https://example.invalid/browser' }
     }
     if (method === 'thread/start') return { thread: { id: 'thread-1' } }
     if (method === 'turn/start') {
@@ -212,7 +214,7 @@ describe('subscription runtime boundaries', () => {
     }
   })
 
-  it('maps Codex app-server auth, models, streaming, tools, and interruption', async () => {
+  it('maps both Codex app-server sign-in modes, models, streaming, tools, and interruption', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-codex-fake-'))
     const servers: FakeCodexServer[] = []
     const driver = new OpenAICodexDriver(profile('openai-codex-app-server', 'openai-codex', root), () => {
@@ -220,9 +222,22 @@ describe('subscription runtime boundaries', () => {
     })
     expect(await driver.authenticated()).toBe(true)
     expect(await driver.models()).toEqual([{ id: 'gpt-test', name: 'GPT Test', reasoningEfforts: ['high'] }])
-    const notices: unknown[] = []
-    await driver.login({ prompt: async () => '', notify: event => notices.push(event) })
-    expect(notices).toContainEqual({ type: 'device_code', userCode: 'CODE-123', verificationUri: 'https://example.invalid/device' })
+    const browserNotices: unknown[] = []
+    await driver.login({ prompt: async () => '', notify: event => browserNotices.push(event) }, 'browser')
+    expect(servers.at(-1)?.calls).toContainEqual({
+      method: 'account/login/start',
+      params: { type: 'chatgpt', useHostedLoginSuccessPage: true, appBrand: 'chatgpt' },
+    })
+    expect(browserNotices).toContainEqual({
+      type: 'auth_url',
+      url: 'https://example.invalid/browser',
+      instructions: 'Open this page in your browser and sign in with ChatGPT. The installer will continue when sign-in finishes.',
+      waitForCompletion: true,
+    })
+    const deviceNotices: unknown[] = []
+    await driver.login({ prompt: async () => '', notify: event => deviceNotices.push(event) }, 'device_code')
+    expect(servers.at(-1)?.calls).toContainEqual({ method: 'account/login/start', params: { type: 'chatgptDeviceCode' } })
+    expect(deviceNotices).toContainEqual({ type: 'device_code', userCode: 'CODE-123', verificationUri: 'https://example.invalid/device' })
     const events = []
     for await (const event of driver.generate({
       caller: 'installer', sessionId: 'test', messages: [{ role: 'user', content: 'inspect safely' }],

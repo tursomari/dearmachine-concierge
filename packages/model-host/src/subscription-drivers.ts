@@ -20,6 +20,7 @@ import type {
   ModelHostAuthInteraction,
   ModelHostEvent,
   ModelHostGenerateRequest,
+  ModelHostLoginMode,
   ModelHostModelInfo,
   ModelHostProfile,
   ModelHostRuntimeDriver,
@@ -225,7 +226,7 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
       return result.data.map(model => ({ id: model.id, name: model.displayName, reasoningEfforts: model.supportedReasoningEfforts.map(value => value.reasoningEffort) }))
     } finally { await server.close() }
   }
-  async login(interaction: ModelHostAuthInteraction): Promise<void> {
+  async login(interaction: ModelHostAuthInteraction, mode: ModelHostLoginMode = 'browser'): Promise<void> {
     const server = await this.server()
     let loginId: string | undefined
     try {
@@ -236,9 +237,30 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
         if (result.loginId !== loginId) return
         if (result.success) resolve(); else reject(new Error(result.error ?? 'OpenAI sign-in did not complete'))
       }))
-      const started = await server.call('account/login/start', { type: 'chatgptDeviceCode' }) as { loginId: string; verificationUrl: string; userCode: string }
-      loginId = started.loginId
-      interaction.notify({ type: 'device_code', userCode: started.userCode, verificationUri: started.verificationUrl })
+      if (mode === 'device_code') {
+        const started = await server.call('account/login/start', { type: 'chatgptDeviceCode' }) as { loginId?: unknown; verificationUrl?: unknown; userCode?: unknown }
+        if (typeof started.loginId !== 'string' || typeof started.verificationUrl !== 'string' || typeof started.userCode !== 'string') {
+          throw new ModelHostError('UPSTREAM_CHANGED', 'Codex app-server returned an unreadable device sign-in response.')
+        }
+        loginId = started.loginId
+        interaction.notify({ type: 'device_code', userCode: started.userCode, verificationUri: started.verificationUrl })
+      } else {
+        const started = await server.call('account/login/start', {
+          type: 'chatgpt',
+          useHostedLoginSuccessPage: true,
+          appBrand: 'chatgpt',
+        }) as { loginId?: unknown; authUrl?: unknown }
+        if (typeof started.loginId !== 'string' || typeof started.authUrl !== 'string') {
+          throw new ModelHostError('UPSTREAM_CHANGED', 'Codex app-server returned an unreadable browser sign-in response.')
+        }
+        loginId = started.loginId
+        interaction.notify({
+          type: 'auth_url',
+          url: started.authUrl,
+          instructions: 'Open this page in your browser and sign in with ChatGPT. The installer will continue when sign-in finishes.',
+          waitForCompletion: true,
+        })
+      }
       const abort = () => { void server.call('account/login/cancel', { loginId }).catch(() => {}) }
       const cancelled = new Promise<never>((_resolve, reject) => interaction.signal?.addEventListener('abort', () => reject(new ModelHostError('CANCELLED', 'OpenAI sign-in was cancelled.')), { once: true }))
       interaction.signal?.addEventListener('abort', abort, { once: true })

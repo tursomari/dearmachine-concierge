@@ -12,7 +12,8 @@ carries the matching `id` and exactly one `event`, `result`, or structured
 
 - `initialize`
 - `models/list`
-- `auth/status`, `auth/login`, and `auth/logout`
+- `auth/status`, `auth/login`, and `auth/logout` (`auth/login` accepts an optional
+  `mode` of `browser` or `device_code`)
 - `generation/start` and `generation/cancel`
 
 Generation requires explicit `caller` and `sessionId` values. Messages and
@@ -34,8 +35,10 @@ Official runtime subprocesses receive a small locale/certificate environment
 rather than the installer's ambient provider credentials.
 
 OpenAI Codex subscription support is pinned to `@openai/codex` 0.153.2 and
-uses app-server device-code authentication, model discovery, streaming,
-cancellation, and dynamic tools. GitHub Copilot subscription support is pinned
+uses app-server browser-callback or device-code authentication, model discovery,
+streaming, cancellation, and dynamic tools. Browser sign-in is intended for a
+local desktop; device codes remain available for SSH, containers, and headless
+installs. GitHub Copilot subscription support is pinned
 to `@github/copilot` 1.0.83 and `@github/copilot-sdk` 1.0.11 and runs SDK
 sessions in `empty` mode with only caller-declared tools. Either integration
 can be removed from the wizard with `MACHTIANI_DISABLE_OPENAI_CODEX=1` or

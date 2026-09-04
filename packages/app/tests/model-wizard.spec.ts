@@ -118,6 +118,16 @@ describe('installer model setup wizard', () => {
     expect(tui.messages.some(message => message.includes('existing OpenRouter sign-in'))).toBe(true)
   })
 
+  it('recovers from a failed existing-sign-in probe instead of exiting the wizard', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-probe-'))
+    const { setup, authentications } = fakeSetup(root)
+    setup.isAuthenticated = async () => { throw new Error('official runtime could not start') }
+    const tui = new ScriptedTui(['openrouter', 'api_key', 'z-ai/glm-5.3-flash', 'high'])
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toMatchObject({ provider: 'openrouter' })
+    expect(authentications).toEqual(['api_key'])
+    expect(tui.messages).toContain('I could not check the existing OpenRouter sign-in. official runtime could not start You can try signing in now or press Ctrl+C to exit.')
+  })
+
   it('keeps device-code polling in a cancellable waiting state and returns to sign-in choices', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-device-'))
     let attempts = 0

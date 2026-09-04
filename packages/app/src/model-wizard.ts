@@ -92,13 +92,17 @@ function preferredEffort(efforts: readonly string[], current: string | undefined
 }
 
 async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, providerId: string): Promise<void> {
-  if (await setup.isAuthenticated(providerId)) {
-    const provider = setup.providers().find(candidate => candidate.id === providerId)
-    tui.addAssistant(`Your existing ${provider?.name ?? providerId} sign-in is available. It will be used by this installer and by Machtiani for Dear Machine.`)
-    return
+  const provider = setup.providers().find(candidate => candidate.id === providerId)
+  try {
+    if (await setup.isAuthenticated(providerId)) {
+      tui.addAssistant(`Your existing ${provider?.name ?? providerId} sign-in is available. It will be used by this installer and by Machtiani for Dear Machine.`)
+      return
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : ''
+    tui.addAssistant(`I could not check the existing ${provider?.name ?? providerId} sign-in.${detail} You can try signing in now or press Ctrl+C to exit.`)
   }
 
-  const provider = setup.providers().find(candidate => candidate.id === providerId)
   if (provider === undefined) throw new Error(`unknown installer model provider: ${providerId}`)
   while (true) {
     const method = await tui.choose(

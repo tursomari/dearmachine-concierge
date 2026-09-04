@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
@@ -53,6 +53,16 @@ function runtimeEnvironment(extra: Record<string, string>): NodeJS.ProcessEnv {
   return { ...environment, ...extra }
 }
 
+async function ensureRuntimeProfile(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: 0o700 })
+  const metadata = await lstat(path)
+  const owned = process.getuid === undefined || metadata.uid === process.getuid()
+  if (!metadata.isDirectory() || metadata.isSymbolicLink() || !owned) {
+    throw new ModelHostError('INVALID_REQUEST', 'Subscription runtime state must use an owned regular directory.')
+  }
+  await chmod(path, 0o700)
+}
+
 function transcript(request: ModelHostGenerateRequest): string {
   const history = request.messages.map(message => {
     const calls = (message.toolCalls ?? []).map(call => `\n[tool call ${call.id}: ${call.name} ${call.arguments}]`).join('')
@@ -93,12 +103,17 @@ class CodexAppServer implements CodexAppServerPort {
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>()
   private readonly listeners = new Set<(message: RpcMessage) => void>()
   private nextId = 1
+  private stderr = ''
+  private failed = false
 
   constructor(profile: string) {
     const require = createRequire(import.meta.url)
     const packagePath = require.resolve('@openai/codex/package.json')
     this.process = spawn(process.execPath, [join(dirname(packagePath), 'bin', 'codex.js'), 'app-server'], {
       env: runtimeEnvironment({ CODEX_HOME: profile }), stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    this.process.stderr.on('data', chunk => {
+      this.stderr = `${this.stderr}${String(chunk)}`.slice(-8192)
     })
     createInterface({ input: this.process.stdout, crlfDelay: Infinity }).on('line', line => {
       let message: RpcMessage
@@ -112,11 +127,17 @@ class CodexAppServer implements CodexAppServerPort {
         }
       } else for (const listener of this.listeners) listener(message)
     })
-    this.process.once('exit', () => {
-      for (const waiter of this.pending.values()) waiter.reject(new Error('Codex app-server exited unexpectedly'))
+    const failed = (cause?: Error) => {
+      if (this.failed) return
+      this.failed = true
+      const detail = this.stderr.trim().split(/\r?\n/u).at(-1)
+      const error = cause ?? new Error(`Codex app-server exited unexpectedly${detail === undefined || detail === '' ? '' : `: ${detail}`}`)
+      for (const waiter of this.pending.values()) waiter.reject(error)
       this.pending.clear()
-      for (const listener of this.listeners) listener({ method: 'transport/error' })
-    })
+      for (const listener of this.listeners) listener({ method: 'transport/error', params: { message: error.message } })
+    }
+    this.process.once('error', failed)
+    this.process.once('exit', () => failed())
   }
 
   private send(value: unknown): void { this.process.stdin.write(`${JSON.stringify(value)}\n`) }
@@ -129,12 +150,16 @@ class CodexAppServer implements CodexAppServerPort {
   }
   call(method: string, params?: unknown): Promise<unknown> {
     const id = this.nextId++
-    this.send({ method, id, ...(params === undefined ? {} : { params }) })
-    return new Promise((resolve, reject) => this.pending.set(id, { resolve, reject }))
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject })
+      try { this.send({ method, id, ...(params === undefined ? {} : { params }) }) }
+      catch (error) { this.pending.delete(id); reject(error as Error) }
+    })
   }
   respond(id: string | number, result: unknown): void { this.send({ id, result }) }
   onMessage(listener: (message: RpcMessage) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener) }
   async close(): Promise<void> {
+    this.failed = true
     this.process.stdin.end()
     if (this.process.exitCode === null) this.process.kill('SIGTERM')
   }
@@ -145,6 +170,7 @@ type AppServerFactory = (profile: string) => CodexAppServerPort
 export class OpenAICodexDriver implements ModelHostRuntimeDriver {
   constructor(private readonly profile: ModelHostProfile, private readonly factory: AppServerFactory = profile => new CodexAppServer(profile)) {}
   private async server(): Promise<CodexAppServerPort> {
+    await ensureRuntimeProfile(this.profile.runtimeProfile!)
     const server = this.factory(this.profile.runtimeProfile!)
     await server.start()
     return server
@@ -249,14 +275,15 @@ type CopilotFactory = (profile: string) => CopilotClient
 
 export class GitHubCopilotDriver implements ModelHostRuntimeDriver {
   constructor(private readonly profile: ModelHostProfile, private readonly factory: CopilotFactory = profile => new CopilotClient({ mode: 'empty', baseDirectory: profile, useLoggedInUser: true, logLevel: 'error', env: runtimeEnvironment({ COPILOT_HOME: profile }) })) {}
-  private client(): CopilotClient { return this.factory(this.profile.runtimeProfile!) }
-  async authenticated(): Promise<boolean> { const client = this.client(); try { await client.start(); return (await client.getAuthStatus()).isAuthenticated } finally { await client.stop().catch(() => []) } }
+  private async client(): Promise<CopilotClient> { await ensureRuntimeProfile(this.profile.runtimeProfile!); return this.factory(this.profile.runtimeProfile!) }
+  async authenticated(): Promise<boolean> { const client = await this.client(); try { await client.start(); return (await client.getAuthStatus()).isAuthenticated } finally { await client.stop().catch(() => []) } }
   async models(): Promise<readonly ModelHostModelInfo[]> {
-    const client = this.client()
+    const client = await this.client()
     try { await client.start(); return (await client.listModels()).filter(model => model.policy?.state !== 'disabled').map(model => ({ id: model.id, name: model.name, reasoningEfforts: model.supportedReasoningEfforts ?? [] })) }
     finally { await client.stop().catch(() => []) }
   }
   async login(interaction: ModelHostAuthInteraction): Promise<void> {
+    await ensureRuntimeProfile(this.profile.runtimeProfile!)
     const require = createRequire(import.meta.url)
     const packagePath = require.resolve('@github/copilot/package.json')
     interaction.notify({ type: 'progress', message: 'Starting GitHub device sign-in' })
@@ -275,7 +302,7 @@ export class GitHubCopilotDriver implements ModelHostRuntimeDriver {
     throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'Use the official GitHub Copilot CLI logout command to remove its saved sign-in.')
   }
   async * generate(request: ModelHostGenerateRequest): AsyncIterable<ModelHostEvent> {
-    const client = this.client()
+    const client = await this.client()
     await client.start()
     const queue = new EventQueue()
     let text = ''

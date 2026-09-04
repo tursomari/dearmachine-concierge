@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { lstat, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -78,6 +78,20 @@ describe('subscription runtime boundaries', () => {
     expect(generation.calls.some(call => call.method === 'turn/interrupt')).toBe(true)
     const thread = generation.calls.find(call => call.method === 'thread/start')?.params as Record<string, unknown>
     expect(thread).toMatchObject({ sandbox: 'read-only', environments: [], runtimeWorkspaceRoots: [], ephemeral: true })
+  })
+
+  it('starts the official Codex app-server from a new private runtime profile', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-codex-profile-'))
+    const runtimeProfile = join(root, 'not-created-yet')
+    try {
+      const driver = new OpenAICodexDriver(profile('openai-codex-app-server', 'openai-codex', runtimeProfile))
+      await expect(driver.authenticated()).resolves.toBe(false)
+      const metadata = await lstat(runtimeProfile)
+      expect(metadata.isDirectory()).toBe(true)
+      expect(metadata.mode & 0o777).toBe(0o700)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('maps Copilot SDK output while exposing only caller-declared tools', async () => {

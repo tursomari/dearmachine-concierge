@@ -3,7 +3,7 @@ import { chmod, lstat, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import type { Readable } from 'node:stream'
 import {
   AbortError as ClaudeAbortError,
@@ -396,6 +396,13 @@ export class GitHubCopilotDriver implements ModelHostRuntimeDriver {
 export type ClaudeCliProcessFactory = (profile: string, args: readonly string[]) => ChildProcessWithoutNullStreams
 
 function claudeNativeExecutable(): string {
+  const configuredExecutable = process.env.MACHTIANI_CLAUDE_EXECUTABLE
+  if (configuredExecutable !== undefined) {
+    if (!isAbsolute(configuredExecutable)) {
+      throw new ModelHostError('INVALID_REQUEST', 'MACHTIANI_CLAUDE_EXECUTABLE must be an absolute path.')
+    }
+    return configuredExecutable
+  }
   const platform = process.platform
   const architecture = process.arch
   if ((platform !== 'linux' && platform !== 'darwin' && platform !== 'win32') ||

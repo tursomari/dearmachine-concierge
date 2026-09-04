@@ -17,6 +17,13 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          claudeRuntime = if system == "x86_64-linux" then pkgs.fetchurl {
+            url = "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.3.260.tgz";
+            hash = "sha512-JL07je0d2g680Hbu0D9W4hGuZlUeQlhPQac+NPKTJAdJ21bH12JdaMO5QE9RDNIxjd1BaodqMOdTEhjrH1capQ==";
+          } else if system == "aarch64-linux" then pkgs.fetchurl {
+            url = "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/-/claude-agent-sdk-linux-arm64-musl-0.3.260.tgz";
+            hash = "sha512-ZLMbeLHVjkq5hmnpWK1Q2qGAztSPrnTtV+ufdPNf9rzYTYEJdLvEHMqmqlFE2VStOrFEpa7feftT3rcbobBJEw==";
+          } else null;
           dependencySource = pkgs.lib.fileset.toSource {
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
@@ -65,12 +72,31 @@
               runtime="$out/libexec/machtiani-installer"
               mkdir -p "$runtime" "$out/bin"
               cp -R package.json node_modules packages "$runtime/"
+              ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                mkdir -p "$runtime/vendor/claude"
+                tar -xzf ${claudeRuntime} --strip-components=1 -C "$runtime/vendor/claude"
+                makeWrapper ${pkgs.musl}/lib/ld-musl-${pkgs.stdenv.hostPlatform.linuxArch}.so.1 \
+                  "$runtime/vendor/claude/claude-nix" \
+                  --add-flags "$runtime/vendor/claude/claude"
+              ''}
               makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-installer" \
                 --add-flags "$runtime/packages/app/dist/bin.mjs"
               makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-model-host" \
                 --add-flags "$runtime/packages/model-host/dist/bin.mjs"
               makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-installer-backend" \
                 --add-flags "$runtime/packages/backend-adapter/dist/bin.mjs"
+              ${pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                claude_runtime="$runtime/vendor/claude/claude-nix"
+                if [ ! -x "$claude_runtime" ]; then
+                  echo "The pinned Claude Agent SDK executable is missing from the installer closure." >&2
+                  exit 1
+                fi
+                "$claude_runtime" --version >/dev/null
+                wrapProgram "$out/bin/machtiani-installer" \
+                  --set MACHTIANI_CLAUDE_EXECUTABLE "$claude_runtime"
+                wrapProgram "$out/bin/machtiani-model-host" \
+                  --set MACHTIANI_CLAUDE_EXECUTABLE "$claude_runtime"
+              ''}
               runHook postInstall
             '';
             passthru = {

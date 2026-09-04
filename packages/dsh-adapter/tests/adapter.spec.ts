@@ -1,9 +1,12 @@
 import { chmod, mkdtemp, readFile, stat } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { HarnessSdkJsonRpcServer } from '@deepseek-ai/dsh-sdk-jsonrpc-server'
 import { describe, expect, it } from 'vitest'
 import {
   DSH_NPM_VERSION,
+  DSH_INTERRUPT_METHOD,
   DSH_SOURCE_REVISION,
   InstallerModelSetup,
   DshTaskExecutionError,
@@ -19,6 +22,27 @@ describe('pinned DSH compatibility boundary', () => {
   it('pins both package and reviewed source revisions', () => {
     expect(DSH_NPM_VERSION).toBe('0.1.2-rc.1')
     expect(DSH_SOURCE_REVISION).toMatch(/^[0-9a-f]{40}$/u)
+  })
+
+  it('carries the installer-owned turn interruption extension in the pinned runtime', async () => {
+    expect(DSH_INTERRUPT_METHOD).toBe('session/interrupt')
+    const require = createRequire(import.meta.url)
+    const runtimePackage = require.resolve('@deepseek-ai/dsh-sdk-jsonrpc-server/package.json')
+    const runtime = await readFile(join(runtimePackage, '../lib/index.js'), 'utf8')
+    expect(runtime).toContain('case "session/interrupt"')
+    expect(runtime).toContain('agent.cancel({ kind: "user" })')
+
+    const cancellations: unknown[] = []
+    const agent = { id: 'agent-test', cancel: (cause: unknown) => { cancellations.push(cause) } }
+    const server = new HarnessSdkJsonRpcServer({
+      agents: { get: () => agent },
+      on: () => () => {},
+    } as never, { notify: () => {} } as never)
+    Object.assign(server, { initialized: true })
+    const sessions = (server as unknown as { sessions: Map<string, unknown> }).sessions
+    sessions.set('session-test', { handle: { agent } })
+    expect(server.interrupt({ sessionId: 'session-test' })).toEqual({})
+    expect(cancellations).toEqual([{ kind: 'user' }])
   })
 
   it('writes a private isolated profile without credential values', async () => {

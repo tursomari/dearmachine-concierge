@@ -8,7 +8,8 @@ This repository implements the first risk-reduction slices and the guarded
 native installation path:
 
 - an exact DeepSeek Harness package and source pin;
-- a narrow process adapter and isolated DSH profile;
+- a narrow process adapter, isolated DSH profile, and reviewed runtime patch
+  that adds session-preserving turn interruption to the pinned SDK protocol;
 - a launch-time wizard backed by the pinned DSH provider catalog for choosing
   the installer's provider, sign-in method, model, and reasoning level;
 - a maintained, Machtiani-branded derivative of the last official DSH TUI;
@@ -77,7 +78,9 @@ choices in the guided conversation. No configuration flag is required.
 The TUI captures required API keys in masked fields and writes them directly to
 private mode-`0600` storage; the values never enter the transcript or DSH event
 stream. A key-entry field can be cancelled with Ctrl+C without exiting the
-installer; Ctrl+C from ordinary input exits. With permission, the installer
+installer. Outside key entry, the first Ctrl+C stops current model or tool
+activity and displays an exit warning; a second Ctrl+C exits. Typing again
+disarms that warning. With permission, the installer
 then runs isolated backend health probes, installs and starts Machtiani and
 Dear Machine, asks for one live test email, follows that message through the
 selected backend, and reports success only after the reply is sent.

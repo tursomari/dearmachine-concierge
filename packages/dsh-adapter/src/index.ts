@@ -22,6 +22,7 @@ export {
 
 export const DSH_NPM_VERSION = '0.1.2-rc.1'
 export const DSH_SOURCE_REVISION = '76fda729799fe9b3848dbe2c211d4b231032b81e'
+export const DSH_INTERRUPT_METHOD = 'session/interrupt'
 export const INSTALLER_PROVIDER = 'openrouter'
 export const INSTALLER_MODEL = 'z-ai/glm-5.3-flash'
 export const INSTALLER_REASONING_EFFORT = 'high'
@@ -264,6 +265,11 @@ export class DshAgentSession {
       sessionId: this.sessionId,
       contentBlocks: [{ type: 'text', text }],
     })
+  }
+
+  /** Cancel current model/tool activity while preserving the installer session. */
+  async interrupt(): Promise<void> {
+    await this.request(DSH_INTERRUPT_METHOD, { sessionId: this.sessionId })
   }
 
   async whenExited(): Promise<number | null> {

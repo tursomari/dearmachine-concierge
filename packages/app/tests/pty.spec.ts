@@ -70,7 +70,10 @@ describe('real PTY lifecycle', () => {
   })
 
   it('restores the terminal after Ctrl-C exit', async () => {
-    const result = await runInPty([{ prompt: 'Would you like to continue', input: '\x03' }])
+    const result = await runInPty([
+      { prompt: 'Would you like to continue', input: '\x03' },
+      { prompt: 'Press Ctrl+C again to exit', input: '\x03' },
+    ])
     expect(result.code).toBe(0)
   })
 

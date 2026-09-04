@@ -32,6 +32,7 @@ export interface InstallerTuiOptions {
   title?: string
   color?: boolean
   onSubmit?(text: string): void | Promise<void>
+  onInterrupt?(): void | Promise<void>
   onExit?(): void
 }
 
@@ -56,6 +57,7 @@ export class InstallerTui {
   private readonly ui: TUI
   private readonly transcript = new Container()
   private readonly status = new Text('', 0, 0)
+  private readonly interruptNotice = new Text('', 0, 0)
   private readonly editor: Editor
   private readonly maskedInput = new MaskedInput()
   private readonly secureInputLabel: Text
@@ -79,6 +81,7 @@ export class InstallerTui {
   private suspendedProgressMessage: string | undefined
   private progressFrame = 0
   private progressTimer: ReturnType<typeof setInterval> | undefined
+  private exitArmed = false
 
   constructor(private readonly options: InstallerTuiOptions = {}) {
     this.terminal = options.terminal ?? new ProcessTerminal()
@@ -100,20 +103,37 @@ export class InstallerTui {
     this.ui.addChild(this.transcript)
     this.ui.addChild(new Spacer(1))
     this.ui.addChild(this.status)
+    this.ui.addChild(this.interruptNotice)
     this.inputSlot.addChild(this.editor)
     this.ui.addChild(this.inputSlot)
     this.ui.setFocus(this.editor)
     this.removeInputListener = this.ui.addInputListener(data => {
       if (matchesKey(data, Key.ctrl('c'))) {
         if (this.pendingQuestion?.mode === 'secret') {
+          this.clearExitWarning()
           this.cancelPending(new SecretInputCancelledError())
-        } else if (this.cancellationHandler !== undefined) {
-          this.cancellationHandler()
-        } else {
+        } else if (this.exitArmed) {
           this.options.onExit?.()
+        } else {
+          this.exitArmed = true
+          this.interruptNotice.setText(this.theme.warning('Activity stopped. Press Ctrl+C again to exit the installer.'))
+          this.requestRender()
+          const interrupt = this.cancellationHandler ?? this.options.onInterrupt
+          if (interrupt !== undefined) {
+            try {
+              void Promise.resolve(interrupt()).catch(() => {
+                this.interruptNotice.setText(this.theme.error('The activity did not stop cleanly. Press Ctrl+C again to exit the installer.'))
+                this.requestRender()
+              })
+            } catch {
+              this.interruptNotice.setText(this.theme.error('The activity did not stop cleanly. Press Ctrl+C again to exit the installer.'))
+              this.requestRender()
+            }
+          }
         }
         return { consume: true }
       }
+      this.clearExitWarning()
       return undefined
     })
   }
@@ -316,6 +336,7 @@ export class InstallerTui {
     this.progressMessage = undefined
     this.suspendedProgressMessage = undefined
     this.cancellationHandler = undefined
+    this.clearExitWarning()
     if (this.externalWaitLabel !== undefined) this.inputSlot.removeChild(this.externalWaitLabel)
     this.externalWaitLabel = undefined
     const pending = this.pendingQuestion
@@ -430,6 +451,12 @@ export class InstallerTui {
     const prompt = '› '
     this.editor.setPrompt({ first: prompt, continuation: ' '.repeat(visibleWidth(prompt)) })
     this.ui.requestRender()
+  }
+
+  private clearExitWarning(): void {
+    this.exitArmed = false
+    this.interruptNotice.setText('')
+    this.requestRender()
   }
 
   private renderProgress(): void {

@@ -191,6 +191,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const tools = new Map<string, ReturnType<InstallerTui['beginTool']>>()
   const tui = new InstallerTui({
     onSubmit: async text => { await agent?.prompt(text) },
+    onInterrupt: async () => { await agent?.interrupt() },
     onExit: requestExit,
   })
   const credentials = new CredentialFileAdapter({ home })

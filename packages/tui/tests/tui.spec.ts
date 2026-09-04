@@ -2,12 +2,22 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { InstallerTui, assertInteractiveTerminal } from '../src/index.ts'
 import { HeadlessTerminal } from './headless-terminal.ts'
 
-const open = async (columns = 80, rows = 24, onExit?: () => void): Promise<{
+const open = async (
+  columns = 80,
+  rows = 24,
+  onExit?: () => void,
+  onInterrupt?: () => void | Promise<void>,
+): Promise<{
   terminal: HeadlessTerminal
   tui: InstallerTui
 }> => {
   const terminal = new HeadlessTerminal(columns, rows)
-  const tui = new InstallerTui({ terminal, color: false, ...(onExit === undefined ? {} : { onExit }) })
+  const tui = new InstallerTui({
+    terminal,
+    color: false,
+    ...(onExit === undefined ? {} : { onExit }),
+    ...(onInterrupt === undefined ? {} : { onInterrupt }),
+  })
   tui.start()
   await terminal.waitForFrame()
   return { terminal, tui }
@@ -117,6 +127,8 @@ describe('Machtiani Installer TUI', () => {
     harness.terminal.send('\x03')
     expect(cancellations).toBe(1)
     expect(exits).toBe(0)
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot()).toContain('Press Ctrl+C again to exit')
     waiting.close()
     cancellation.close()
     const ordinary = harness.tui.ask({ message: 'Continue?' })
@@ -157,6 +169,8 @@ describe('Machtiani Installer TUI', () => {
     harness.terminal.send('\x03')
     await expect(answer).rejects.toThrow('cancelled')
     expect(exits).toBe(0)
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot()).not.toContain('Press Ctrl+C again to exit')
     const ordinary = harness.tui.ask({ message: 'Continue?' })
     harness.terminal.send('yes')
     harness.terminal.send('\r')
@@ -186,14 +200,25 @@ describe('Machtiani Installer TUI', () => {
     expect(harness.terminal.progress).toBe(false)
   })
 
-  it('exits from ordinary input and restores terminal state', async () => {
+  it('interrupts first, warns, and exits only on a second Ctrl-C', async () => {
     const terminal = new HeadlessTerminal()
     let exits = 0
-    const tui = new InstallerTui({ terminal, color: false, onExit: () => { exits += 1 } })
+    let interrupts = 0
+    const tui = new InstallerTui({
+      terminal,
+      color: false,
+      onInterrupt: () => { interrupts += 1 },
+      onExit: () => { exits += 1 },
+    })
     tui.start()
     await terminal.waitForFrame()
     const answer = tui.ask({ message: 'Continue?' })
     const closed = expect(answer).rejects.toThrow('closed')
+    terminal.send('\x03')
+    expect(interrupts).toBe(1)
+    expect(exits).toBe(0)
+    await terminal.waitForFrame()
+    expect(await terminal.snapshot()).toContain('Activity stopped. Press Ctrl+C again to exit the installer.')
     terminal.send('\x03')
     expect(exits).toBe(1)
     await tui.dispose()
@@ -204,6 +229,18 @@ describe('Machtiani Installer TUI', () => {
     expect(terminal.progress).toBe(false)
     expect(terminal.title).toBe('')
     await terminal.dispose()
+  })
+
+  it('disarms the exit warning when the user resumes typing', async () => {
+    let exits = 0
+    let interrupts = 0
+    const harness = await open(80, 24, () => { exits += 1 }, () => { interrupts += 1 })
+    opened.push(harness)
+    harness.terminal.send('\x03')
+    harness.terminal.send('continue')
+    harness.terminal.send('\x03')
+    expect(interrupts).toBe(2)
+    expect(exits).toBe(0)
   })
 
   it('fails early with an actionable message without a TTY', () => {

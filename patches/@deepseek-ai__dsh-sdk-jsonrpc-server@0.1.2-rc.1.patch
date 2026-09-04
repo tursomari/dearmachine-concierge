@@ -1,0 +1,33 @@
+diff --git a/README.md b/README.md
+index c34874b..0d7a5fc 100644
+--- a/README.md
++++ b/README.md
+@@ -125 +125 @@ These limits define when the plugin needs special operational care. They are cur
+-- **The wire has no per-session close or prompt-cancel method** — SDK-created agents remain live until process shutdown.
++- **The upstream wire has no per-session close or prompt-cancel method** — this Machtiani-patched runtime adds `session/interrupt` for the installer while SDK-created agents otherwise remain live until process shutdown.
+diff --git a/lib/index.js b/lib/index.js
+index 9b71830..42b83be 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -156,0 +157,10 @@ var HarnessSdkJsonRpcServer = class {
++	/** Cancel the active turn without disposing the SDK-owned session. */
++	interrupt(params) {
++		if (!this.initialized) throw new Error("SDK server is not initialized");
++		if (typeof params?.sessionId !== "string" || params.sessionId.length === 0) throw new TypeError("session/interrupt sessionId must be a non-empty string");
++		const rec = this.sessions.get(params.sessionId);
++		if (rec === void 0) return {};
++		this.assertLiveAgent(rec, params.sessionId);
++		rec.handle.agent.cancel({ kind: "user" });
++		return {};
++	}
+@@ -199,0 +210 @@ var HarnessSdkJsonRpcServer = class {
++			case "session/interrupt": return this.interrupt(params);
+diff --git a/lib/types/server.d.ts b/lib/types/server.d.ts
+index bd75d13..07414ff 100644
+--- a/lib/types/server.d.ts
++++ b/lib/types/server.d.ts
+@@ -48,0 +49,4 @@ export declare class HarnessSdkJsonRpcServer {
++    /** Cancel the active turn without disposing the SDK-owned session. */
++    interrupt(params: {
++        sessionId: string;
++    }): Record<string, never>;

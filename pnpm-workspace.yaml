@@ -16,4 +16,5 @@ allowBuilds:
 minimumReleaseAge: 0
 
 patchedDependencies:
+  '@deepseek-ai/dsh-sdk-jsonrpc-server@0.1.2-rc.1': patches/@deepseek-ai__dsh-sdk-jsonrpc-server@0.1.2-rc.1.patch
   '@earendil-works/pi-tui@0.80.7': patches/@earendil-works__pi-tui@0.80.7.patch

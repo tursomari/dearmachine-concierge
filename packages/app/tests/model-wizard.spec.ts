@@ -14,7 +14,9 @@ class ScriptedTui {
   readonly messages: string[] = []
   readonly choices: Array<{ message: string; selected?: string }> = []
   readonly progress: Array<string | undefined> = []
+  readonly externalWaits: string[] = []
   secretAttempts = 0
+  private cancellation: (() => void) | undefined
 
   constructor(
     private readonly answers: string[],
@@ -23,6 +25,15 @@ class ScriptedTui {
 
   addAssistant(message: string): void { this.messages.push(message) }
   setProgress(message: string | undefined): void { this.progress.push(message) }
+  beginCancellationScope(onCancel: () => void): { close(): void } {
+    this.cancellation = onCancel
+    return { close: () => { if (this.cancellation === onCancel) this.cancellation = undefined } }
+  }
+  beginExternalWait(message: string): { close(): void } {
+    this.externalWaits.push(message)
+    return { close: () => {} }
+  }
+  cancelInteraction(): void { this.cancellation?.() }
   ask(question: { message: string }): Promise<string> { this.messages.push(question.message); return Promise.resolve(this.answers.shift() ?? '') }
   choose(message: string, _choices: readonly InstallerChoice[], selected?: string): Promise<string> {
     this.choices.push({ message, ...(selected === undefined ? {} : { selected }) })
@@ -105,5 +116,70 @@ describe('installer model setup wizard', () => {
     expect(authentications).toEqual([])
     expect(tui.secretAttempts).toBe(0)
     expect(tui.messages.some(message => message.includes('existing OpenRouter sign-in'))).toBe(true)
+  })
+
+  it('keeps device-code polling in a cancellable waiting state and returns to sign-in choices', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-device-'))
+    let attempts = 0
+    const setup: Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'> = {
+      dshHome: root,
+      providers: () => [{
+        id: 'openai-codex',
+        name: 'OpenAI Codex',
+        authMethods: [{ id: 'oauth', label: 'OpenAI (ChatGPT Plus/Pro)', subscription: true }],
+      }],
+      modelsFor: () => [{ id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', reasoningEfforts: ['low', 'high'] }],
+      isAuthenticated: async () => false,
+      authenticate: async (_provider, _method, interaction) => {
+        attempts += 1
+        if (attempts === 1) {
+          interaction.notify({
+            type: 'device_code',
+            userCode: 'TEST-CODE',
+            verificationUri: 'https://example.invalid/device',
+          })
+          await new Promise<void>((_resolve, reject) => {
+            interaction.signal?.addEventListener('abort', () => { reject(new Error('Login cancelled')) }, { once: true })
+            queueMicrotask(() => { tui.cancelInteraction() })
+          })
+        }
+      },
+    }
+    const tui = new ScriptedTui([
+      'openai-codex',
+      'oauth',
+      'oauth',
+      'gpt-5.3-codex',
+      'high',
+    ])
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toEqual({
+      provider: 'openai-codex',
+      model: 'gpt-5.3-codex',
+      reasoningEffort: 'high',
+    })
+    expect(attempts).toBe(2)
+    expect(tui.externalWaits).toEqual(['Waiting for browser sign-in…'])
+    expect(tui.progress).toContain('Waiting for sign-in')
+    expect(tui.messages).toContain('Sign-in was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
+  })
+
+  it('turns a device-code enablement failure into an actionable retry', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-enable-device-'))
+    const { setup } = fakeSetup(root)
+    let attempts = 0
+    setup.authenticate = async () => {
+      attempts += 1
+      if (attempts === 1) throw new Error('OpenAI Codex device code login is not enabled for this server.')
+    }
+    const tui = new ScriptedTui([
+      'openrouter',
+      'oauth',
+      'oauth',
+      'z-ai/glm-5.3-flash',
+      'high',
+    ])
+    await runInstallerModelWizard(tui as never, setup)
+    expect(attempts).toBe(2)
+    expect(tui.messages).toContain('Device-code login is not enabled for this account yet. Enable it on the OpenAI page, then choose the sign-in method again.')
   })
 })

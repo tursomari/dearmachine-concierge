@@ -99,6 +99,32 @@ describe('Machtiani Installer TUI', () => {
     await expect(ordinary).resolves.toBe('yes')
   })
 
+  it('suppresses ordinary input and scopes Ctrl+C while device sign-in is pending', async () => {
+    let exits = 0
+    let cancellations = 0
+    const harness = await open(48, 12, () => { exits += 1 })
+    opened.push(harness)
+    const cancellation = harness.tui.beginCancellationScope(() => { cancellations += 1 })
+    const waiting = harness.tui.beginExternalWait('Waiting for browser sign-in…')
+    harness.terminal.send('ignored input')
+    harness.terminal.send('\r')
+    await harness.terminal.waitForFrame()
+    const pending = await harness.terminal.snapshot({ includeScrollback: true })
+    expect(pending).toContain('Waiting for browser sign-in')
+    expect(pending).toContain('Ctrl+C to cancel ')
+    expect(pending).toContain(' sign-in ')
+    expect(pending).not.toContain('ignored input')
+    harness.terminal.send('\x03')
+    expect(cancellations).toBe(1)
+    expect(exits).toBe(0)
+    waiting.close()
+    cancellation.close()
+    const ordinary = harness.tui.ask({ message: 'Continue?' })
+    harness.terminal.send('yes')
+    harness.terminal.send('\r')
+    await expect(ordinary).resolves.toBe('yes')
+  })
+
   it('accepts bracketed-paste secret input without rendering or transcribing it', async () => {
     const harness = await open()
     opened.push(harness)

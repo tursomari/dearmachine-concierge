@@ -10,7 +10,15 @@ import {
 } from '@dearmachine/machtiani-installer-dsh-adapter'
 import { SecretInputCancelledError, type InstallerChoice, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 
-type WizardTui = Pick<InstallerTui, 'addAssistant' | 'ask' | 'captureSecret' | 'choose' | 'setProgress'>
+type WizardTui = Pick<InstallerTui,
+  | 'addAssistant'
+  | 'ask'
+  | 'beginCancellationScope'
+  | 'beginExternalWait'
+  | 'captureSecret'
+  | 'choose'
+  | 'setProgress'
+>
 type WizardSetup = Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'>
 
 function authEvent(tui: WizardTui, event: InstallerAuthEvent): void {
@@ -33,10 +41,15 @@ function authEvent(tui: WizardTui, event: InstallerAuthEvent): void {
   }
 }
 
-async function authPrompt(tui: WizardTui, prompt: InstallerAuthPrompt): Promise<string> {
+function mergedSignal(prompt: InstallerAuthPrompt, authentication: AbortSignal): AbortSignal {
+  return prompt.signal === undefined ? authentication : AbortSignal.any([prompt.signal, authentication])
+}
+
+async function authPrompt(tui: WizardTui, prompt: InstallerAuthPrompt, authentication: AbortSignal): Promise<string> {
+  const signal = mergedSignal(prompt, authentication)
   if (prompt.type === 'secret') {
     tui.addAssistant(prompt.message)
-    return await tui.captureSecret(prompt.signal)
+    return await tui.captureSecret(signal)
   }
   if (prompt.type === 'select') {
     return await tui.choose(
@@ -47,12 +60,12 @@ async function authPrompt(tui: WizardTui, prompt: InstallerAuthPrompt): Promise<
         ...(option.description === undefined ? {} : { description: option.description }),
       })),
       undefined,
-      prompt.signal,
+      signal,
     )
   }
   return await tui.ask({
     message: prompt.message,
-    ...(prompt.signal === undefined ? {} : { signal: prompt.signal }),
+    signal,
   })
 }
 
@@ -97,17 +110,39 @@ async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, provider
       })),
       provider.authMethods[0]?.id,
     ) as InstallerAuthMethodId
+    const controller = new AbortController()
+    const cancellation = tui.beginCancellationScope(() => { controller.abort() })
+    let externalWait: ReturnType<WizardTui['beginExternalWait']> | undefined
     try {
       await setup.authenticate(providerId, method, {
-        prompt: prompt => authPrompt(tui, prompt),
-        notify: event => { authEvent(tui, event) },
+        signal: controller.signal,
+        prompt: prompt => authPrompt(tui, prompt, controller.signal),
+        notify: event => {
+          authEvent(tui, event)
+          if (event.type === 'device_code' && externalWait === undefined) {
+            tui.setProgress('Waiting for sign-in')
+            externalWait = tui.beginExternalWait('Waiting for browser sign-in…')
+          }
+        },
       })
       tui.setProgress(undefined)
       return
     } catch (error) {
       tui.setProgress(undefined)
-      if (!(error instanceof SecretInputCancelledError)) throw error
-      tui.addAssistant('Key entry was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
+      if (error instanceof SecretInputCancelledError) {
+        tui.addAssistant('Key entry was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
+      } else if (controller.signal.aborted) {
+        tui.addAssistant('Sign-in was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
+      } else if (error instanceof Error && /device code login is not enabled/iu.test(error.message)) {
+        tui.addAssistant('Device-code login is not enabled for this account yet. Enable it on the OpenAI page, then choose the sign-in method again.')
+      } else if (error instanceof Error && /timed out/iu.test(error.message)) {
+        tui.addAssistant('Sign-in timed out. Choose the sign-in method again when you are ready.')
+      } else {
+        tui.addAssistant('Sign-in did not complete. Choose a sign-in method to try again, or press Ctrl+C to exit the installer.')
+      }
+    } finally {
+      externalWait?.close()
+      cancellation.close()
     }
   }
 }

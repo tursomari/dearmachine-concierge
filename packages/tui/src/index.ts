@@ -47,6 +47,10 @@ export interface ToolActivity {
   fail(summary: string): void
 }
 
+export interface InstallerInteractionHandle {
+  close(): void
+}
+
 export class InstallerTui {
   private readonly terminal: Terminal
   private readonly ui: TUI
@@ -57,6 +61,8 @@ export class InstallerTui {
   private readonly secureInputLabel: Text
   private readonly inputSlot = new Container()
   private choiceInput: ChoiceInput | undefined
+  private externalWaitLabel: Text | undefined
+  private cancellationHandler: (() => void) | undefined
   private readonly theme: InstallerTheme
   private readonly markdown
   private readonly removeInputListener: () => void
@@ -101,6 +107,8 @@ export class InstallerTui {
       if (matchesKey(data, Key.ctrl('c'))) {
         if (this.pendingQuestion?.mode === 'secret') {
           this.cancelPending(new SecretInputCancelledError())
+        } else if (this.cancellationHandler !== undefined) {
+          this.cancellationHandler()
         } else {
           this.options.onExit?.()
         }
@@ -182,10 +190,50 @@ export class InstallerTui {
     }
   }
 
+  /** Temporarily make Ctrl+C cancel a setup interaction instead of the installer. */
+  beginCancellationScope(onCancel: () => void): InstallerInteractionHandle {
+    if (this.cancellationHandler !== undefined) throw new Error('a cancellable installer interaction is already active')
+    let active = true
+    this.cancellationHandler = onCancel
+    return {
+      close: () => {
+        if (!active) return
+        active = false
+        if (this.cancellationHandler === onCancel) this.cancellationHandler = undefined
+      },
+    }
+  }
+
+  /** Hide ordinary input while an external browser or device-code action is pending. */
+  beginExternalWait(message: string): InstallerInteractionHandle {
+    if (this.pendingQuestion !== undefined) throw new Error('cannot wait externally while an installer question is active')
+    if (this.externalWaitLabel !== undefined) throw new Error('an external installer action is already pending')
+    const label = new Text(this.theme.dim(`${displayText(message)}  Ctrl+C to cancel sign-in`), 1, 0)
+    this.externalWaitLabel = label
+    this.inputSlot.removeChild(this.editor)
+    this.inputSlot.addChild(label)
+    this.ui.setFocus(null)
+    this.requestRender()
+    let active = true
+    return {
+      close: () => {
+        if (!active) return
+        active = false
+        if (this.externalWaitLabel !== label) return
+        this.inputSlot.removeChild(label)
+        this.externalWaitLabel = undefined
+        this.inputSlot.addChild(this.editor)
+        this.ui.setFocus(this.editor)
+        this.requestRender()
+      },
+    }
+  }
+
   ask(question: InstallerQuestion): Promise<string> {
     if (this.pendingQuestion !== undefined) {
       return Promise.reject(new Error('the installer supports exactly one active question'))
     }
+    if (this.externalWaitLabel !== undefined) return Promise.reject(new Error('an external installer action is pending'))
     if (question.signal?.aborted === true) return Promise.reject(new Error('the installer question was withdrawn'))
     const suffix = question.options === undefined || question.options.length === 0
       ? ''
@@ -209,6 +257,7 @@ export class InstallerTui {
     if (this.pendingQuestion !== undefined) {
       return Promise.reject(new Error('the installer supports exactly one active question'))
     }
+    if (this.externalWaitLabel !== undefined) return Promise.reject(new Error('an external installer action is pending'))
     if (signal?.aborted === true) return Promise.reject(new Error('the installer question was withdrawn'))
     this.suspendedProgressMessage = this.progressMessage
     this.setProgress(undefined)
@@ -231,6 +280,7 @@ export class InstallerTui {
     if (this.pendingQuestion !== undefined) {
       return Promise.reject(new Error('the installer supports exactly one active question'))
     }
+    if (this.externalWaitLabel !== undefined) return Promise.reject(new Error('an external installer action is pending'))
     if (choices.length === 0) return Promise.reject(new Error('the installer choice list is empty'))
     if (signal?.aborted === true) return Promise.reject(new Error('the installer question was withdrawn'))
     this.addAssistant(message)
@@ -265,6 +315,9 @@ export class InstallerTui {
     this.progressTimer = undefined
     this.progressMessage = undefined
     this.suspendedProgressMessage = undefined
+    this.cancellationHandler = undefined
+    if (this.externalWaitLabel !== undefined) this.inputSlot.removeChild(this.externalWaitLabel)
+    this.externalWaitLabel = undefined
     const pending = this.pendingQuestion
     this.pendingQuestion = undefined
     if (pending !== undefined) this.removePendingAbortListener(pending)

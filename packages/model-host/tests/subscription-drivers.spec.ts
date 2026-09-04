@@ -1,6 +1,8 @@
 import { lstat, mkdtemp, rm } from 'node:fs/promises'
+import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import {
   ANTHROPIC_SUBSCRIPTION_POLICY,
@@ -121,5 +123,62 @@ describe('subscription runtime boundaries', () => {
     expect(sessionConfig.enableConfigDiscovery).toBe(false)
     expect(events.some(event => event.type === 'tool-end')).toBe(true)
     expect(events.at(-1)).toEqual({ type: 'finish', reason: 'tool-calls' })
+  })
+
+  it('maps the official Copilot CLI login lifecycle without requiring an account', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-copilot-login-'))
+    try {
+      const stdout = new PassThrough()
+      const stderr = new PassThrough()
+      const child = Object.assign(new EventEmitter(), { stdout, stderr, kill: () => true })
+      const notices: unknown[] = []
+      const driver = new GitHubCopilotDriver(
+        profile('github-copilot-sdk', 'github-copilot', root),
+        () => { throw new Error('the SDK client is not needed for login') },
+        () => {
+          queueMicrotask(() => {
+            stdout.write('Open GitHub and enter the displayed device code.\n')
+            child.emit('exit', 0)
+          })
+          return child as never
+        },
+      )
+      await expect(driver.login({ prompt: async () => '', notify: event => notices.push(event) })).resolves.toBeUndefined()
+      expect(notices).toEqual([
+        { type: 'progress', message: 'Starting GitHub device sign-in' },
+        { type: 'info', message: 'Open GitHub and enter the displayed device code.' },
+      ])
+      expect((await lstat(root)).mode & 0o777).toBe(0o700)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('interrupts Copilot CLI login and reports cancellation distinctly', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-copilot-login-cancel-'))
+    try {
+      const stdout = new PassThrough()
+      const stderr = new PassThrough()
+      const child = Object.assign(new EventEmitter(), {
+        stdout,
+        stderr,
+        kill: (signal: NodeJS.Signals) => {
+          expect(signal).toBe('SIGINT')
+          queueMicrotask(() => child.emit('exit', 130))
+          return true
+        },
+      })
+      const controller = new AbortController()
+      const driver = new GitHubCopilotDriver(
+        profile('github-copilot-sdk', 'github-copilot', root),
+        () => { throw new Error('the SDK client is not needed for login') },
+        () => child as never,
+      )
+      const login = driver.login({ signal: controller.signal, prompt: async () => '', notify: () => {} })
+      queueMicrotask(() => controller.abort())
+      await expect(login).rejects.toMatchObject({ code: 'CANCELLED', message: 'GitHub Copilot sign-in was cancelled.' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

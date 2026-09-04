@@ -1,9 +1,10 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcessByStdio, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { chmod, lstat, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
 import { dirname, join } from 'node:path'
+import type { Readable } from 'node:stream'
 import { CopilotClient, type CopilotSession, type Tool } from '@github/copilot-sdk'
 import type {
   ModelHostAuthInteraction,
@@ -272,9 +273,24 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
 }
 
 type CopilotFactory = (profile: string) => CopilotClient
+type CopilotLoginProcess = ChildProcessByStdio<null, Readable, Readable>
+type CopilotLoginFactory = (profile: string) => CopilotLoginProcess
+
+function spawnCopilotLogin(profile: string): CopilotLoginProcess {
+  const require = createRequire(import.meta.url)
+  const packagePath = require.resolve('@github/copilot/package.json')
+  return spawn(process.execPath, [join(dirname(packagePath), 'npm-loader.js'), 'login', '--device-code'], {
+    env: runtimeEnvironment({ COPILOT_HOME: profile }),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+}
 
 export class GitHubCopilotDriver implements ModelHostRuntimeDriver {
-  constructor(private readonly profile: ModelHostProfile, private readonly factory: CopilotFactory = profile => new CopilotClient({ mode: 'empty', baseDirectory: profile, useLoggedInUser: true, logLevel: 'error', env: runtimeEnvironment({ COPILOT_HOME: profile }) })) {}
+  constructor(
+    private readonly profile: ModelHostProfile,
+    private readonly factory: CopilotFactory = profile => new CopilotClient({ mode: 'empty', baseDirectory: profile, useLoggedInUser: true, logLevel: 'error', env: runtimeEnvironment({ COPILOT_HOME: profile }) }),
+    private readonly loginFactory: CopilotLoginFactory = spawnCopilotLogin,
+  ) {}
   private async client(): Promise<CopilotClient> { await ensureRuntimeProfile(this.profile.runtimeProfile!); return this.factory(this.profile.runtimeProfile!) }
   async authenticated(): Promise<boolean> { const client = await this.client(); try { await client.start(); return (await client.getAuthStatus()).isAuthenticated } finally { await client.stop().catch(() => []) } }
   async models(): Promise<readonly ModelHostModelInfo[]> {
@@ -284,18 +300,33 @@ export class GitHubCopilotDriver implements ModelHostRuntimeDriver {
   }
   async login(interaction: ModelHostAuthInteraction): Promise<void> {
     await ensureRuntimeProfile(this.profile.runtimeProfile!)
-    const require = createRequire(import.meta.url)
-    const packagePath = require.resolve('@github/copilot/package.json')
     interaction.notify({ type: 'progress', message: 'Starting GitHub device sign-in' })
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(process.execPath, [join(dirname(packagePath), 'npm-loader.js'), 'login', '--device-code'], { env: runtimeEnvironment({ COPILOT_HOME: this.profile.runtimeProfile! }), stdio: ['ignore', 'pipe', 'pipe'] })
-      const relay = (chunk: Buffer) => interaction.notify({ type: 'info', message: chunk.toString('utf8').trim() })
+      const child = this.loginFactory(this.profile.runtimeProfile!)
+      let cancelled = interaction.signal?.aborted === true
+      let completed = false
+      const settle = (result: () => void): void => {
+        if (completed) return
+        completed = true
+        interaction.signal?.removeEventListener('abort', abort)
+        result()
+      }
+      const relay = (chunk: Buffer) => {
+        const message = chunk.toString('utf8').trim()
+        if (message !== '') interaction.notify({ type: 'info', message })
+      }
       child.stdout.on('data', relay); child.stderr.on('data', relay)
-      const abort = () => child.kill('SIGINT')
+      const abort = () => { cancelled = true; child.kill('SIGINT') }
       interaction.signal?.addEventListener('abort', abort, { once: true })
-      if (interaction.signal?.aborted) abort()
-      child.once('error', reject)
-      child.once('exit', code => { interaction.signal?.removeEventListener('abort', abort); if (code === 0) resolve(); else reject(new Error('GitHub Copilot sign-in did not complete')) })
+      child.once('error', error => settle(() => reject(cancelled
+        ? new ModelHostError('CANCELLED', 'GitHub Copilot sign-in was cancelled.')
+        : error)))
+      child.once('exit', code => settle(() => {
+        if (cancelled) reject(new ModelHostError('CANCELLED', 'GitHub Copilot sign-in was cancelled.'))
+        else if (code === 0) resolve()
+        else reject(new Error('GitHub Copilot sign-in did not complete'))
+      }))
+      if (cancelled) abort()
     })
   }
   async logout(): Promise<void> {

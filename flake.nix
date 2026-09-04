@@ -17,16 +17,37 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          dependencySource = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./package.json
+              ./pnpm-lock.yaml
+              ./pnpm-workspace.yaml
+              ./packages/app/package.json
+              ./packages/backend-adapter/package.json
+              ./packages/credential-adapter/package.json
+              ./packages/dsh-adapter/package.json
+              ./packages/environment-adapter/package.json
+              ./packages/model-host/package.json
+              ./packages/product-adapter/package.json
+              ./packages/tui/package.json
+              ./packages/workflow/package.json
+            ];
+          };
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "machtiani-installer";
             version = "0.0.1";
-            src = self;
+            src = dependencySource;
             fetcherVersion = 4;
             hash = "sha256-QAQ8YP2dHtXMLzrKqvUy+Z+Wxh/AIFnyj4wJQdqCaZY=";
             prePnpmInstall = "pnpm config set network-concurrency 4";
             pnpmInstallFlags = [ "--no-force" ];
           };
         in {
+          build-dependencies = pkgs.buildEnv {
+            name = "machtiani-installer-build-dependencies";
+            paths = [ pnpmDeps pkgs.nodejs_24 pkgs.pnpm pkgs.makeWrapper ];
+          };
           default = pkgs.stdenvNoCC.mkDerivation {
             pname = "machtiani-installer";
             version = "0.0.1";

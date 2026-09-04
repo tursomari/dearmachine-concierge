@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -12,7 +11,7 @@ import {
   type InstallerModelSelection,
 } from '@dearmachine/machtiani-installer-dsh-adapter'
 import type { InstallationOutcome } from '@dearmachine/machtiani-installer-dsh-adapter/installer-tools'
-import { CredentialBridge } from './credential-bridge.ts'
+import { CredentialBridge, credentialSocketPath } from './credential-bridge.ts'
 import { acquireInstallerLock } from './lock.ts'
 import { runInstallerModelWizard } from './model-wizard.ts'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
@@ -239,7 +238,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     onExit: requestExit,
   })
   const credentials = new CredentialFileAdapter({ home })
-  const socketPath = join(paths.stateDirectory, `credential-${process.pid}-${randomUUID()}.sock`)
+  const socketPath = credentialSocketPath(paths.stateDirectory)
   const bridge = new CredentialBridge({ socketPath, tui, credentials })
   const credentialHelper = fileURLToPath(new URL('./credential-bin.mjs', import.meta.url))
   const outcomePath = join(paths.stateDirectory, 'installation-outcome.json')

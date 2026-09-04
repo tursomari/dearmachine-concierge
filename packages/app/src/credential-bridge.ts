@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { chmod, lstat, mkdir, unlink } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
 import { SecretInputCancelledError, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 
@@ -13,6 +14,22 @@ export interface CredentialBridgeOptions {
   socketPath: string
   tui: InstallerTui
   credentials: CredentialFileAdapter
+}
+
+const PORTABLE_UNIX_SOCKET_PATH_LIMIT = 100
+
+/** Build a compact private socket path that remains portable across Unix hosts. */
+export function credentialSocketPath(
+  stateDirectory: string,
+  pid = process.pid,
+  nonce: string = randomUUID(),
+): string {
+  const token = nonce.replace(/[^a-z0-9]/giu, '').slice(0, 8)
+  const path = join(stateDirectory, `c-${pid.toString(36)}-${token}.sock`)
+  if (Buffer.byteLength(path) > PORTABLE_UNIX_SOCKET_PATH_LIMIT) {
+    throw new Error('The installer state path is too long for its private socket. Set XDG_STATE_HOME to a shorter path and try again.')
+  }
+  return path
 }
 
 function request(value: unknown): CredentialRequest {

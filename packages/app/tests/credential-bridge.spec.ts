@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
 import { SecretInputCancelledError, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
-import { CredentialBridge } from '../src/credential-bridge.ts'
+import { CredentialBridge, credentialSocketPath } from '../src/credential-bridge.ts'
 
 function invoke(socketPath: string, request: object): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -20,6 +20,25 @@ function invoke(socketPath: string, request: object): Promise<string> {
 }
 
 describe('credential interaction bridge', () => {
+  it('opens beneath an isolated XDG state path without exceeding Unix socket limits', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tmp.'))
+    const stateDirectory = join(root, '.local', 'state', 'machtiani-installer')
+    const socketPath = credentialSocketPath(stateDirectory, 766296, 'a3bdb498-2d12-45fe-ab3c-16e9e6866a23')
+    expect(Buffer.byteLength(socketPath)).toBeLessThanOrEqual(100)
+    const bridge = new CredentialBridge({
+      socketPath,
+      tui: { captureSecret: async () => '' } as unknown as InstallerTui,
+      credentials: {} as CredentialFileAdapter,
+    })
+    await bridge.start()
+    await bridge.close()
+  })
+
+  it('reports an actionable error before binding an exceptionally long socket path', () => {
+    const stateDirectory = join('/tmp', 'x'.repeat(100), 'machtiani-installer')
+    expect(() => credentialSocketPath(stateDirectory, 1, '12345678')).toThrow('Set XDG_STATE_HOME to a shorter path')
+  })
+
   it('keeps the captured value out of its local protocol response', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-credential-bridge-'))
     const socketPath = join(root, 'private', 'credential.sock')

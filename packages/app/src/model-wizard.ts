@@ -128,15 +128,37 @@ async function customValue(tui: WizardTui, message: string, label: string): Prom
   }
 }
 
+function completedChatCompletionsEndpoint(value: string, scope: CustomOpenAIProviderScope): string {
+  const input = value.trim()
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//iu.test(input)
+    ? input
+    : `${scope === 'local' ? 'http' : 'https'}://${input}`
+  let endpoint: URL
+  try { endpoint = new URL(withScheme) } catch {
+    throw new Error(scope === 'local'
+      ? 'Enter a local model-server URL, such as http://localhost:11434.'
+      : 'Enter the provider URL, such as https://api.provider.example/v1.')
+  }
+  const path = endpoint.pathname.replace(/\/+$/u, '')
+  if (!path.endsWith('/chat/completions')) {
+    endpoint.pathname = path === '' ? '/v1/chat/completions' : `${path}/chat/completions`
+  }
+  return validateCustomOpenAIEndpoint(endpoint.toString(), scope)
+}
+
 async function customEndpoint(tui: WizardTui, scope: CustomOpenAIProviderScope): Promise<string> {
   while (true) {
     const value = await tui.ask({
       message: scope === 'remote'
-        ? 'What is the complete HTTPS Chat Completions endpoint? It must end in /chat/completions.'
-        : 'What is the complete local Chat Completions endpoint? Use localhost, 127.0.0.1, or [::1], and end it in /chat/completions.',
+        ? 'What URL does this provider use? For example: https://api.provider.example/v1'
+        : 'What local URL is your model server using? For example: http://localhost:11434',
     })
-    try { return validateCustomOpenAIEndpoint(value.trim(), scope) }
-    catch (error) { tui.addAssistant(error instanceof Error ? error.message : 'Enter a valid Chat Completions endpoint.') }
+    try {
+      const endpoint = completedChatCompletionsEndpoint(value, scope)
+      if (endpoint !== value.trim()) tui.addAssistant(`I’ll use ${endpoint}.`)
+      return endpoint
+    }
+    catch (error) { tui.addAssistant(error instanceof Error ? error.message : 'Enter a valid model-server URL.') }
   }
 }
 

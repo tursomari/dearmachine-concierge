@@ -93,7 +93,7 @@ describe('installer model setup wizard', () => {
       'custom-openai-remote',
       'Acme Models',
       'http://models.example/v1/chat/completions',
-      'https://models.example/v1/chat/completions',
+      'models.example/v1',
       'acme-reasoner',
       'yes',
       'high',
@@ -110,6 +110,7 @@ describe('installer model setup wizard', () => {
     })
     expect(verified).toEqual([{ selection, apiKey: 'wizard-private-value' }])
     expect(tui.messages).toContain('Remote custom providers require an HTTPS endpoint.')
+    expect(tui.messages).toContain('I’ll use https://models.example/v1/chat/completions.')
     expect(JSON.stringify(tui.messages)).not.toContain('wizard-private-value')
     expect(JSON.parse(await readFile(join(root, 'installer-model.json'), 'utf8'))).toEqual(selection)
   })
@@ -134,8 +135,8 @@ describe('installer model setup wizard', () => {
     const tui = new ScriptedTui([
       'custom-openai-local',
       'Laptop model',
-      'http://192.168.1.5:11434/v1/chat/completions',
-      'http://localhost:11434/v1/chat/completions',
+      '192.168.1.5:11434',
+      'localhost:11434',
       'local-model',
       'no',
       'default',
@@ -152,6 +153,7 @@ describe('installer model setup wizard', () => {
     expect(attempts).toBe(2)
     expect(tui.secretAttempts).toBe(0)
     expect(tui.messages).toContain('Local custom providers must use localhost, 127.0.0.1, or [::1].')
+    expect(tui.messages).toContain('I’ll use http://localhost:11434/v1/chat/completions.')
     expect(tui.messages).toContain('The endpoint is warming up.')
   })
 

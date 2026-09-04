@@ -14,9 +14,9 @@ viewport
 7| "Filter: >                                       "
   style 10-10 inverse
 8| <blank>
-9| "→ OpenRouter                      subscription"
-10| "  DeepSeek                        API credenti"
-11| "  OpenAI Codex                    subscription"
+9| "→ OpenRouter      subscription sign-in or API "
+10| "  DeepSeek        API credentials"
+11| "  OpenAI Codex    subscription sign-in"
 12| <blank>
 13| "type to filter • ↑/↓ move • Enter select • Esc …"
 "
@@ -37,9 +37,9 @@ viewport
 6| "Filter: >                                                                       "
   style 10-10 inverse
 7| <blank>
-8| "→ OpenRouter                      subscription sign-in or API credentials"
-9| "  DeepSeek                        API credentials"
-10| "  OpenAI Codex                    subscription sign-in"
+8| "→ OpenRouter      subscription sign-in or API credentials"
+9| "  DeepSeek        API credentials"
+10| "  OpenAI Codex    subscription sign-in"
 11| <blank>
 12| "type to filter • ↑/↓ move • Enter select • Esc clear"
 13-23| <blank>

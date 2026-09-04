@@ -95,7 +95,13 @@ export class ChoiceInput implements Component, Focusable {
       label: choice.label,
       ...(choice.description === undefined ? {} : { description: choice.description }),
     }))
-    const list = new SelectList(items, this.maxVisible, this.selectTheme)
+    // Let the primary column grow to the widest visible label. SelectList
+    // still clamps it to the current viewport and drops the description first
+    // when a narrow terminal cannot show both columns.
+    const list = new SelectList(items, this.maxVisible, this.selectTheme, {
+      minPrimaryColumnWidth: 16,
+      maxPrimaryColumnWidth: 72,
+    })
     const index = selectedValue === undefined ? 0 : items.findIndex(item => item.value === selectedValue)
     list.setSelectedIndex(Math.max(0, index))
     list.onSelect = item => {

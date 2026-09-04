@@ -93,6 +93,22 @@ describe('Machtiani Installer TUI', () => {
     expect(await harness.terminal.snapshot()).toMatchSnapshot()
   })
 
+  it.each([
+    [80, 24],
+    [48, 12],
+  ])('fits custom provider labels at %ix%i', async (columns, rows) => {
+    const harness = await open(columns, rows)
+    opened.push(harness)
+    void harness.tui.choose('Choose the AI service.', [
+      { value: 'custom-openai-remote', label: 'Custom OpenAI-compatible provider (remote)', description: 'Your HTTPS Chat Completions endpoint' },
+      { value: 'custom-openai-local', label: 'Custom OpenAI-compatible provider (local)', description: 'A model server on this machine' },
+    ]).catch(() => {})
+    await harness.terminal.waitForFrame()
+    const snapshot = await harness.terminal.snapshot()
+    expect(snapshot).toContain('Custom OpenAI-compatible provider (remote)')
+    expect(snapshot).toContain('Custom OpenAI-compatible provider (local)')
+  })
+
   it('withdraws a wizard choice when its provider flow finishes elsewhere', async () => {
     const harness = await open()
     opened.push(harness)

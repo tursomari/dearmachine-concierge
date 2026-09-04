@@ -41,16 +41,22 @@ sessions in `empty` mode with only caller-declared tools. Either integration
 can be removed from the wizard with `MACHTIANI_DISABLE_OPENAI_CODEX=1` or
 `MACHTIANI_DISABLE_GITHUB_COPILOT=1`.
 
+Anthropic Claude Pro/Max subscription support is pinned to Claude Agent SDK
+0.3.260, including its Claude Code 2.1.260 runtime. The wizard runs the official
+`claude auth login --claudeai` browser flow in an isolated
+`CLAUDE_CONFIG_DIR`, asks the SDK for the signed-in account's current model and
+effort catalogue, and uses a one-turn SDK session with only caller-declared MCP
+tools. Built-in Claude Code tools, settings, plugins, and session transcripts
+are disabled. The authorization code is written directly to Claude Code and is
+never added to the installer transcript. Set
+`MACHTIANI_DISABLE_ANTHROPIC_CLAUDE=1` to remove this route from the wizard.
+
 Canonical integration references are the OpenAI
 [Codex app-server](https://developers.openai.com/codex/app-server) and
 [authentication](https://developers.openai.com/codex/auth) documentation and
 GitHub's [Copilot SDK authentication](https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate)
+documentation. The Claude route follows Anthropic's official
+[Claude Code setup](https://docs.anthropic.com/en/docs/claude-code/getting-started),
+[Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview), and
+[model configuration](https://support.claude.com/en/articles/11940350-claude-code-model-configuration)
 documentation.
-
-Claude Pro/Max subscription support is deliberately not advertised or
-activated. As of 2026-09-04, Anthropic's official Agent SDK authentication
-documentation does not explicitly authorize a third-party installer to use a
-consumer subscription. Agent SDK 0.3.260 is the reviewed integration candidate
-and the provider has a separate policy-and-environment gate, but the SDK is not
-shipped and that gate must remain closed until a reviewed Anthropic source
-permits the use.

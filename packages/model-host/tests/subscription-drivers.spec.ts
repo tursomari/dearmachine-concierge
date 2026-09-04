@@ -6,6 +6,8 @@ import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import {
   ANTHROPIC_SUBSCRIPTION_POLICY,
+  AnthropicClaudeDriver,
+  ClaudeCliAuth,
   GitHubCopilotDriver,
   OpenAICodexDriver,
   subscriptionProviders,
@@ -50,9 +52,142 @@ class FakeCodexServer implements CodexAppServerPort {
 }
 
 describe('subscription runtime boundaries', () => {
-  it('keeps Anthropic subscription unavailable until an explicit policy approval exists', () => {
-    expect(ANTHROPIC_SUBSCRIPTION_POLICY.permitted).toBe(false)
-    expect(subscriptionProviders({ MACHTIANI_ENABLE_ANTHROPIC_SUBSCRIPTION: '1' }).some(value => value.id === 'anthropic-claude')).toBe(false)
+  it('offers the reviewed Claude Pro/Max Agent SDK route unless explicitly disabled', () => {
+    expect(ANTHROPIC_SUBSCRIPTION_POLICY.permitted).toBe(true)
+    expect(ANTHROPIC_SUBSCRIPTION_POLICY.reviewedAgentSdkVersion).toBe('0.3.260')
+    expect(ANTHROPIC_SUBSCRIPTION_POLICY.reviewedClaudeCodeVersion).toBe('2.1.260')
+    expect(subscriptionProviders({}).some(value => value.id === 'anthropic-claude')).toBe(true)
+    expect(subscriptionProviders({ MACHTIANI_DISABLE_ANTHROPIC_CLAUDE: '1' }).some(value => value.id === 'anthropic-claude')).toBe(false)
+  })
+
+  it('maps Claude Code browser authentication without echoing its authorization code', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-claude-login-'))
+    const invocations: string[][] = []
+    const written: string[] = []
+    const factory = (_profile: string, args: readonly string[]) => {
+      invocations.push([...args])
+      const stdout = new PassThrough()
+      const stderr = new PassThrough()
+      const stdin = new PassThrough()
+      stdin.on('data', chunk => { written.push(chunk.toString('utf8')) })
+      const child = Object.assign(new EventEmitter(), { stdout, stderr, stdin, kill: () => true })
+      queueMicrotask(() => {
+        if (args[1] === 'login') {
+          stdout.write('Opening browser to sign in…\nIf the browser did not open, visit: https://claude.example/authorize?state=one\nPaste code here if prompted >')
+          stdin.once('data', () => queueMicrotask(() => child.emit('exit', 0)))
+        } else {
+          stdout.write('{"loggedIn":true,"authMethod":"claude.ai"}\n')
+          child.emit('exit', 0)
+        }
+      })
+      return child as never
+    }
+    const notices: unknown[] = []
+    try {
+      await new ClaudeCliAuth(factory).login(root, {
+        prompt: async prompt => {
+          expect(prompt.type).toBe('manual_code')
+          return 'private-authorization-code'
+        },
+        notify: event => notices.push(event),
+      })
+      expect(invocations).toEqual([
+        ['auth', 'login', '--claudeai'],
+        ['auth', 'status', '--json'],
+      ])
+      expect(written).toContain('private-authorization-code\n')
+      expect(JSON.stringify(notices)).not.toContain('private-authorization-code')
+      expect(notices).toContainEqual({
+        type: 'auth_url',
+        url: 'https://claude.example/authorize?state=one',
+        instructions: 'Open this page in your browser, sign in to Claude, then return here and paste the authorization code.',
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('interrupts Claude Code sign-in and reports cancellation distinctly', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-claude-login-cancel-'))
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const stdin = new PassThrough()
+    const child = Object.assign(new EventEmitter(), {
+      stdout, stderr, stdin,
+      kill: (signal: NodeJS.Signals) => {
+        expect(signal).toBe('SIGINT')
+        queueMicrotask(() => child.emit('exit', 130))
+        return true
+      },
+    })
+    const controller = new AbortController()
+    try {
+      const login = new ClaudeCliAuth(() => child as never).login(root, {
+        signal: controller.signal,
+        prompt: async () => '',
+        notify: () => {},
+      })
+      queueMicrotask(() => controller.abort())
+      await expect(login).rejects.toMatchObject({ code: 'CANCELLED', message: 'Claude sign-in was cancelled.' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('maps Claude models, reasoning, streaming tools, usage, and isolation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-claude-fake-'))
+    const calls: Array<{ prompt: unknown; options?: Record<string, any> }> = []
+    const factory = (parameters: { prompt: unknown; options?: Record<string, any> }) => {
+      calls.push(parameters)
+      const messages = typeof parameters.prompt === 'string' ? [
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'considering' } } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_stop', index: 0 } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'checking' } } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_stop', index: 1 } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'claude-call-1', name: 'mcp__machtiani__diagnose', input: {} } } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"safe":true}' } } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_stop', index: 2 } },
+        { type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_stop' } },
+      ] : []
+      return {
+        async * [Symbol.asyncIterator]() { for (const message of messages) yield message },
+        supportedModels: async () => [{ value: 'claude-test', displayName: 'Claude Test', description: 'Test', supportsEffort: true, supportedEffortLevels: ['low', 'high'] }],
+        close: () => {},
+      } as never
+    }
+    const driver = new AnthropicClaudeDriver(
+      profile('anthropic-claude-agent-sdk', 'anthropic-claude', root),
+      factory as never,
+      { authenticated: async () => true, login: async () => {}, logout: async () => {} },
+    )
+    try {
+      expect(await driver.authenticated()).toBe(true)
+      expect(await driver.models()).toEqual([{ id: 'claude-test', name: 'Claude Test', reasoningEfforts: ['low', 'high'] }])
+      const events = []
+      for await (const event of driver.generate({
+        caller: 'installer', sessionId: 'claude-one', messages: [{ role: 'user', content: 'inspect safely' }],
+        tools: [{
+          name: 'diagnose', description: 'read-only diagnosis',
+          parameters: { type: 'object', additionalProperties: false, properties: { safe: { type: 'boolean' } }, required: ['safe'] },
+        }],
+      })) events.push(event)
+      expect(events).toContainEqual({ type: 'reasoning-delta', index: 0, text: 'considering' })
+      expect(events).toContainEqual({ type: 'text-delta', index: 1, text: 'checking' })
+      expect(events).toContainEqual({ type: 'tool-end', index: 2, id: 'claude-call-1', name: 'diagnose', arguments: '{"safe":true}' })
+      expect(events.at(-1)).toEqual({ type: 'finish', reason: 'tool-calls' })
+      const generation = calls.at(-1)!.options!
+      expect(generation).toMatchObject({
+        settingSources: [], plugins: [], persistSession: false, strictMcpConfig: true,
+        tools: [], allowedTools: ['mcp__machtiani__diagnose'], permissionMode: 'bypassPermissions',
+      })
+      expect(generation.env.ANTHROPIC_API_KEY).toBeUndefined()
+      expect(generation.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined()
+      expect(generation.env.CLAUDE_CONFIG_DIR).toBe(root)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('maps Codex app-server auth, models, streaming, tools, and interruption', async () => {

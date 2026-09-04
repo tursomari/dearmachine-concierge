@@ -15,8 +15,11 @@ versions of official vendor packages:
 - OpenAI Codex CLI 0.153.2 (`@openai/codex`), Apache-2.0;
 - GitHub Copilot CLI 1.0.83 (`@github/copilot`), under the license shipped in
   that package; and
-- GitHub Copilot SDK 1.0.11 (`@github/copilot-sdk`), MIT.
+- GitHub Copilot SDK 1.0.11 (`@github/copilot-sdk`), MIT; and
+- Anthropic Claude Agent SDK 0.3.260 (`@anthropic-ai/claude-agent-sdk`),
+  including Claude Code 2.1.260, under the legal terms shipped with those
+  packages.
 
 These packages remain vendor products. Their inclusion does not imply that
-OpenAI or GitHub endorses Machtiani Installer. Their own terms and account
-eligibility continue to apply.
+OpenAI, GitHub, or Anthropic endorses Machtiani Installer. Their own terms and
+account eligibility continue to apply.

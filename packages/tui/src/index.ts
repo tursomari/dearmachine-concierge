@@ -273,12 +273,19 @@ export class InstallerTui {
   }
 
   /** Switch to transcript-free masked input after the agent presented its prompt. */
-  captureSecret(signal?: AbortSignal): Promise<string> {
+  captureSecret(
+    signal?: AbortSignal,
+    label = 'Secure API key — input hidden',
+    cancellationHint = 'Ctrl+C to cancel key entry',
+  ): Promise<string> {
     if (this.pendingQuestion !== undefined) {
       return Promise.reject(new Error('the installer supports exactly one active question'))
     }
     if (this.externalWaitLabel !== undefined) return Promise.reject(new Error('an external installer action is pending'))
     if (signal?.aborted === true) return Promise.reject(new Error('the installer question was withdrawn'))
+    this.secureInputLabel.setText(
+      `${this.theme.bold(this.theme.accent(`🔒  ${displayText(label)}`))}  ${this.theme.dim(displayText(cancellationHint))}`,
+    )
     this.suspendedProgressMessage = this.progressMessage
     this.setProgress(undefined)
     this.inputSlot.removeChild(this.editor)

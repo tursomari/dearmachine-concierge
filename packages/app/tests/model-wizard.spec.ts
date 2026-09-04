@@ -192,4 +192,63 @@ describe('installer model setup wizard', () => {
     expect(attempts).toBe(2)
     expect(tui.messages).toContain('Device-code login is not enabled for this account yet. Enable it on the OpenAI page, then choose the sign-in method again.')
   })
+
+  it('keeps Claude browser login inside the wizard and returns the pasted code only to Claude Code', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-claude-'))
+    let receivedCode = ''
+    const setup: Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'> = {
+      dshHome: root,
+      providers: () => [{
+        id: 'anthropic-claude',
+        name: 'Anthropic Claude Pro/Max subscription',
+        authMethods: [{ id: 'oauth', label: 'Sign in with Claude', subscription: true }],
+      }],
+      isAuthenticated: async () => false,
+      modelsFor: async () => [{ id: 'sonnet', name: 'Sonnet', reasoningEfforts: ['low', 'high', 'max'] }],
+      authenticate: async (_provider, _method, interaction) => {
+        interaction.notify({
+          type: 'auth_url',
+          url: 'https://claude.example/authorize',
+          instructions: 'Open this page and return with the code.',
+        })
+        receivedCode = await interaction.prompt({ type: 'manual_code', message: 'Paste the Claude authorization code.' })
+      },
+    }
+    const tui = new ScriptedTui(['anthropic-claude', 'oauth', 'sonnet', 'high'])
+    tui.captureSecret = async () => {
+      tui.secretAttempts += 1
+      return 'temporary-code'
+    }
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toEqual({
+      provider: 'anthropic-claude', model: 'sonnet', reasoningEffort: 'high',
+    })
+    expect(receivedCode).toBe('temporary-code')
+    expect(tui.messages).toContain('Open this page and return with the code.\n\nhttps://claude.example/authorize')
+    expect(tui.messages).toContain('Paste the Claude authorization code.')
+    expect(tui.messages).not.toContain('temporary-code')
+    expect(tui.secretAttempts).toBe(1)
+    expect(tui.externalWaits).toEqual([])
+  })
+
+  it('returns a cancelled Claude code field to the sign-in choice instead of exiting', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-claude-cancel-'))
+    let attempts = 0
+    const setup: Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'> = {
+      dshHome: root,
+      providers: () => [{
+        id: 'anthropic-claude', name: 'Anthropic Claude Pro/Max subscription',
+        authMethods: [{ id: 'oauth', label: 'Sign in with Claude', subscription: true }],
+      }],
+      isAuthenticated: async () => false,
+      modelsFor: async () => [{ id: 'sonnet', name: 'Sonnet', reasoningEfforts: ['high'] }],
+      authenticate: async (_provider, _method, interaction) => {
+        attempts += 1
+        await interaction.prompt({ type: 'manual_code', message: 'Paste the Claude authorization code.' })
+      },
+    }
+    const tui = new ScriptedTui(['anthropic-claude', 'oauth', 'oauth', 'sonnet', 'high'], true)
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toMatchObject({ provider: 'anthropic-claude' })
+    expect(attempts).toBe(2)
+    expect(tui.messages).toContain('Sign-in was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
+  })
 })

@@ -91,7 +91,11 @@ describe('pinned DSH compatibility boundary', () => {
       expect(providers.some(provider => provider.id === 'openai' && !provider.authMethods[0]?.subscription)).toBe(true)
       expect(providers.some(provider => provider.id === 'openai-codex' && provider.authMethods[0]?.subscription)).toBe(true)
       expect(providers.some(provider => provider.id === 'github-copilot' && provider.authMethods[0]?.subscription)).toBe(true)
-      expect(providers.some(provider => provider.id === 'anthropic-claude')).toBe(false)
+      expect(providers.find(provider => provider.id === 'anthropic-claude')).toEqual({
+        id: 'anthropic-claude',
+        name: 'Anthropic Claude Pro/Max subscription',
+        authMethods: [{ id: 'oauth', label: 'Sign in with Claude', subscription: true }],
+      })
       expect(providers.some(provider => provider.id === 'radius')).toBe(false)
       expect((await setup.modelsFor('openrouter')).find(model => model.id === 'z-ai/glm-5.3-flash')?.reasoningEfforts)
         .toEqual(['low', 'high', 'max'])
@@ -132,6 +136,10 @@ describe('pinned DSH compatibility boundary', () => {
     expect(setup.profileFor({ provider: 'github-copilot', model: 'copilot-test' })).toEqual({
       version: 1, driver: 'github-copilot-sdk', provider: 'github-copilot', authMethod: 'subscription',
       model: 'copilot-test', runtimeProfile: join(home, '.copilot'),
+    })
+    expect(setup.profileFor({ provider: 'anthropic-claude', model: 'sonnet', reasoningEffort: 'high' })).toEqual({
+      version: 1, driver: 'anthropic-claude-agent-sdk', provider: 'anthropic-claude', authMethod: 'subscription',
+      model: 'sonnet', reasoningEffort: 'high', runtimeProfile: join(home, '.config', 'machtiani', 'claude'),
     })
   })
 

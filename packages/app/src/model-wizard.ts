@@ -21,6 +21,13 @@ type WizardTui = Pick<InstallerTui,
 >
 type WizardSetup = Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'>
 
+class SignInCodeCancelledError extends Error {
+  constructor() {
+    super('secure sign-in code entry was cancelled')
+    this.name = 'SignInCodeCancelledError'
+  }
+}
+
 function authEvent(tui: WizardTui, event: InstallerAuthEvent): void {
   switch (event.type) {
     case 'progress':
@@ -50,6 +57,15 @@ async function authPrompt(tui: WizardTui, prompt: InstallerAuthPrompt, authentic
   if (prompt.type === 'secret') {
     tui.addAssistant(prompt.message)
     return await tui.captureSecret(signal)
+  }
+  if (prompt.type === 'manual_code') {
+    tui.addAssistant(prompt.message)
+    try {
+      return await tui.captureSecret(signal, 'Secure sign-in code — input hidden', 'Ctrl+C to cancel sign-in')
+    } catch (error) {
+      if (error instanceof SecretInputCancelledError) throw new SignInCodeCancelledError()
+      throw error
+    }
   }
   if (prompt.type === 'select') {
     return await tui.choose(
@@ -133,7 +149,9 @@ async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, provider
       return
     } catch (error) {
       tui.setProgress(undefined)
-      if (error instanceof SecretInputCancelledError) {
+      if (error instanceof SignInCodeCancelledError) {
+        tui.addAssistant('Sign-in was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
+      } else if (error instanceof SecretInputCancelledError) {
         tui.addAssistant('Key entry was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
       } else if (controller.signal.aborted) {
         tui.addAssistant('Sign-in was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')

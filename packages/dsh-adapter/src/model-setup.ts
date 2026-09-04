@@ -101,7 +101,15 @@ export class InstallerModelSetup {
     const subscriptions: InstallerProviderOption[] = subscriptionProviders(this.environment).map(provider => ({
         id: provider.id,
         name: provider.name,
-        authMethods: [{ id: 'oauth', label: provider.id === 'openai-codex' ? 'Sign in with ChatGPT' : 'Sign in with GitHub', subscription: true }],
+        authMethods: [{
+          id: 'oauth',
+          label: provider.id === 'openai-codex'
+            ? 'Sign in with ChatGPT'
+            : provider.id === 'github-copilot'
+              ? 'Sign in with GitHub'
+              : 'Sign in with Claude',
+          subscription: true,
+        }],
       }))
     const apiKeys: InstallerProviderOption[] = apiKeyProviders().map(provider => ({
       id: provider.id,
@@ -154,7 +162,7 @@ export class InstallerModelSetup {
       ? (this.environment.CODEX_HOME ?? join(this.home, '.codex'))
       : selection.provider === 'github-copilot'
         ? (this.environment.COPILOT_HOME ?? join(this.home, '.copilot'))
-        : (this.environment.ANTHROPIC_CONFIG_DIR ?? join(this.home, '.config', 'anthropic'))
+        : (this.environment.CLAUDE_CONFIG_DIR ?? join(this.home, '.config', 'machtiani', 'claude'))
     return {
       version: 1, driver: subscription.driver, provider: selection.provider, authMethod: 'subscription', model: selection.model,
       ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }), runtimeProfile,

@@ -159,6 +159,24 @@ describe('Machtiani Installer TUI', () => {
     expect(resumed).toContain('Machtiani is working')
   })
 
+  it('labels a browser authorization code as secure and keeps it out of the transcript', async () => {
+    const harness = await open()
+    opened.push(harness)
+    const code = 'short-lived-authorization-code'
+    harness.tui.addAssistant('Paste the authorization code from Claude and press Enter.')
+    const answer = harness.tui.captureSecret(undefined, 'Secure sign-in code — input hidden', 'Ctrl+C to cancel sign-in')
+    harness.terminal.send(code)
+    await harness.terminal.waitForFrame()
+    const masked = await harness.terminal.snapshot()
+    expect(masked).toContain('Secure sign-in code — input hidden')
+    expect(masked).toContain('Ctrl+C to cancel sign-in')
+    expect(masked).not.toContain(code)
+    harness.terminal.send('\r')
+    await expect(answer).resolves.toBe(code)
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot({ includeScrollback: true })).not.toContain(code)
+  })
+
   it('clears a masked value when secret entry is cancelled', async () => {
     let exits = 0
     const harness = await open(80, 24, () => { exits += 1 })

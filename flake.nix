@@ -40,7 +40,7 @@
             version = "0.0.1";
             src = dependencySource;
             fetcherVersion = 4;
-            hash = "sha256-QAQ8YP2dHtXMLzrKqvUy+Z+Wxh/AIFnyj4wJQdqCaZY=";
+            hash = "sha256-I6b7w/un7cfyWUuQb6uhh50iguqPIQuI2jYJiY47NSs=";
             prePnpmInstall = "pnpm config set network-concurrency 4";
             pnpmInstallFlags = [ "--no-force" ];
           };

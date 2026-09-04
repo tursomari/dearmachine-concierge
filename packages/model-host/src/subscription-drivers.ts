@@ -5,7 +5,17 @@ import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
 import { dirname, join } from 'node:path'
 import type { Readable } from 'node:stream'
+import {
+  AbortError as ClaudeAbortError,
+  createSdkMcpServer,
+  query as claudeQuery,
+  tool as claudeTool,
+  type Options as ClaudeOptions,
+  type Query as ClaudeQuery,
+  type SDKMessage as ClaudeMessage,
+} from '@anthropic-ai/claude-agent-sdk'
 import { CopilotClient, type CopilotSession, type Tool } from '@github/copilot-sdk'
+import * as z from 'zod/v4'
 import type {
   ModelHostAuthInteraction,
   ModelHostEvent,
@@ -17,13 +27,15 @@ import type {
 import { ModelHostError } from './index.ts'
 
 export const ANTHROPIC_SUBSCRIPTION_POLICY = {
-  permitted: false,
+  permitted: true,
   checkedAt: '2026-09-04',
   reviewedAgentSdkVersion: '0.3.260',
-  reason: 'Anthropic documentation does not explicitly permit third-party applications to consume Claude Pro or Max subscription authentication.',
+  reviewedClaudeCodeVersion: '2.1.260',
+  reason: 'Anthropic documents Claude Code as included with Claude Pro and Max and ships the Agent SDK as its supported programmatic boundary.',
   sources: [
-    'https://platform.claude.com/docs/en/manage-claude/authentication',
-    'https://platform.claude.com/docs/en/cli-sdks-libraries/cli/authentication',
+    'https://support.claude.com/en/articles/8325606-what-is-the-pro-plan',
+    'https://docs.anthropic.com/en/docs/claude-code/getting-started',
+    'https://platform.claude.com/docs/en/agent-sdk/overview',
   ],
 } as const
 
@@ -40,7 +52,7 @@ export function subscriptionProviders(environment: NodeJS.ProcessEnv = process.e
     { id: 'github-copilot', name: 'GitHub Copilot subscription', driver: 'github-copilot-sdk', enabled: environment.MACHTIANI_DISABLE_GITHUB_COPILOT !== '1' },
     {
       id: 'anthropic-claude', name: 'Anthropic Claude Pro/Max subscription', driver: 'anthropic-claude-agent-sdk',
-      enabled: ANTHROPIC_SUBSCRIPTION_POLICY.permitted && environment.MACHTIANI_ENABLE_ANTHROPIC_SUBSCRIPTION === '1',
+      enabled: ANTHROPIC_SUBSCRIPTION_POLICY.permitted && environment.MACHTIANI_DISABLE_ANTHROPIC_CLAUDE !== '1',
     },
   ]
   return providers.filter(provider => provider.enabled)
@@ -381,11 +393,344 @@ export class GitHubCopilotDriver implements ModelHostRuntimeDriver {
   }
 }
 
+export type ClaudeCliProcessFactory = (profile: string, args: readonly string[]) => ChildProcessWithoutNullStreams
+
+function claudeNativeExecutable(): string {
+  const platform = process.platform
+  const architecture = process.arch
+  if ((platform !== 'linux' && platform !== 'darwin' && platform !== 'win32') ||
+    (architecture !== 'x64' && architecture !== 'arm64')) {
+    throw new ModelHostError('UNSUPPORTED_CAPABILITY', `Claude Code is not packaged for ${platform}-${architecture}.`)
+  }
+  const report = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } } | undefined
+  const libc = platform === 'linux' && report?.header?.glibcVersionRuntime === undefined ? '-musl' : ''
+  const packageName = `@anthropic-ai/claude-agent-sdk-${platform}-${architecture}${libc}`
+  const require = createRequire(import.meta.url)
+  const sdkRequire = createRequire(require.resolve('@anthropic-ai/claude-agent-sdk'))
+  try {
+    return join(dirname(sdkRequire.resolve(`${packageName}/package.json`)), platform === 'win32' ? 'claude.exe' : 'claude')
+  } catch {
+    throw new ModelHostError('UPSTREAM_CHANGED', `The pinned Claude Agent SDK runtime for ${platform}-${architecture}${libc} is missing.`)
+  }
+}
+
+function spawnClaudeCli(profile: string, args: readonly string[]): ChildProcessWithoutNullStreams {
+  return spawn(claudeNativeExecutable(), [...args], {
+    env: runtimeEnvironment({ CLAUDE_CONFIG_DIR: profile, CLAUDE_AGENT_SDK_CLIENT_APP: 'machtiani-installer/0.1.0' }),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+}
+
+interface ClaudeCliResult { code: number | null; stdout: string; stderr: string }
+
+export class ClaudeCliAuth {
+  constructor(private readonly factory: ClaudeCliProcessFactory = spawnClaudeCli) {}
+
+  private async command(profile: string, args: readonly string[]): Promise<ClaudeCliResult> {
+    return await new Promise((resolve, reject) => {
+      const child = this.factory(profile, args)
+      let stdout = ''
+      let stderr = ''
+      const append = (current: string, chunk: Buffer): string => `${current}${chunk.toString('utf8')}`.slice(-65_536)
+      child.stdout.on('data', chunk => { stdout = append(stdout, chunk) })
+      child.stderr.on('data', chunk => { stderr = append(stderr, chunk) })
+      child.once('error', reject)
+      child.once('exit', code => resolve({ code, stdout, stderr }))
+      child.stdin.end()
+    })
+  }
+
+  async authenticated(profile: string): Promise<boolean> {
+    const result = await this.command(profile, ['auth', 'status', '--json'])
+    let status: { loggedIn?: unknown }
+    try { status = JSON.parse(result.stdout) as { loggedIn?: unknown } }
+    catch {
+      throw new ModelHostError('UPSTREAM_CHANGED', 'Claude Code returned an unreadable authentication status.')
+    }
+    if (typeof status.loggedIn !== 'boolean') {
+      throw new ModelHostError('UPSTREAM_CHANGED', 'Claude Code authentication status no longer has the reviewed shape.')
+    }
+    return status.loggedIn
+  }
+
+  async login(profile: string, interaction: ModelHostAuthInteraction): Promise<void> {
+    interaction.notify({ type: 'progress', message: 'Starting Claude Pro or Max sign-in' })
+    await new Promise<void>((resolve, reject) => {
+      const child = this.factory(profile, ['auth', 'login', '--claudeai'])
+      let output = ''
+      let announcedUrl = false
+      let askedForCode = false
+      let cancelled = interaction.signal?.aborted === true
+      let promptFailure: unknown
+      let completed = false
+      const settle = (result: () => void): void => {
+        if (completed) return
+        completed = true
+        interaction.signal?.removeEventListener('abort', abort)
+        result()
+      }
+      const abort = () => { cancelled = true; child.kill('SIGINT') }
+      const consume = (chunk: Buffer): void => {
+        output = `${output}${chunk.toString('utf8')}`.slice(-65_536)
+        const plain = output.replace(/\u001b\[[0-?]*[ -/]*[@-~]/gu, '')
+        if (!announcedUrl) {
+          const url = /https:\/\/[^\s]+/u.exec(plain)?.[0]
+          if (url !== undefined) {
+            announcedUrl = true
+            interaction.notify({
+              type: 'auth_url', url,
+              instructions: 'Open this page in your browser, sign in to Claude, then return here and paste the authorization code.',
+            })
+          }
+        }
+        if (!askedForCode && /Paste code here if prompted\s*>/iu.test(plain)) {
+          askedForCode = true
+          void interaction.prompt({
+            type: 'manual_code',
+            message: 'Paste the authorization code from Claude and press Enter.',
+            ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
+          }).then(code => {
+            if (!cancelled) child.stdin.write(`${code.trim()}\n`)
+          }).catch(error => {
+            promptFailure = error
+            child.kill('SIGINT')
+          })
+        }
+      }
+      child.stdout.on('data', consume)
+      child.stderr.on('data', consume)
+      interaction.signal?.addEventListener('abort', abort, { once: true })
+      child.once('error', error => settle(() => reject(cancelled
+        ? new ModelHostError('CANCELLED', 'Claude sign-in was cancelled.')
+        : error)))
+      child.once('exit', code => settle(() => {
+        if (cancelled) reject(new ModelHostError('CANCELLED', 'Claude sign-in was cancelled.'))
+        else if (promptFailure !== undefined) reject(promptFailure)
+        else if (code === 0) resolve()
+        else reject(new ModelHostError('AUTH_REQUIRED', 'Claude sign-in did not complete. You can try again from the provider wizard.'))
+      }))
+      if (cancelled) abort()
+    })
+    if (!await this.authenticated(profile)) {
+      throw new ModelHostError('AUTH_REQUIRED', 'Claude Code finished sign-in but did not report an authenticated Claude account.')
+    }
+  }
+
+  async logout(profile: string): Promise<void> {
+    const result = await this.command(profile, ['auth', 'logout'])
+    if (result.code !== 0) throw new ModelHostError('INTERNAL', 'Claude Code could not remove the saved sign-in.')
+  }
+}
+
+export type ClaudeQueryFactory = (parameters: { prompt: string | AsyncIterable<never>; options?: ClaudeOptions }) => ClaudeQuery
+
+interface ClaudeStreamBlock {
+  kind: 'text' | 'reasoning' | 'tool'
+  text: string
+  id?: string
+  name?: string
+}
+
+function claudeFailure(error: unknown): ModelHostError {
+  if (error instanceof ModelHostError) return error
+  const message = error instanceof Error ? error.message : String(error)
+  if (/auth|login|oauth|credential/iu.test(message)) return new ModelHostError('AUTH_REQUIRED', 'Claude sign-in is required or has expired.')
+  if (/rate.?limit|too many requests/iu.test(message)) return new ModelHostError('RATE_LIMITED', 'Claude temporarily rate-limited this request.')
+  if (/quota|usage limit|credit/iu.test(message)) return new ModelHostError('QUOTA_EXHAUSTED', 'The Claude subscription usage limit has been reached.')
+  if (/model.+(?:not found|unavailable)|invalid model/iu.test(message)) return new ModelHostError('MODEL_UNAVAILABLE', 'The selected Claude model is unavailable.')
+  return new ModelHostError('INTERNAL', 'Claude Code could not complete the model request.')
+}
+
+function claudeEffort(value: string | undefined): NonNullable<ClaudeOptions['effort']> | undefined {
+  if (value === undefined) return undefined
+  if (value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh' || value === 'max') return value
+  throw new ModelHostError('INVALID_REQUEST', `Claude does not support the reasoning effort ${value}.`)
+}
+
+function claudeTools(request: ModelHostGenerateRequest) {
+  return (request.tools ?? []).map(declaration => {
+    let schema: z.ZodType
+    try { schema = z.fromJSONSchema(declaration.parameters as Parameters<typeof z.fromJSONSchema>[0]) }
+    catch { throw new ModelHostError('INVALID_REQUEST', `The ${declaration.name} tool has a JSON Schema Claude cannot load.`) }
+    if (!(schema instanceof z.ZodObject)) {
+      throw new ModelHostError('INVALID_REQUEST', `The ${declaration.name} tool arguments must use an object JSON Schema.`)
+    }
+    return claudeTool(declaration.name, declaration.description, schema.shape, async () => ({
+      content: [{ type: 'text', text: 'The host will execute this tool call.' }],
+    }))
+  })
+}
+
+export class AnthropicClaudeDriver implements ModelHostRuntimeDriver {
+  constructor(
+    private readonly profile: ModelHostProfile,
+    private readonly factory: ClaudeQueryFactory = claudeQuery,
+    private readonly auth: Pick<ClaudeCliAuth, 'authenticated' | 'login' | 'logout'> = new ClaudeCliAuth(),
+  ) {}
+
+  private async prepare(): Promise<{ profile: string; executable: string }> {
+    const profile = this.profile.runtimeProfile!
+    await ensureRuntimeProfile(profile)
+    return { profile, executable: claudeNativeExecutable() }
+  }
+
+  private options(profile: string, executable: string): ClaudeOptions {
+    return {
+      cwd: profile,
+      pathToClaudeCodeExecutable: executable,
+      env: runtimeEnvironment({
+        CLAUDE_CONFIG_DIR: profile,
+        CLAUDE_AGENT_SDK_CLIENT_APP: 'machtiani-installer/0.1.0',
+      }),
+      settingSources: [],
+      plugins: [],
+      persistSession: false,
+      strictMcpConfig: true,
+    }
+  }
+
+  async authenticated(): Promise<boolean> {
+    const { profile } = await this.prepare()
+    return await this.auth.authenticated(profile)
+  }
+
+  async models(): Promise<readonly ModelHostModelInfo[]> {
+    const { profile, executable } = await this.prepare()
+    const idle = new AbortController()
+    async function * noInput(): AsyncIterable<never> {
+      await new Promise<void>(resolve => idle.signal.addEventListener('abort', () => resolve(), { once: true }))
+    }
+    const current = this.factory({ prompt: noInput(), options: this.options(profile, executable) })
+    try {
+      return (await current.supportedModels()).map(model => ({
+        id: model.value,
+        name: model.displayName,
+        reasoningEfforts: model.supportsEffort ? (model.supportedEffortLevels ?? ['low', 'medium', 'high']) : [],
+      }))
+    } catch (error) { throw claudeFailure(error) }
+    finally { idle.abort(); current.close() }
+  }
+
+  async login(interaction: ModelHostAuthInteraction): Promise<void> {
+    const { profile } = await this.prepare()
+    await this.auth.login(profile, interaction)
+  }
+
+  async logout(): Promise<void> {
+    const { profile } = await this.prepare()
+    await this.auth.logout(profile)
+  }
+
+  async * generate(request: ModelHostGenerateRequest): AsyncIterable<ModelHostEvent> {
+    const { profile, executable } = await this.prepare()
+    const workspace = await mkdtemp(join(tmpdir(), 'machtiani-claude-workspace-'))
+    const controller = new AbortController()
+    let externalCancellation = request.signal?.aborted === true
+    let toolCalled = false
+    let finished = false
+    let streamedText = false
+    const blocks = new Map<number, ClaudeStreamBlock>()
+    const declaredNames = new Set((request.tools ?? []).map(value => value.name))
+    const externalAbort = () => { externalCancellation = true; controller.abort() }
+    request.signal?.addEventListener('abort', externalAbort, { once: true })
+    if (externalCancellation) controller.abort()
+    const definitions = claudeTools(request)
+    const server = createSdkMcpServer({ name: 'machtiani-installer', version: '0.1.0', tools: definitions, alwaysLoad: true })
+    const allowedTools = definitions.map(value => `mcp__machtiani__${value.name}`)
+    const effort = claudeEffort(request.reasoningEffort ?? this.profile.reasoningEffort)
+    const current = this.factory({
+      prompt: transcript(request),
+      options: {
+        ...this.options(profile, executable),
+        cwd: workspace,
+        abortController: controller,
+        includePartialMessages: true,
+        systemPrompt: { type: 'custom', prompt: request.system ?? 'You are the Machtiani installation assistant.', snapshot: true },
+        model: request.model ?? this.profile.model,
+        ...(effort === undefined ? {} : { effort, thinking: { type: 'adaptive', display: 'summarized' } }),
+        maxTurns: 1,
+        tools: [],
+        mcpServers: { machtiani: server },
+        allowedTools,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        permissionPrompts: 'none',
+      },
+    })
+    try {
+      for await (const message of current as AsyncIterable<ClaudeMessage>) {
+        if (message.type === 'assistant' && message.error !== undefined) throw new Error(message.error)
+        if (message.type === 'stream_event' && message.parent_tool_use_id === null) {
+          const event = message.event
+          if (event.type === 'content_block_start') {
+            const block = event.content_block
+            if (block.type === 'text') {
+              blocks.set(event.index, { kind: 'text', text: '' })
+              streamedText = true
+              yield { type: 'text-start', index: event.index }
+            } else if (block.type === 'thinking') {
+              blocks.set(event.index, { kind: 'reasoning', text: '' })
+              yield { type: 'reasoning-start', index: event.index }
+            } else if (block.type === 'tool_use') {
+              const rawName = block.name
+              const name = rawName.startsWith('mcp__machtiani__') ? rawName.slice('mcp__machtiani__'.length) : rawName
+              if (!declaredNames.has(name)) throw new ModelHostError('UPSTREAM_CHANGED', `Claude requested an undeclared tool: ${name}`)
+              toolCalled = true
+              blocks.set(event.index, { kind: 'tool', text: '', id: block.id, name })
+              yield { type: 'tool-start', index: event.index, id: block.id, name }
+            }
+          } else if (event.type === 'content_block_delta') {
+            const state = blocks.get(event.index)
+            if (state === undefined) continue
+            if (state.kind === 'text' && event.delta.type === 'text_delta') {
+              state.text += event.delta.text
+              yield { type: 'text-delta', index: event.index, text: event.delta.text }
+            } else if (state.kind === 'reasoning' && event.delta.type === 'thinking_delta') {
+              state.text += event.delta.thinking
+              yield { type: 'reasoning-delta', index: event.index, text: event.delta.thinking }
+            } else if (state.kind === 'tool' && event.delta.type === 'input_json_delta') {
+              state.text += event.delta.partial_json
+              yield { type: 'tool-delta', index: event.index, id: state.id!, name: state.name!, argumentsDelta: event.delta.partial_json }
+            }
+          } else if (event.type === 'content_block_stop') {
+            const state = blocks.get(event.index)
+            if (state?.kind === 'text') yield { type: 'text-end', index: event.index, text: state.text }
+            else if (state?.kind === 'reasoning') yield { type: 'reasoning-end', index: event.index, text: state.text }
+            else if (state?.kind === 'tool') yield { type: 'tool-end', index: event.index, id: state.id!, name: state.name!, arguments: state.text }
+          } else if (event.type === 'message_stop' && toolCalled) controller.abort()
+        } else if (message.type === 'result') {
+          yield {
+            type: 'usage', inputTokens: message.usage.input_tokens, outputTokens: message.usage.output_tokens,
+            cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
+            cacheWriteTokens: message.usage.cache_creation_input_tokens ?? 0,
+          }
+          if (message.subtype === 'success' && message.is_error) throw new Error(message.result)
+          if (message.subtype !== 'success' && !toolCalled) throw new Error(message.errors.join('; '))
+          if (message.subtype === 'success' && !streamedText && message.result !== '' && !toolCalled) {
+            yield { type: 'text-start', index: 0 }
+            yield { type: 'text-delta', index: 0, text: message.result }
+            yield { type: 'text-end', index: 0, text: message.result }
+          }
+          yield { type: 'finish', reason: toolCalled ? 'tool-calls' : externalCancellation ? 'cancelled' : 'stop' }
+          finished = true
+        }
+      }
+      if (!finished) yield { type: 'finish', reason: toolCalled ? 'tool-calls' : externalCancellation ? 'cancelled' : 'stop' }
+    } catch (error) {
+      if (toolCalled) yield { type: 'finish', reason: 'tool-calls' }
+      else if (externalCancellation || error instanceof ClaudeAbortError) yield { type: 'finish', reason: 'cancelled' }
+      else throw claudeFailure(error)
+    } finally {
+      request.signal?.removeEventListener('abort', externalAbort)
+      current.close()
+      await rm(workspace, { recursive: true, force: true })
+    }
+  }
+}
+
 export function subscriptionDriver(profile: ModelHostProfile): ModelHostRuntimeDriver {
   if (profile.driver === 'openai-codex-app-server') return new OpenAICodexDriver(profile)
   if (profile.driver === 'github-copilot-sdk') return new GitHubCopilotDriver(profile)
-  if (profile.driver === 'anthropic-claude-agent-sdk') {
-    throw new ModelHostError('UNSUPPORTED_CAPABILITY', ANTHROPIC_SUBSCRIPTION_POLICY.reason)
-  }
+  if (profile.driver === 'anthropic-claude-agent-sdk') return new AnthropicClaudeDriver(profile)
   throw new ModelHostError('INVALID_REQUEST', `Unsupported subscription model driver: ${profile.driver}`)
 }

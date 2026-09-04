@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ANTHROPIC_SUBSCRIPTION_POLICY,
   AnthropicClaudeDriver,
+  claudeConversationPrompt,
   ClaudeCliAuth,
   GitHubCopilotDriver,
   OpenAICodexDriver,
@@ -52,6 +53,27 @@ class FakeCodexServer implements CodexAppServerPort {
 }
 
 describe('subscription runtime boundaries', () => {
+  it('continues Claude tool results without tag-shaped transcript markup', () => {
+    const prompt = claudeConversationPrompt({
+      caller: 'installer',
+      sessionId: 'installer-one',
+      messages: [
+        { role: 'user', content: 'Please begin.' },
+        {
+          role: 'assistant', content: 'I will inspect the next stage.',
+          toolCalls: [{ id: 'call-1', name: 'read', arguments: '{"file_path":"02-provider.md"}' }],
+        },
+        { role: 'tool', content: 'Stage instructions loaded.', toolCallId: 'call-1', toolName: 'read' },
+      ],
+    })
+    expect(prompt).toContain('"requestedTools":[{"id":"call-1","name":"read"')
+    expect(prompt).toContain('"toolResultFor":{"id":"call-1","name":"read"}')
+    expect(prompt).toContain('A completed tool result is not a user-facing stopping point.')
+    expect(prompt).not.toContain('[tool call')
+    expect(prompt).not.toContain('<tool [')
+    expect(prompt).not.toContain('</invoke>')
+  })
+
   it('offers the reviewed Claude Pro/Max Agent SDK route unless explicitly disabled', () => {
     expect(ANTHROPIC_SUBSCRIPTION_POLICY.permitted).toBe(true)
     expect(ANTHROPIC_SUBSCRIPTION_POLICY.reviewedAgentSdkVersion).toBe('0.3.260')

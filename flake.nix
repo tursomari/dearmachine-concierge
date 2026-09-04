@@ -23,6 +23,7 @@
               ./package.json
               ./pnpm-lock.yaml
               ./pnpm-workspace.yaml
+              ./patches
               ./packages/app/package.json
               ./packages/backend-adapter/package.json
               ./packages/credential-adapter/package.json

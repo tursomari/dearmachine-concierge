@@ -22,8 +22,13 @@ if ((kind !== 'llm' && kind !== 'email') || selection === '' || socketPath === u
     socket.end()
     try {
       const response = JSON.parse(input.slice(0, newline)) as { ok?: boolean; status?: string; error?: string }
-      if (response.ok === true) process.stdout.write(response.status === 'already-present' ? 'Credential is already available.\n' : 'Credential saved securely.\n')
-      else {
+      if (response.ok === true && response.status === 'already-present') {
+        process.stdout.write('Credential is already available.\n')
+      } else if (response.ok === true && response.status === 'saved') {
+        process.stdout.write('Credential saved securely.\n')
+      } else if (response.ok === true && response.status === 'cancelled') {
+        process.stdout.write("Credential entry was cancelled. Do not continue this credential step; wait for the human's next message.\n")
+      } else {
         process.stderr.write(`${response.error ?? 'Credential entry failed.'}\n`)
         process.exitCode = 1
       }

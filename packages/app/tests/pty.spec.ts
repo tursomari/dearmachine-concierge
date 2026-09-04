@@ -69,10 +69,9 @@ describe('real PTY lifecycle', () => {
     expect(result.output).not.toContain('^[[?61;1;21;22;28c')
   })
 
-  it('restores the terminal after Ctrl-C cancellation', async () => {
+  it('restores the terminal after Ctrl-C exit', async () => {
     const result = await runInPty([{ prompt: 'Would you like to continue', input: '\x03' }])
-    expect(result.code).toBe(1)
-    expect(result.output).toContain('cancelled')
+    expect(result.code).toBe(0)
   })
 
   it('completes the no-mutation guided preview through canonical credential handoffs', async () => {

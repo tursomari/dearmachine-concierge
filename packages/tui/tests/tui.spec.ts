@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { InstallerTui, assertInteractiveTerminal } from '../src/index.ts'
 import { HeadlessTerminal } from './headless-terminal.ts'
 
-const open = async (columns = 80, rows = 24): Promise<{
+const open = async (columns = 80, rows = 24, onExit?: () => void): Promise<{
   terminal: HeadlessTerminal
   tui: InstallerTui
 }> => {
   const terminal = new HeadlessTerminal(columns, rows)
-  const tui = new InstallerTui({ terminal, color: false })
+  const tui = new InstallerTui({ terminal, color: false, onExit })
   tui.start()
   await terminal.waitForFrame()
   return { terminal, tui }
@@ -59,6 +59,7 @@ describe('Machtiani Installer TUI', () => {
     await harness.terminal.waitForFrame()
     const masked = await harness.terminal.snapshot()
     expect(masked).toContain('Secure API key — input hidden')
+    expect(masked).toContain('Ctrl+C to cancel key entry')
     expect(masked).not.toContain('Machtiani is working')
     expect(masked).toContain('••••')
     expect(masked).not.toContain(secret)
@@ -71,13 +72,15 @@ describe('Machtiani Installer TUI', () => {
   })
 
   it('clears a masked value when secret entry is cancelled', async () => {
-    const harness = await open()
+    let exits = 0
+    const harness = await open(80, 24, () => { exits += 1 })
     opened.push(harness)
     const secret = 'cancelled-private-value'
     const answer = harness.tui.askSecret('Paste the API key and press Enter.')
     harness.terminal.send(secret)
     harness.terminal.send('\x03')
     await expect(answer).rejects.toThrow('cancelled')
+    expect(exits).toBe(0)
     const ordinary = harness.tui.ask({ message: 'Continue?' })
     harness.terminal.send('yes')
     harness.terminal.send('\r')
@@ -107,17 +110,18 @@ describe('Machtiani Installer TUI', () => {
     expect(harness.terminal.progress).toBe(false)
   })
 
-  it('cancels a pending question and restores terminal state', async () => {
+  it('exits from ordinary input and restores terminal state', async () => {
     const terminal = new HeadlessTerminal()
-    let cancelled = 0
-    const tui = new InstallerTui({ terminal, color: false, onCancel: () => { cancelled += 1 } })
+    let exits = 0
+    const tui = new InstallerTui({ terminal, color: false, onExit: () => { exits += 1 } })
     tui.start()
     await terminal.waitForFrame()
     const answer = tui.ask({ message: 'Continue?' })
+    const closed = expect(answer).rejects.toThrow('closed')
     terminal.send('\x03')
-    await expect(answer).rejects.toThrow('cancelled')
-    expect(cancelled).toBe(1)
+    expect(exits).toBe(1)
     await tui.dispose()
+    await closed
     expect(terminal.started).toBe(1)
     expect(terminal.stopped).toBe(1)
     expect(terminal.lifecycle).toEqual(['start', 'drain:100:20', 'stop'])

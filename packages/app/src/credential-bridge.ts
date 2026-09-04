@@ -2,7 +2,7 @@ import { chmod, lstat, mkdir, unlink } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname } from 'node:path'
 import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
-import type { InstallerTui } from '@dearmachine/machtiani-installer-tui'
+import { SecretInputCancelledError, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 
 interface CredentialRequest {
   kind: CredentialKind
@@ -105,7 +105,8 @@ export class CredentialBridge {
       reply(socket, { ok: true, status: 'saved' })
     } catch (error) {
       value = ''
-      reply(socket, { ok: false, error: error instanceof Error ? error.message : 'credential entry failed' })
+      if (error instanceof SecretInputCancelledError) reply(socket, { ok: true, status: 'cancelled' })
+      else reply(socket, { ok: false, error: error instanceof Error ? error.message : 'credential entry failed' })
     } finally {
       this.active = false
     }

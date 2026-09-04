@@ -30,8 +30,14 @@ export interface InstallerTuiOptions {
   title?: string
   color?: boolean
   onSubmit?(text: string): void | Promise<void>
-  onCancel?(): void
   onExit?(): void
+}
+
+export class SecretInputCancelledError extends Error {
+  constructor() {
+    super('secure credential entry was cancelled')
+    this.name = 'SecretInputCancelledError'
+  }
 }
 
 export interface ToolActivity {
@@ -67,7 +73,11 @@ export class InstallerTui {
     this.terminal = options.terminal ?? new ProcessTerminal()
     this.theme = createInstallerTheme(options.color ?? true)
     this.markdown = markdownTheme(this.theme)
-    this.secureInputLabel = new Text(this.theme.bold(this.theme.accent('🔒  Secure API key — input hidden')), 0, 0)
+    this.secureInputLabel = new Text(
+      `${this.theme.bold(this.theme.accent('🔒  Secure API key — input hidden'))}  ${this.theme.dim('Ctrl+C to cancel key entry')}`,
+      0,
+      0,
+    )
     this.ui = new TUI(this.terminal, false)
     this.editor = new Editor(this.ui, editorTheme(this.theme), {
       frame: 'none',
@@ -84,14 +94,11 @@ export class InstallerTui {
     this.ui.setFocus(this.editor)
     this.removeInputListener = this.ui.addInputListener(data => {
       if (matchesKey(data, Key.ctrl('c'))) {
-        if (this.pendingQuestion !== undefined) {
+        if (this.pendingQuestion?.secret === true) {
           const pending = this.pendingQuestion
           this.pendingQuestion = undefined
-          if (pending.secret) this.deactivateSecretInput()
-          pending.reject(new Error('the installer question was cancelled'))
-          this.options.onCancel?.()
-        } else if (this.editor.getText() !== '') {
-          this.editor.setText('')
+          this.deactivateSecretInput()
+          pending.reject(new SecretInputCancelledError())
         } else {
           this.options.onExit?.()
         }

@@ -22,6 +22,7 @@ describe('installer source root', () => {
     expect(prompt).toContain('/private/credential-helper.mjs')
     expect(prompt).toContain('llm "<selected provider>"')
     expect(prompt).toContain('email "<selected transport>"')
+    expect(prompt).toContain('If it reports cancellation, do not continue the credential step')
     expect(prompt).toContain('Never inspect, stat, source, parse, measure')
     expect(prompt).toContain('Canonical messages must be presented exactly')
     expect(prompt).toContain('system reminders')

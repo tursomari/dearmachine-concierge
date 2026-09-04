@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
-import type { InstallerTui } from '@dearmachine/machtiani-installer-tui'
+import { SecretInputCancelledError, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { CredentialBridge } from '../src/credential-bridge.ts'
 
 function invoke(socketPath: string, request: object): Promise<string> {
@@ -40,6 +40,28 @@ describe('credential interaction bridge', () => {
       expect(JSON.parse(response)).toEqual({ ok: true, status: 'saved' })
       expect(response).not.toContain(secret)
       expect(calls).toEqual(['prepare:llm:OpenRouter', 'capture', 'save:llm:received'])
+    } finally {
+      await bridge.close()
+    }
+  })
+
+  it('reports secure-entry cancellation without saving or failing the helper', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-credential-bridge-'))
+    const socketPath = join(root, 'private', 'credential.sock')
+    const calls: string[] = []
+    const tui = {
+      captureSecret: async () => { calls.push('capture'); throw new SecretInputCancelledError() },
+    } as unknown as InstallerTui
+    const credentials = {
+      prepare: async () => { calls.push('prepare'); return 'pending' as const },
+      save: async () => { calls.push('save') },
+    } as unknown as CredentialFileAdapter
+    const bridge = new CredentialBridge({ socketPath, tui, credentials })
+    await bridge.start()
+    try {
+      expect(JSON.parse(await invoke(socketPath, { kind: 'llm', selection: 'OpenRouter' })))
+        .toEqual({ ok: true, status: 'cancelled' })
+      expect(calls).toEqual(['prepare', 'capture'])
     } finally {
       await bridge.close()
     }

@@ -82,11 +82,14 @@ export async function runMockInstaller(paths = defaultInstallerPaths()): Promise
   assertInteractiveTerminal()
   await mkdir(paths.workspace, { recursive: true, mode: 0o700 })
   const lock = await acquireInstallerLock(join(paths.stateDirectory, 'installer.lock'))
-  const tui = new InstallerTui()
+  let requestExit!: () => void
+  const exitRequested = new Promise<void>(resolve => { requestExit = resolve })
+  const tui = new InstallerTui({ onExit: requestExit })
   const checkpointPath = join(paths.stateDirectory, 'preview-checkpoint.json')
+  let workflow: ReturnType<typeof runFirstThreeStages> | undefined
   try {
     tui.start()
-    const result = await runFirstThreeStages({
+    workflow = runFirstThreeStages({
       conversation: conversation(tui, true),
       environment: {
         inspect: async () => ({ missingFoundations: [], detectedBackends: [] }),
@@ -98,9 +101,11 @@ export async function runMockInstaller(paths = defaultInstallerPaths()): Promise
       },
       checkpoint: checkpointStore(checkpointPath),
     })
+    const result = await Promise.race([workflow, exitRequested.then(() => undefined)])
     if (result !== undefined) tui.addAssistant('The no-change installation preview is complete. No products or credentials were installed.')
   } finally {
     await tui.dispose()
+    await workflow?.catch(() => {})
     await lock.release()
   }
 }
@@ -117,9 +122,9 @@ ${helper} llm "<selected provider>"
 For an absent email credential, present its canonical credential message and then call:
 ${helper} email "<selected transport>"
 
-Replace only the angle-bracketed selection. The command blocks while the human uses the masked field and returns only whether the private save succeeded. Never ask for, read, echo, or otherwise handle the credential yourself.
+Replace only the angle-bracketed selection. The command blocks while the human uses the masked field and reports saved, already present, or cancelled. If it reports cancellation, do not continue the credential step: wait for the human's next message, answer any question, and offer to resume credential entry when they are ready. Never ask for, read, echo, or otherwise handle the credential yourself.
 
-Treat a successful credential-helper response as complete private verification. Never inspect, stat, source, parse, measure, or otherwise open a credential file afterward. A later product command may receive the credential through the documented environment-file mechanism, but no diagnostic command may examine it.
+Treat a saved or already-present credential-helper response as complete private verification. Never inspect, stat, source, parse, measure, or otherwise open a credential file afterward. A later product command may receive the credential through the documented environment-file mechanism, but no diagnostic command may examine it.
 
 Canonical messages must be presented exactly, without a preface or follow-up sentence. Internal runtime-context messages, system reminders, and repository instruction notices are not human messages: follow them silently and never acknowledge or paraphrase them in a visible response.
 

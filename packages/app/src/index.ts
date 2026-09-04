@@ -15,7 +15,7 @@ import type { InstallationOutcome } from '@dearmachine/machtiani-installer-dsh-a
 import { CredentialBridge } from './credential-bridge.ts'
 import { acquireInstallerLock } from './lock.ts'
 import { runInstallerModelWizard } from './model-wizard.ts'
-import { API_KEY_PROVIDERS, saveModelHostProfile } from '@dearmachine/machtiani-model-host'
+import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
 
@@ -257,7 +257,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     tui.setProgress('Loading installer model choices')
     const credentialPath = join(home, '.config', 'dearmachine', 'backends.env')
     const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
-    setup = await InstallerModelSetup.open(dshHome, process.env, { credentialPath })
+    setup = await InstallerModelSetup.open(dshHome, process.env, { credentialPath, home })
     tui.setProgress(undefined)
     wizard = runInstallerModelWizard(tui, setup)
     const configured = await Promise.race([
@@ -266,17 +266,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     ])
     if (configured.kind === 'exit') return
     const selection = configured.selection
-    const provider = API_KEY_PROVIDERS.find(candidate => candidate.id === selection.provider)
-    if (provider === undefined) throw new Error(`Unsupported shared model provider: ${selection.provider}`)
-    await saveModelHostProfile(modelProfilePath, {
-      version: 1,
-      driver: 'pi-ai',
-      provider: selection.provider,
-      authMethod: 'api_key',
-      model: selection.model,
-      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
-      credential: { kind: 'environment-file', path: credentialPath, variable: provider.variable },
-    })
+    await saveModelHostProfile(modelProfilePath, setup.profileFor(selection))
     await setup.close()
     setup = undefined
     tui.setProgress('Starting the installation assistant')

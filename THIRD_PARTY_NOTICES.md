@@ -8,3 +8,15 @@ BSD 3-Clause license reproduced in
 
 Machtiani Installer is built on DeepSeek Harness. DeepSeek does not support or
 endorse this derivative.
+
+The optional subscription model-host integrations execute exact, reviewed
+versions of official vendor packages:
+
+- OpenAI Codex CLI 0.153.2 (`@openai/codex`), Apache-2.0;
+- GitHub Copilot CLI 1.0.83 (`@github/copilot`), under the license shipped in
+  that package; and
+- GitHub Copilot SDK 1.0.11 (`@github/copilot-sdk`), MIT.
+
+These packages remain vendor products. Their inclusion does not imply that
+OpenAI or GitHub endorses Machtiani Installer. Their own terms and account
+eligibility continue to apply.

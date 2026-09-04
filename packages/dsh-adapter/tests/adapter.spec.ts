@@ -86,14 +86,16 @@ describe('pinned DSH compatibility boundary', () => {
     const setup = await InstallerModelSetup.open(root, {})
     try {
       const providers = setup.providers()
-      expect(providers[0]?.id).toBe('openrouter')
+      expect(providers.some(provider => provider.id === 'openrouter')).toBe(true)
       expect(providers.some(provider => provider.id === 'deepseek')).toBe(true)
       expect(providers.some(provider => provider.id === 'openai' && !provider.authMethods[0]?.subscription)).toBe(true)
-      expect(providers.some(provider => provider.id === 'openai-codex')).toBe(false)
+      expect(providers.some(provider => provider.id === 'openai-codex' && provider.authMethods[0]?.subscription)).toBe(true)
+      expect(providers.some(provider => provider.id === 'github-copilot' && provider.authMethods[0]?.subscription)).toBe(true)
+      expect(providers.some(provider => provider.id === 'anthropic-claude')).toBe(false)
       expect(providers.some(provider => provider.id === 'radius')).toBe(false)
-      expect(setup.modelsFor('openrouter').find(model => model.id === 'z-ai/glm-5.3-flash')?.reasoningEfforts)
+      expect((await setup.modelsFor('openrouter')).find(model => model.id === 'z-ai/glm-5.3-flash')?.reasoningEfforts)
         .toEqual(['low', 'high', 'max'])
-      expect(setup.modelsFor('deepseek').find(model => model.id === 'deepseek-v4-flash')?.reasoningEfforts)
+      expect((await setup.modelsFor('deepseek')).find(model => model.id === 'deepseek-v4-flash')?.reasoningEfforts)
         .toEqual(['off', 'low', 'high', 'max'])
       expect(await setup.isAuthenticated('openrouter')).toBe(false)
       await setup.authenticate('openrouter', 'api_key', {
@@ -117,6 +119,20 @@ describe('pinned DSH compatibility boundary', () => {
     } finally {
       await restarted.close()
     }
+  })
+
+  it('builds official-runtime profiles without copying subscription credentials', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-dsh-subscription-'))
+    const home = join(root, 'home')
+    const setup = await InstallerModelSetup.open(join(root, 'dsh'), { HOME: home }, { home })
+    expect(setup.profileFor({ provider: 'openai-codex', model: 'gpt-test', reasoningEffort: 'high' })).toEqual({
+      version: 1, driver: 'openai-codex-app-server', provider: 'openai-codex', authMethod: 'subscription',
+      model: 'gpt-test', reasoningEffort: 'high', runtimeProfile: join(home, '.codex'),
+    })
+    expect(setup.profileFor({ provider: 'github-copilot', model: 'copilot-test' })).toEqual({
+      version: 1, driver: 'github-copilot-sdk', provider: 'github-copilot', authMethod: 'subscription',
+      model: 'copilot-test', runtimeProfile: join(home, '.copilot'),
+    })
   })
 
   it('persists only non-secret model selection in a private restart file', async () => {

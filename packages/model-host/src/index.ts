@@ -16,6 +16,9 @@ import {
   type ThinkingLevel,
   type Tool,
 } from '@earendil-works/pi-ai'
+import { subscriptionDriver } from './subscription-drivers.ts'
+
+export { ANTHROPIC_SUBSCRIPTION_POLICY, subscriptionProviders } from './subscription-drivers.ts'
 
 export const MODEL_HOST_PROTOCOL_VERSION = 1 as const
 export const MODEL_HOST_PROVIDER = 'machtiani-model-host'
@@ -64,6 +67,26 @@ export interface ModelHostGenerateRequest {
   model?: string
   reasoningEffort?: string
   signal?: AbortSignal
+}
+
+export type ModelHostAuthEvent =
+  | { type: 'info'; message: string; links?: readonly { url: string; label?: string }[] }
+  | { type: 'auth_url'; url: string; instructions?: string }
+  | { type: 'device_code'; userCode: string; verificationUri: string; intervalSeconds?: number; expiresInSeconds?: number }
+  | { type: 'progress'; message: string }
+
+export interface ModelHostAuthInteraction {
+  signal?: AbortSignal
+  prompt(prompt: { type: 'text' | 'manual_code' | 'secret'; message: string; placeholder?: string; signal?: AbortSignal }): Promise<string>
+  notify(event: ModelHostAuthEvent): void
+}
+
+export interface ModelHostRuntimeDriver {
+  authenticated(): Promise<boolean>
+  models(): Promise<readonly ModelHostModelInfo[]>
+  login(interaction: ModelHostAuthInteraction): Promise<void>
+  logout(): Promise<void>
+  generate(request: ModelHostGenerateRequest): AsyncIterable<ModelHostEvent>
 }
 
 export type ModelHostEvent =
@@ -236,6 +259,15 @@ function validateProfile(value: unknown): asserts value is ModelHostProfile {
       profile.credential.variable !== expected.variable || typeof profile.credential.path !== 'string' || profile.credential.path === '') {
       throw new ModelHostError('INVALID_REQUEST', 'The API-key model profile has an invalid credential reference.')
     }
+  } else {
+    const combinations = new Map([
+      ['openai-codex', 'openai-codex-app-server'],
+      ['github-copilot', 'github-copilot-sdk'],
+      ['anthropic-claude', 'anthropic-claude-agent-sdk'],
+    ])
+    if (combinations.get(profile.provider) !== profile.driver || typeof profile.runtimeProfile !== 'string' || profile.runtimeProfile === '') {
+      throw new ModelHostError('INVALID_REQUEST', 'The subscription model profile has an invalid official-runtime reference.')
+    }
   }
 }
 
@@ -368,13 +400,31 @@ export class ModelHost {
   }
 
   async authenticated(): Promise<boolean> {
-    if (this.profile.authMethod !== 'api_key' || this.profile.credential === undefined) return false
+    if (this.profile.authMethod === 'subscription') return await subscriptionDriver(this.profile).authenticated()
+    if (this.profile.credential === undefined) return false
     return await readApiKeyCredential(this.profile.credential.path, this.profile.provider) !== undefined
   }
 
-  models(): readonly ModelHostModelInfo[] { return apiKeyModels(this.profile.provider) }
+  async models(): Promise<readonly ModelHostModelInfo[]> {
+    return this.profile.authMethod === 'subscription' ? await subscriptionDriver(this.profile).models() : apiKeyModels(this.profile.provider)
+  }
+
+  async login(interaction: ModelHostAuthInteraction): Promise<void> {
+    if (this.profile.authMethod !== 'subscription') throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'API-key sign-in is collected through the secure installer field.')
+    await subscriptionDriver(this.profile).login(interaction)
+  }
+
+  async logout(): Promise<void> {
+    if (this.profile.authMethod === 'subscription') { await subscriptionDriver(this.profile).logout(); return }
+    if (this.profile.credential !== undefined) await removeApiKeyCredential(this.profile.credential.path, this.profile.provider)
+  }
 
   async * generate(request: ModelHostGenerateRequest): AsyncIterable<ModelHostEvent> {
+    if (this.profile.authMethod === 'subscription') {
+      try { yield * subscriptionDriver(this.profile).generate(request) }
+      catch (error) { throw error instanceof ModelHostError ? error : mappedError(error instanceof Error ? error.message : String(error)) }
+      return
+    }
     if (request.sessionId.trim() === '' || request.caller.trim() === '') throw new ModelHostError('INVALID_REQUEST', 'Generation requires caller and session identity.')
     if (!await this.authenticated()) throw new ModelHostError('AUTH_REQUIRED', `Sign in to ${providerDefinition(this.profile.provider).name} before using this model.`)
     const models = hostModels(this.profile)
@@ -447,7 +497,7 @@ function protocolError(error: unknown): { code: ModelHostErrorCode; message: str
   return { code: mapped.code, message: mapped.message, ...(mapped.retryAfterMs === undefined ? {} : { retryAfterMs: mapped.retryAfterMs }) }
 }
 
-type HostSession = Pick<ModelHost, 'authenticated' | 'generate' | 'models' | 'profile'>
+type HostSession = Pick<ModelHost, 'authenticated' | 'generate' | 'models' | 'profile' | 'login' | 'logout'>
 
 export async function serveModelHost(
   profilePath: string,
@@ -470,11 +520,18 @@ export async function serveModelHost(
     try {
       const host = await openHost(profilePath)
       if (request.method === 'initialize') send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { protocolVersion: MODEL_HOST_PROTOCOL_VERSION, capabilities: ['models', 'auth', 'generate', 'stream', 'cancel', 'usage'] } })
-      else if (request.method === 'models/list') send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { provider: host.profile.provider, models: host.models() } })
+      else if (request.method === 'models/list') send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { provider: host.profile.provider, models: await host.models() } })
       else if (request.method === 'auth/status') send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { authenticated: await host.authenticated(), method: host.profile.authMethod } })
-      else if (request.method === 'auth/login') throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'Interactive sign-in must be run with machtiani auth login.')
+      else if (request.method === 'auth/login') {
+        if (host.profile.authMethod !== 'subscription') throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'API-key sign-in uses the installer secure field.')
+        await host.login({
+          prompt: async () => { throw new ModelHostError('UNSUPPORTED_CAPABILITY', 'This sign-in requires the interactive Machtiani Installer.') },
+          notify: event => send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, event: { type: 'auth', auth: event } }),
+        })
+        send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { authenticated: true } })
+      }
       else if (request.method === 'auth/logout') {
-        if (host.profile.credential !== undefined) await removeApiKeyCredential(host.profile.credential.path, host.profile.provider)
+        await host.logout()
         send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { authenticated: false } })
       } else if (request.method === 'generation/cancel') {
         const target = (request.params as { id?: unknown } | undefined)?.id

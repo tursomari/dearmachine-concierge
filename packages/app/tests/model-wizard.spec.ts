@@ -64,7 +64,7 @@ function fakeSetup(dshHome: string, authenticated = false): {
           { id: 'api_key', label: 'OpenRouter API key', subscription: false },
         ],
       }],
-      modelsFor: () => [{ id: 'z-ai/glm-5.3-flash', name: 'GLM 5.3 Flash', reasoningEfforts: ['low', 'high', 'max'] }],
+      modelsFor: async () => [{ id: 'z-ai/glm-5.3-flash', name: 'GLM 5.3 Flash', reasoningEfforts: ['low', 'high', 'max'] }],
       isAuthenticated: async () => ready,
       authenticate: async (_provider: string, method: InstallerAuthMethodId, interaction: InstallerAuthInteraction) => {
         authentications.push(method)
@@ -128,7 +128,7 @@ describe('installer model setup wizard', () => {
         name: 'OpenAI Codex',
         authMethods: [{ id: 'oauth', label: 'OpenAI (ChatGPT Plus/Pro)', subscription: true }],
       }],
-      modelsFor: () => [{ id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', reasoningEfforts: ['low', 'high'] }],
+      modelsFor: async () => [{ id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex', reasoningEfforts: ['low', 'high'] }],
       isAuthenticated: async () => false,
       authenticate: async (_provider, _method, interaction) => {
         attempts += 1

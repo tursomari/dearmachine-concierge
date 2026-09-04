@@ -150,17 +150,18 @@ async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, provider
 /** Configure the model that conducts installation before that model is started. */
 export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup): Promise<InstallerModelSelection> {
   const stored = await loadInstallerModelSelection(setup.dshHome)
-  const current = isKnownInstallerModelSelection(setup, stored) ? stored : undefined
+  const preliminary = stored !== undefined && setup.providers().some(provider => provider.id === stored.provider) ? stored : undefined
   const providers = providerChoices(setup)
   const providerId = await tui.choose(
     'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
     providers,
-    current?.provider,
+    preliminary?.provider,
   )
   await ensureAuthentication(tui, setup, providerId)
 
   const provider = setup.providers().find(candidate => candidate.id === providerId)
-  const models = setup.modelsFor(providerId)
+  const models = await setup.modelsFor(providerId)
+  const current = preliminary?.provider === providerId && await isKnownInstallerModelSelection(setup, preliminary) ? preliminary : undefined
   const modelId = await tui.choose(
     `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
     models.map(model => ({

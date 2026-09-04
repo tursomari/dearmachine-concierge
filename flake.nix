@@ -22,7 +22,9 @@
             version = "0.0.1";
             src = self;
             fetcherVersion = 4;
-            hash = "sha256-fjPfCOBUODdlmWnJspR3OPiGXTvLnmrw0yepO9Yc+o8=";
+            hash = "sha256-QAQ8YP2dHtXMLzrKqvUy+Z+Wxh/AIFnyj4wJQdqCaZY=";
+            prePnpmInstall = "pnpm config set network-concurrency 4";
+            pnpmInstallFlags = [ "--no-force" ];
           };
         in {
           default = pkgs.stdenvNoCC.mkDerivation {

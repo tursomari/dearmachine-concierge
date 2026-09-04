@@ -10,8 +10,9 @@ native installation path:
 - an exact DeepSeek Harness package and source pin;
 - a narrow process adapter, isolated DSH profile, and reviewed runtime patch
   that adds session-preserving turn interruption to the pinned SDK protocol;
-- a launch-time wizard backed by the pinned DSH provider catalog for choosing
-  the installer's provider, sign-in method, model, and reasoning level;
+- a launch-time wizard backed by a narrow model-host boundary for choosing one
+  provider, sign-in method, model, and reasoning level shared by the installer
+  and installed Machtiani;
 - a maintained, Machtiani-branded derivative of the last official DSH TUI;
 - terminal snapshots, real-PTY lifecycle checks, and a single-process lock;
 - the canonical consent, environment, LLM, and email workflow as a no-mutation
@@ -69,11 +70,12 @@ nix run '.#' -- --install --source-root /absolute/path/to/machtiani
 ```
 
 The launch-time wizard first asks which AI service and model should conduct the
-installation. It offers the sign-in methods supplied by the pinned DSH model
-provider integration, preferring subscription or browser sign-in when one is
-available, and asks for a supported reasoning level. This configures only the
-Machtiani Installer; Dear Machine's provider and backend remain later, explicit
-choices in the guided conversation. No configuration flag is required.
+installation. It offers API-key access plus policy-approved subscription
+sign-ins through pinned official runtimes, and asks only for reasoning levels
+the selected runtime reports. That one private profile powers both the
+installer and Machtiani after installation. Dear Machine's backend agent
+remains a later, explicit choice in the guided conversation. No configuration
+flag is required.
 
 The TUI captures required API keys in masked fields and writes them directly to
 private mode-`0600` storage; the values never enter the transcript or DSH event

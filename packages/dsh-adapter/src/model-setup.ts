@@ -4,7 +4,10 @@ import { join } from 'node:path'
 import {
   apiKeyModels,
   apiKeyProviders,
+  ModelHost,
   readApiKeyCredential,
+  subscriptionProviders,
+  type ModelHostProfile,
   writeApiKeyCredential,
 } from '@dearmachine/machtiani-model-host'
 
@@ -73,12 +76,14 @@ export class InstallerModelSetup {
   private constructor(
     readonly dshHome: string,
     readonly credentialPath: string,
+    readonly home: string,
+    private readonly environment: NodeJS.ProcessEnv,
   ) {}
 
   static async open(
     dshHome: string,
     environment: NodeJS.ProcessEnv = process.env,
-    options: { credentialPath?: string } = {},
+    options: { credentialPath?: string; home?: string } = {},
   ): Promise<InstallerModelSetup> {
     await ensurePrivateDirectory(dshHome)
     const credentialPath = options.credentialPath ?? join(dshHome, 'backends.env')
@@ -88,28 +93,42 @@ export class InstallerModelSetup {
         await writeApiKeyCredential(credentialPath, provider.id, ambient)
       }
     }
-    return new InstallerModelSetup(dshHome, credentialPath)
+    const home = options.home ?? environment.HOME ?? join(dshHome, 'runtime-home')
+    return new InstallerModelSetup(dshHome, credentialPath, home, environment)
   }
 
   providers(): readonly InstallerProviderOption[] {
-    return apiKeyProviders().map(provider => ({
+    const subscriptions: InstallerProviderOption[] = subscriptionProviders(this.environment).map(provider => ({
+        id: provider.id,
+        name: provider.name,
+        authMethods: [{ id: 'oauth', label: provider.id === 'openai-codex' ? 'Sign in with ChatGPT' : 'Sign in with GitHub', subscription: true }],
+      }))
+    const apiKeys: InstallerProviderOption[] = apiKeyProviders().map(provider => ({
       id: provider.id,
       name: provider.name,
       authMethods: [{ id: 'api_key', label: `${provider.name} API key`, subscription: false }],
-    }))
+      }))
+    return [...subscriptions, ...apiKeys]
   }
 
-  modelsFor(providerId: string): readonly InstallerModelOption[] {
-    return apiKeyModels(providerId)
+  async modelsFor(providerId: string): Promise<readonly InstallerModelOption[]> {
+    if (apiKeyProviders().some(provider => provider.id === providerId)) return apiKeyModels(providerId)
+    return await new ModelHost(this.profileFor({ provider: providerId, model: 'pending' })).models()
   }
 
   async isAuthenticated(providerId: string): Promise<boolean> {
-    return await readApiKeyCredential(this.credentialPath, providerId) !== undefined
+    if (apiKeyProviders().some(provider => provider.id === providerId)) return await readApiKeyCredential(this.credentialPath, providerId) !== undefined
+    return await new ModelHost(this.profileFor({ provider: providerId, model: 'pending' })).authenticated()
   }
 
   async authenticate(providerId: string, method: InstallerAuthMethodId, interaction: InstallerAuthInteraction): Promise<void> {
-    if (method !== 'api_key' || !this.providers().some(provider => provider.id === providerId)) {
+    const selected = this.providers().find(provider => provider.id === providerId)
+    if (selected === undefined || !selected.authMethods.some(candidate => candidate.id === method)) {
       throw new Error(`${providerId} does not offer the selected authentication method`)
+    }
+    if (method === 'oauth') {
+      await new ModelHost(this.profileFor({ provider: providerId, model: 'pending' })).login(interaction)
+      return
     }
     const provider = this.providers().find(candidate => candidate.id === providerId)!
     const key = await interaction.prompt({
@@ -121,6 +140,26 @@ export class InstallerModelSetup {
   }
 
   async close(): Promise<void> {}
+
+  profileFor(selection: InstallerModelSelection): ModelHostProfile {
+    const api = apiKeyProviders().find(provider => provider.id === selection.provider)
+    if (api !== undefined) return {
+      version: 1, driver: 'pi-ai', provider: selection.provider, authMethod: 'api_key', model: selection.model,
+      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+      credential: { kind: 'environment-file', path: this.credentialPath, variable: api.variable },
+    }
+    const subscription = subscriptionProviders(this.environment).find(provider => provider.id === selection.provider)
+    if (subscription === undefined) throw new Error(`unsupported shared model provider: ${selection.provider}`)
+    const runtimeProfile = selection.provider === 'openai-codex'
+      ? (this.environment.CODEX_HOME ?? join(this.home, '.codex'))
+      : selection.provider === 'github-copilot'
+        ? (this.environment.COPILOT_HOME ?? join(this.home, '.copilot'))
+        : (this.environment.ANTHROPIC_CONFIG_DIR ?? join(this.home, '.config', 'anthropic'))
+    return {
+      version: 1, driver: subscription.driver, provider: selection.provider, authMethod: 'subscription', model: selection.model,
+      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }), runtimeProfile,
+    }
+  }
 }
 
 function parsedSelection(value: unknown): InstallerModelSelection | undefined {
@@ -166,12 +205,12 @@ export async function saveInstallerModelSelection(dshHome: string, selection: In
   }
 }
 
-export function isKnownInstallerModelSelection(
+export async function isKnownInstallerModelSelection(
   setup: Pick<InstallerModelSetup, 'providers' | 'modelsFor'>,
   selection: InstallerModelSelection | undefined,
-): selection is InstallerModelSelection {
+): Promise<boolean> {
   if (selection === undefined || !setup.providers().some(provider => provider.id === selection.provider)) return false
-  const model = setup.modelsFor(selection.provider).find(candidate => candidate.id === selection.model)
+  const model = (await setup.modelsFor(selection.provider)).find(candidate => candidate.id === selection.model)
   if (model === undefined) return false
   return selection.reasoningEffort === undefined || model.reasoningEfforts.includes(selection.reasoningEffort)
 }

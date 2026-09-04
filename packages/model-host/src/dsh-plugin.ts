@@ -65,12 +65,12 @@ class MachtianiModelHostAdapter extends LlmAdapter {
 
   override async listModels() {
     const host = await ModelHost.open(this.profilePath)
-    return host.models().map(model => ({ provider: MODEL_HOST_PROVIDER, id: model.id, name: model.name }))
+    return (await host.models()).map(model => ({ provider: MODEL_HOST_PROVIDER, id: model.id, name: model.name }))
   }
 
   override async resolveModel(_provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const host = await ModelHost.open(this.profilePath)
-    const entry = host.models().find(candidate => candidate.id === model)
+    const entry = (await host.models()).find(candidate => candidate.id === model)
     return {
       provider: MODEL_HOST_PROVIDER,
       id: model,

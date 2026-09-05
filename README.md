@@ -46,15 +46,14 @@ resource; the normal installer still provisions a new inbox.
 
 ## Development
 
-Use Node 24 and pnpm through the pinned Nix shell:
+Use Node 24 and pnpm through the pinned Nix shell. The canonical commands,
+test boundaries, live-test safety rules, and QSE entrypoint are in
+[`TESTING.md`](TESTING.md).
+
+Prepare a new development worktree with:
 
 ```console
-nix develop
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test
-pnpm build
-nix build
+nix develop -c pnpm install --frozen-lockfile
 ```
 
 Run the preview in a real terminal with:

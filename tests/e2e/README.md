@@ -1,5 +1,9 @@
 # Installer IXE/QSE
 
+This is the detailed operating contract for the harness. Start with the
+repository-wide [`TESTING.md`](../../TESTING.md) to select the appropriate
+Installer test and understand its safety class.
+
 `run.sh` builds a source-only container, runs the installer snapshot and PTY
 tests in that sparse environment, then exercises the guarded product adapter
 against a pre-provisioned pair of disposable AgentMail inboxes. The live gate

@@ -108,6 +108,32 @@ The test never prints the credential or raw transcript. It verifies the model
 route, reasoning setting, tool call/result, exact final response, clean exit,
 and absence of the credential from the isolated runtime tree.
 
+Before enabling Dear Machine or testing email, run the focused human-assisted
+subscription IXE once for OpenAI Codex and once for Anthropic Claude. Point it
+at the installer-created profile and Machtiani configuration to test the exact
+handoff; omit those two variables only when intentionally testing a temporary
+installer-format profile. The commands must come from the revisions under
+test—Nix `--no-link --print-out-paths` builds can reuse the normal store cache:
+
+```console
+MACHTIANI_BIN=/nix/store/...-machtiani/bin/machtiani \
+MACHTIANI_MODEL_HOST_BIN=/nix/store/...-machtiani-installer/bin/machtiani-model-host \
+MACHTIANI_MODEL_PROFILE="$HOME/.config/machtiani/model-profile.json" \
+MACHTIANI_CONFIG="$HOME/.machtiani/config.toml" \
+  ./scripts/subscription-runtime-smoke openai-codex <codex-model> browser
+
+MACHTIANI_BIN=/nix/store/...-machtiani/bin/machtiani \
+MACHTIANI_MODEL_HOST_BIN=/nix/store/...-machtiani-installer/bin/machtiani-model-host \
+MACHTIANI_MODEL_PROFILE="$HOME/.config/machtiani/model-profile.json" \
+MACHTIANI_CONFIG="$HOME/.machtiani/config.toml" \
+  ./scripts/subscription-runtime-smoke anthropic-claude <claude-model> browser
+```
+
+Each run uses the provider-owned interactive sign-in, invokes planner,
+shell-agent, answer, and file-discovery twice through fresh Machtiani/model-host
+processes, checks the private reports for credential-shaped material, and then
+stops. It never installs Dear Machine, provisions an inbox, or sends email.
+
 ## Boundaries
 
 Presentation lives in `packages/tui`, canonical state transitions in

@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() {
+  printf 'Machtiani subscription runtime smoke: %s\n' "$*" >&2
+  exit 1
+}
+
+if (($# < 2 || $# > 3)); then
+  printf 'Usage: %s <openai-codex|anthropic-claude> <model> [browser|device_code]\n' "$0" >&2
+  exit 2
+fi
+
+provider=$1
+model=$2
+mode=${3:-browser}
+case $provider in
+  openai-codex)
+    driver=openai-codex-app-server
+    runtime_profile=${CODEX_HOME:-"${HOME:?HOME is required}/.codex"}
+    ;;
+  anthropic-claude)
+    driver=anthropic-claude-agent-sdk
+    runtime_profile=${CLAUDE_CONFIG_DIR:-"${HOME:?HOME is required}/.config/machtiani/claude"}
+    ;;
+  *) fail "unsupported provider: $provider" ;;
+esac
+[[ $mode == browser || $mode == device_code ]] || fail 'sign-in mode must be browser or device_code'
+[[ -n $model && $model != *$'\n'* && $model != *$'\r'* ]] || fail 'model must be one nonempty line'
+
+machtiani=${MACHTIANI_BIN:-$(type -P machtiani || true)}
+model_host=${MACHTIANI_MODEL_HOST_BIN:-$(type -P machtiani-model-host || true)}
+[[ -x $machtiani ]] || fail 'machtiani is not executable; set MACHTIANI_BIN'
+[[ -x $model_host ]] || fail 'machtiani-model-host is not executable; set MACHTIANI_MODEL_HOST_BIN'
+[[ $machtiani == /* && $model_host == /* ]] || fail 'runtime commands must resolve to absolute paths'
+
+if [[ ${MACHTIANI_SUBSCRIPTION_SMOKE_CONFIRM:-} != yes ]]; then
+  printf 'This focused IXE will use %s model %s through provider-owned sign-in state at:\n  %s\n' "$provider" "$model" "$runtime_profile"
+  printf 'It will invoke all four Machtiani roles twice and will not install Dear Machine or send email. Continue? [y/N] '
+  read -r confirmation
+  [[ $confirmation == y || $confirmation == Y || $confirmation == yes ]] || fail 'cancelled'
+fi
+
+smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/machtiani-subscription-smoke.XXXXXXXX")
+trap 'rm -rf -- "$smoke_root"' EXIT
+profile_path=${MACHTIANI_MODEL_PROFILE:-$smoke_root/model-profile.json}
+config_path=${MACHTIANI_CONFIG:-$smoke_root/config.toml}
+first_report=$smoke_root/first-report.json
+second_report=$smoke_root/second-report.json
+
+if [[ $profile_path != "$smoke_root/model-profile.json" ]]; then
+  [[ -f $profile_path && ! -L $profile_path && -r $profile_path ]] || fail 'MACHTIANI_MODEL_PROFILE must name a readable regular file'
+  existing_profile=yes
+else
+  existing_profile=no
+fi
+if [[ $config_path != "$smoke_root/config.toml" ]]; then
+  [[ -f $config_path && ! -L $config_path && -r $config_path ]] || fail 'MACHTIANI_CONFIG must name a readable regular file'
+  existing_config=yes
+else
+  existing_config=no
+fi
+
+export MACHTIANI_SMOKE_PROVIDER=$provider MACHTIANI_SMOKE_DRIVER=$driver
+export MACHTIANI_SMOKE_MODEL=$model MACHTIANI_SMOKE_RUNTIME_PROFILE=$runtime_profile
+export MACHTIANI_SMOKE_PROFILE_PATH=$profile_path MACHTIANI_SMOKE_CONFIG_PATH=$config_path
+export MACHTIANI_SMOKE_MODEL_HOST=$model_host
+export MACHTIANI_SMOKE_EXISTING_PROFILE=$existing_profile MACHTIANI_SMOKE_EXISTING_CONFIG=$existing_config
+node --input-type=module <<'NODE'
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
+
+const required = name => {
+  const value = process.env[name]
+  if (value === undefined || value === '') throw new Error(`${name} is required`)
+  return value
+}
+const profilePath = required('MACHTIANI_SMOKE_PROFILE_PATH')
+const configPath = required('MACHTIANI_SMOKE_CONFIG_PATH')
+const runtimeProfile = required('MACHTIANI_SMOKE_RUNTIME_PROFILE')
+const model = required('MACHTIANI_SMOKE_MODEL')
+const profile = {
+  version: 1,
+  driver: required('MACHTIANI_SMOKE_DRIVER'),
+  provider: required('MACHTIANI_SMOKE_PROVIDER'),
+  authMethod: 'subscription',
+  model,
+  runtimeProfile,
+}
+if (process.env.MACHTIANI_SMOKE_EXISTING_PROFILE === 'yes') {
+  const existing = JSON.parse(await readFile(profilePath, 'utf8'))
+  for (const [key, value] of Object.entries(profile)) {
+    if (key !== 'runtimeProfile' && existing[key] !== value) throw new Error(`existing model profile does not match ${key}`)
+  }
+} else {
+  await mkdir(dirname(runtimeProfile), { recursive: true, mode: 0o700 })
+  await writeFile(profilePath, `${JSON.stringify(profile, undefined, 2)}\n`, { mode: 0o600 })
+  await chmod(profilePath, 0o600)
+}
+const quoted = JSON.stringify
+const config = `default_model = "dearmachine"\n` +
+  `shell_agent_model = "dearmachine"\nanswer_model = "dearmachine"\nfile_discovery_model = "dearmachine"\n\n` +
+  `[model_defaults]\ncache_enabled = true\ncache_key_name = "cache_control"\n` +
+  `cache_control = { type = "ephemeral" }\ncache_trigger_threshold = 1\ncache_lookback_offset = 1\n\n` +
+  `[providers.dearmachine-host]\ntransport = "model-host"\nprofile = ${quoted(profilePath)}\n` +
+  `command = ${quoted(required('MACHTIANI_SMOKE_MODEL_HOST'))}\n\n` +
+  `[models.dearmachine]\nprovider = "dearmachine-host"\nmodel = ${quoted(model)}\ncontext_length = 131072\n`
+if (process.env.MACHTIANI_SMOKE_EXISTING_CONFIG !== 'yes') {
+  await writeFile(configPath, config, { mode: 0o600 })
+  await chmod(configPath, 0o600)
+}
+NODE
+
+"$model_host" auth login --profile "$profile_path" --mode "$mode"
+MACHTIANI_CONFIG=$config_path "$machtiani" config check
+MACHTIANI_CONFIG=$config_path "$machtiani" verify --json >"$first_report"
+MACHTIANI_CONFIG=$config_path "$machtiani" verify --json >"$second_report"
+chmod 0600 "$first_report" "$second_report"
+
+export MACHTIANI_SMOKE_FIRST_REPORT=$first_report MACHTIANI_SMOKE_SECOND_REPORT=$second_report
+node --input-type=module <<'NODE'
+import { readFile } from 'node:fs/promises'
+
+const expected = ['planner', 'shell-agent', 'answer', 'file-discovery']
+for (const name of ['MACHTIANI_SMOKE_FIRST_REPORT', 'MACHTIANI_SMOKE_SECOND_REPORT']) {
+  const report = JSON.parse(await readFile(process.env[name], 'utf8'))
+  const roles = Array.isArray(report.roles) ? report.roles : []
+  if (report.version !== 1 || report.status !== 'ok' || roles.length !== expected.length ||
+      expected.some((role, index) => roles[index]?.role !== role)) {
+    throw new Error(`${name} did not prove all four Machtiani roles`)
+  }
+}
+for (const name of ['MACHTIANI_SMOKE_PROFILE_PATH', 'MACHTIANI_SMOKE_CONFIG_PATH', 'MACHTIANI_SMOKE_FIRST_REPORT', 'MACHTIANI_SMOKE_SECOND_REPORT']) {
+  const content = await readFile(process.env[name], 'utf8')
+  if (/access[_-]?token|refresh[_-]?token|oauth[_-]?token|authorization\s*[:=]|api[_-]?key\s*[:=]/iu.test(content)) {
+    throw new Error(`${name} contains credential-shaped material`)
+  }
+}
+NODE
+
+printf 'Subscription runtime smoke passed for %s/%s: four roles, fresh-process restart, private state, no Dear Machine install or email.\n' "$provider" "$model"

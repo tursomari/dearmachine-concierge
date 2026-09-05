@@ -74,15 +74,21 @@ export class SpawnCommandRunner implements CommandRunner {
   }
 }
 
-interface ProviderSpec { preset: string; variable: string }
+interface ProviderSpec {
+  credential: 'environment-file' | 'provider-owned'
+  preset?: string
+  variable?: string
+}
 interface TransportSpec { id: string; variable: string; credentialPath: string }
 
 const providers: Readonly<Record<string, ProviderSpec>> = {
-  openrouter: { preset: 'openrouter', variable: 'OPENROUTER_API_KEY' },
-  deepseek: { preset: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
-  'deepseek official': { preset: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
-  openai: { preset: 'openai', variable: 'OPENAI_API_KEY' },
-  'openai api': { preset: 'openai', variable: 'OPENAI_API_KEY' },
+  openrouter: { credential: 'environment-file', preset: 'openrouter', variable: 'OPENROUTER_API_KEY' },
+  deepseek: { credential: 'environment-file', preset: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
+  'deepseek official': { credential: 'environment-file', preset: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
+  openai: { credential: 'environment-file', preset: 'openai', variable: 'OPENAI_API_KEY' },
+  'openai api': { credential: 'environment-file', preset: 'openai', variable: 'OPENAI_API_KEY' },
+  'openai codex': { credential: 'provider-owned' },
+  'anthropic claude': { credential: 'provider-owned' },
 }
 
 const transports: Readonly<Record<string, Omit<TransportSpec, 'credentialPath'>>> = {
@@ -353,10 +359,11 @@ export class NativeProductInstaller {
     if (reasoningEffort !== undefined && (reasoningEffort.trim() === '' || /[\r\n\0]/u.test(reasoningEffort))) {
       throw new Error('The reasoning effort is invalid.')
     }
-    providerSpec(selection.provider)
+    const provider = providerSpec(selection.provider)
     const transport = transportSpec(selection.transport, this.options.home)
-    const providerCredentialPath = join(this.options.home, '.config', 'dearmachine', 'backends.env')
-    await privateRegularFile(providerCredentialPath)
+    if (provider.credential === 'environment-file') {
+      await privateRegularFile(join(this.options.home, '.config', 'dearmachine', 'backends.env'))
+    }
     await privateRegularFile(transport.credentialPath)
 
     const environment: NodeJS.ProcessEnv = {

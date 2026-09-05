@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, stat, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -130,6 +130,30 @@ describe('native product installer', () => {
     expect(journal).not.toContain('product-test-secret')
     expect(journal).not.toContain('email-test-secret')
     expect((await stat(test.journalPath)).mode & 0o077).toBe(0)
+  })
+
+  it.each([
+    { provider: 'openai-codex', model: 'gpt-5.6-luna', driver: 'openai-codex-app-server' },
+    { provider: 'anthropic-claude', model: 'sonnet', driver: 'anthropic-claude-agent-sdk' },
+  ])('installs with provider-owned $provider authentication and no API-key file', async ({ provider, model, driver }) => {
+    const test = await fixture()
+    await unlink(join(test.home, '.config', 'dearmachine', 'backends.env'))
+    const modelProfilePath = join(test.home, '.config', 'machtiani', 'model-profile.json')
+    await mkdir(join(test.home, '.config', 'machtiani'), { recursive: true })
+    await writeFile(modelProfilePath, `${JSON.stringify({
+      version: 1, provider, model, driver, authMethod: 'subscription',
+      runtimeProfile: join(test.home, '.config', 'machtiani', provider),
+    })}\n`, { mode: 0o600 })
+    const installer = new NativeProductInstaller({
+      home: test.home, sourceRoot: test.sourceRoot, workspace: test.workspace,
+      journalPath: test.journalPath, runner: test.runner, environment: { PATH: '/usr/bin:/bin' }, modelProfilePath,
+    })
+
+    await expect(installer.install({ ...selection, provider, model })).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
+    const config = await readFile(join(test.home, '.machtiani', 'config.toml'), 'utf8')
+    expect(config).toContain(`profile = ${JSON.stringify(modelProfilePath)}`)
+    expect(config).toContain(`model = ${JSON.stringify(model)}`)
+    expect(test.runner.requests.filter(request => request.label === 'Verify Machtiani model roles')).toHaveLength(1)
   })
 
   it('stops before Dear Machine installation when any Machtiani role is unverified', async () => {

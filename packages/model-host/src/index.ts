@@ -58,6 +58,8 @@ export interface ModelHostProfile {
 export interface ModelHostMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /** Cache the provider-facing prefix through this message when supported. */
+  cacheControl?: { type: 'ephemeral' }
   toolCallId?: string
   toolName?: string
   toolCalls?: readonly { id: string; name: string; arguments: string }[]

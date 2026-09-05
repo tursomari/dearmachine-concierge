@@ -7,19 +7,62 @@ import { describe, expect, it } from 'vitest'
 import {
   ANTHROPIC_SUBSCRIPTION_POLICY,
   AnthropicClaudeDriver,
+  claudeConversationInput,
   claudeConversationPrompt,
   ClaudeCliAuth,
   GitHubCopilotDriver,
+  nativeConversationPrompt,
   OpenAICodexDriver,
   subscriptionProviders,
   type CodexAppServerPort,
   type RpcMessage,
 } from '../src/subscription-drivers.ts'
-import type { ModelHostProfile } from '../src/index.ts'
+import type { ModelHostGenerateRequest, ModelHostProfile } from '../src/index.ts'
 
 function profile(driver: string, provider: string, runtimeProfile: string): ModelHostProfile {
   return { version: 1, driver, provider, authMethod: 'subscription', model: 'test-model', reasoningEffort: 'high', runtimeProfile }
 }
+
+function generation(messages: ModelHostGenerateRequest['messages']): ModelHostGenerateRequest {
+  return { caller: 'machtiani', sessionId: 'stable-prefix', messages }
+}
+
+describe('provider-native conversation serialization', () => {
+  it('keeps the complete previous prompt as an exact prefix when history is appended', () => {
+    const initial = nativeConversationPrompt(generation([
+      { role: 'system', content: 'Follow the project contract.', cacheControl: { type: 'ephemeral' } },
+      { role: 'user', content: 'Inspect the repository.' },
+    ]))
+    const continued = nativeConversationPrompt(generation([
+      { role: 'system', content: 'Follow the project contract.', cacheControl: { type: 'ephemeral' } },
+      { role: 'user', content: 'Inspect the repository.' },
+      { role: 'assistant', content: 'The inspection is complete.' },
+      { role: 'user', content: 'Now summarize it.' },
+    ]))
+
+    expect(continued.text.startsWith(initial.text)).toBe(true)
+    expect(continued.cacheBoundary).toBe(initial.cacheBoundary)
+    expect(initial.text).not.toContain('cacheControl')
+    expect(initial.text.slice(0, initial.cacheBoundary)).toContain('Follow the project contract.')
+  })
+
+  it('maps a neutral cache boundary to a Claude cache-control content block', async () => {
+    const request = generation([
+      { role: 'system', content: 'Stable instructions.', cacheControl: { type: 'ephemeral' } },
+      { role: 'user', content: 'Variable suffix.' },
+    ])
+    const input = claudeConversationInput(request)
+    expect(typeof input).not.toBe('string')
+    const messages = []
+    for await (const message of input as AsyncIterable<any>) messages.push(message)
+
+    expect(messages).toHaveLength(1)
+    const content = messages[0].message.content
+    expect(content).toHaveLength(2)
+    expect(content[0]).toMatchObject({ type: 'text', cache_control: { type: 'ephemeral' } })
+    expect(content.map((part: { text: string }) => part.text).join('')).toBe(nativeConversationPrompt(request).text)
+  })
+})
 
 class FakeCodexServer implements CodexAppServerPort {
   listeners = new Set<(message: RpcMessage) => void>()

@@ -46,21 +46,24 @@ describe('provider-native conversation serialization', () => {
     expect(initial.text.slice(0, initial.cacheBoundary)).toContain('Follow the project contract.')
   })
 
-  it('maps a neutral cache boundary to a Claude cache-control content block', async () => {
+  it('maps a neutral cache boundary to Claude native system-prefix caching', () => {
     const request = generation([
       { role: 'system', content: 'Stable instructions.', cacheControl: { type: 'ephemeral' } },
       { role: 'user', content: 'Variable suffix.' },
     ])
     const input = claudeConversationInput(request)
-    expect(typeof input).not.toBe('string')
-    const messages = []
-    for await (const message of input as AsyncIterable<any>) messages.push(message)
+    const serialized = nativeConversationPrompt(request)
 
-    expect(messages).toHaveLength(1)
-    const content = messages[0].message.content
-    expect(content).toHaveLength(2)
-    expect(content[0]).toMatchObject({ type: 'text', cache_control: { type: 'ephemeral' } })
-    expect(content.map((part: { text: string }) => part.text).join('')).toBe(nativeConversationPrompt(request).text)
+    expect(input.systemPrompt).toEqual({
+      type: 'custom',
+      prompt: [
+        'You are the Machtiani installation assistant.',
+        serialized.text.slice(0, serialized.cacheBoundary),
+      ],
+      snapshot: true,
+    })
+    expect(input.prompt).toBe(serialized.text.slice(serialized.cacheBoundary))
+    expect(JSON.stringify(input)).not.toContain('cache_control')
   })
 })
 
@@ -251,7 +254,7 @@ describe('subscription runtime boundaries', () => {
       expect(await driver.models()).toEqual([{ id: 'claude-test', name: 'Claude Test', reasoningEfforts: ['low', 'high'] }])
       const events = []
       for await (const event of driver.generate({
-        caller: 'installer', sessionId: 'claude-one', messages: [{ role: 'user', content: 'inspect safely' }],
+        caller: 'installer', sessionId: 'claude-one', messages: [{ role: 'user', content: 'inspect safely', cacheControl: { type: 'ephemeral' } }],
         tools: [{
           name: 'diagnose', description: 'read-only diagnosis',
           parameters: { type: 'object', additionalProperties: false, properties: { safe: { type: 'boolean' } }, required: ['safe'] },
@@ -266,7 +269,10 @@ describe('subscription runtime boundaries', () => {
       expect(generation).toMatchObject({
         settingSources: [], plugins: [], persistSession: false, strictMcpConfig: true,
         tools: [], allowedTools: ['mcp__machtiani__diagnose'], permissionMode: 'bypassPermissions',
+        systemPrompt: { type: 'custom', prompt: ['You are the Machtiani installation assistant.', expect.any(String)], snapshot: true },
       })
+      expect(calls.at(-1)?.prompt).toBe('Continue immediately from the canonical conversation above.')
+      expect(JSON.stringify({ prompt: calls.at(-1)?.prompt, systemPrompt: generation.systemPrompt })).not.toContain('cache_control')
       expect(generation.env.ANTHROPIC_API_KEY).toBeUndefined()
       expect(generation.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined()
       expect(generation.env.CLAUDE_CONFIG_DIR).toBe(root)

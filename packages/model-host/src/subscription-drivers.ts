@@ -128,24 +128,26 @@ export function claudeConversationPrompt(request: ModelHostGenerateRequest): str
   return nativeConversationPrompt(request).text
 }
 
-export function claudeConversationInput(request: ModelHostGenerateRequest): string | AsyncIterable<SDKUserMessage> {
-  const prompt = nativeConversationPrompt(request)
-  if (prompt.cacheBoundary === undefined) return prompt.text
-  const prefix = prompt.text.slice(0, prompt.cacheBoundary)
-  const suffix = prompt.text.slice(prompt.cacheBoundary)
-  return (async function * (): AsyncIterable<SDKUserMessage> {
-    yield {
-      type: 'user',
-      message: {
-        role: 'user',
-        content: [
-          { type: 'text', text: prefix, cache_control: { type: 'ephemeral' } },
-          { type: 'text', text: suffix },
-        ],
-      },
-      parent_tool_use_id: null,
+export interface ClaudeConversationInput {
+  prompt: string
+  systemPrompt: NonNullable<ClaudeOptions['systemPrompt']>
+}
+
+export function claudeConversationInput(request: ModelHostGenerateRequest): ClaudeConversationInput {
+  const conversation = nativeConversationPrompt(request)
+  const system = request.system ?? 'You are the Machtiani installation assistant.'
+  if (conversation.cacheBoundary === undefined) {
+    return {
+      prompt: conversation.text,
+      systemPrompt: { type: 'custom', prompt: system, snapshot: true },
     }
-  })()
+  }
+  const prefix = conversation.text.slice(0, conversation.cacheBoundary)
+  const suffix = conversation.text.slice(conversation.cacheBoundary)
+  return {
+    prompt: suffix === '' ? 'Continue immediately from the canonical conversation above.' : suffix,
+    systemPrompt: { type: 'custom', prompt: [system, prefix], snapshot: true },
+  }
 }
 
 class EventQueue implements AsyncIterable<ModelHostEvent> {
@@ -743,14 +745,15 @@ export class AnthropicClaudeDriver implements ModelHostRuntimeDriver {
     const server = createSdkMcpServer({ name: 'machtiani-installer', version: '0.1.0', tools: definitions, alwaysLoad: true })
     const allowedTools = definitions.map(value => `mcp__machtiani__${value.name}`)
     const effort = claudeEffort(request.reasoningEffort ?? this.profile.reasoningEffort)
+    const conversation = claudeConversationInput(request)
     const current = this.factory({
-      prompt: claudeConversationInput(request),
+      prompt: conversation.prompt,
       options: {
         ...this.options(profile, executable),
         cwd: workspace,
         abortController: controller,
         includePartialMessages: true,
-        systemPrompt: { type: 'custom', prompt: request.system ?? 'You are the Machtiani installation assistant.', snapshot: true },
+        systemPrompt: conversation.systemPrompt,
         model: request.model ?? this.profile.model,
         ...(effort === undefined ? {} : { effort, thinking: { type: 'adaptive', display: 'summarized' } }),
         maxTurns: 1,

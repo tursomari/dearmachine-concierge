@@ -41,7 +41,7 @@ viewport
 9| "  DeepSeek        API credentials"
 10| "  OpenAI Codex    subscription sign-in"
 11| <blank>
-12| "type to filter • ↑/↓ move • Enter select • Esc clear"
+12| "type to filter • ↑/↓ move • Enter select • Esc clear/back"
 13-23| <blank>
 "
 `;

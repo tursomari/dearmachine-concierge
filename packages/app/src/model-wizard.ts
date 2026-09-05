@@ -9,7 +9,7 @@ import {
   type InstallerModelSetup,
 } from '@dearmachine/machtiani-installer-dsh-adapter'
 import { validateCustomOpenAIEndpoint, type CustomOpenAIProviderScope } from '@dearmachine/machtiani-model-host'
-import { SecretInputCancelledError, type InstallerChoice, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
+import { InstallerChoiceBackError, SecretInputCancelledError, type InstallerChoice, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 
 type WizardTui = Pick<InstallerTui,
   | 'addAssistant'
@@ -322,55 +322,84 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
   const stored = await loadInstallerModelSelection(setup.dshHome)
   const preliminary = stored !== undefined && setup.providers().some(provider => provider.id === stored.provider) ? stored : undefined
   const providers = providerChoices(setup)
-  const providerId = await tui.choose(
-    'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
-    providers,
-    preliminary?.provider,
-  )
-  const chosenProvider = setup.providers().find(candidate => candidate.id === providerId)
-  if (chosenProvider?.customScope !== undefined) {
-    return await runCustomProviderWizard(tui, setup, providerId, chosenProvider.customScope, preliminary)
-  }
-  await ensureAuthentication(tui, setup, providerId)
+  let selectedProvider = preliminary?.provider
+  while (true) {
+    let providerId: string
+    try {
+      providerId = await tui.choose(
+        'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
+        providers,
+        selectedProvider,
+      )
+    } catch (error) {
+      if (error instanceof InstallerChoiceBackError) continue
+      throw error
+    }
+    selectedProvider = providerId
+    const chosenProvider = setup.providers().find(candidate => candidate.id === providerId)
+    try {
+      if (chosenProvider?.customScope !== undefined) {
+        return await runCustomProviderWizard(tui, setup, providerId, chosenProvider.customScope, preliminary)
+      }
+      await ensureAuthentication(tui, setup, providerId)
 
-  const provider = setup.providers().find(candidate => candidate.id === providerId)
-  const models = await setup.modelsFor(providerId)
-  const current = preliminary?.provider === providerId && await isKnownInstallerModelSelection(setup, preliminary) ? preliminary : undefined
-  const modelId = await tui.choose(
-    `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
-    models.map(model => ({
-      value: model.id,
-      label: model.name,
-      ...(model.name === model.id ? {} : { description: model.id }),
-    })),
-    current?.provider === providerId ? current.model : undefined,
-  )
-  const model = models.find(candidate => candidate.id === modelId)
-  if (model === undefined) throw new Error(`unknown installer model: ${providerId}/${modelId}`)
+      const provider = setup.providers().find(candidate => candidate.id === providerId)
+      const models = await setup.modelsFor(providerId)
+      const current = preliminary?.provider === providerId && await isKnownInstallerModelSelection(setup, preliminary) ? preliminary : undefined
+      let selectedModel = current?.model
+      while (true) {
+        let modelId: string
+        try {
+          modelId = await tui.choose(
+            `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
+            models.map(model => ({
+              value: model.id,
+              label: model.name,
+              ...(model.name === model.id ? {} : { description: model.id }),
+            })),
+            selectedModel,
+          )
+        } catch (error) {
+          if (error instanceof InstallerChoiceBackError) break
+          throw error
+        }
+        selectedModel = modelId
+        const model = models.find(candidate => candidate.id === modelId)
+        if (model === undefined) throw new Error(`unknown installer model: ${providerId}/${modelId}`)
 
-  let reasoningEffort: string | undefined
-  if (model.reasoningEfforts.length > 0) {
-    reasoningEffort = await tui.choose(
-      'How much reasoning should the installation assistant use?',
-      model.reasoningEfforts.map(effort => ({
-        value: effort,
-        label: effort === 'off' ? 'Off' : `${effort[0]?.toLocaleUpperCase()}${effort.slice(1)}`,
-        ...(effort === 'high' ? { description: 'Recommended for installation' } : {}),
-      })),
-      preferredEffort(model.reasoningEfforts, current?.provider === providerId && current.model === modelId
-        ? current.reasoningEffort
-        : undefined),
-    )
-  } else {
-    tui.addAssistant('This model does not offer a separate reasoning setting, so there is nothing else to configure.')
-  }
+        let reasoningEffort: string | undefined
+        if (model.reasoningEfforts.length > 0) {
+          try {
+            reasoningEffort = await tui.choose(
+              'How much reasoning should the installation assistant use?',
+              model.reasoningEfforts.map(effort => ({
+                value: effort,
+                label: effort === 'off' ? 'Off' : `${effort[0]?.toLocaleUpperCase()}${effort.slice(1)}`,
+                ...(effort === 'high' ? { description: 'Recommended for installation' } : {}),
+              })),
+              preferredEffort(model.reasoningEfforts, current?.provider === providerId && current.model === modelId
+                ? current.reasoningEffort
+                : undefined),
+            )
+          } catch (error) {
+            if (error instanceof InstallerChoiceBackError) continue
+            throw error
+          }
+        } else {
+          tui.addAssistant('This model does not offer a separate reasoning setting, so there is nothing else to configure.')
+        }
 
-  const selection: InstallerModelSelection = {
-    provider: providerId,
-    model: modelId,
-    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        const selection: InstallerModelSelection = {
+          provider: providerId,
+          model: modelId,
+          ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        }
+        await saveInstallerModelSelection(setup.dshHome, selection)
+        tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${provider?.name ?? providerId} — ${model.name}${reasoningEffort === undefined ? '' : ` — ${reasoningEffort} reasoning`}.`)
+        return selection
+      }
+    } catch (error) {
+      if (!(error instanceof InstallerChoiceBackError)) throw error
+    }
   }
-  await saveInstallerModelSelection(setup.dshHome, selection)
-  tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${provider?.name ?? providerId} — ${model.name}${reasoningEffort === undefined ? '' : ` — ${reasoningEffort} reasoning`}.`)
-  return selection
 }

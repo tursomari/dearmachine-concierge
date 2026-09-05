@@ -25,6 +25,7 @@ export class ChoiceInput implements Component, Focusable {
   private readonly items: readonly InstallerChoice[]
   private readonly selectTheme: SelectListTheme
   onSubmit?: (choice: InstallerChoice) => void
+  onBack?: () => void
 
   constructor(
     items: readonly InstallerChoice[],
@@ -50,6 +51,10 @@ export class ChoiceInput implements Component, Focusable {
     if (matchesKey(data, Key.up) || matchesKey(data, Key.down) || matchesKey(data, Key.enter)) {
       this.list.handleInput(data)
     } else if (matchesKey(data, Key.escape)) {
+      if (this.filter.getValue() === '') {
+        this.onBack?.()
+        return
+      }
       this.filter.setValue('')
       this.list = this.buildList(undefined)
     } else {
@@ -71,7 +76,7 @@ export class ChoiceInput implements Component, Focusable {
     const prefix = this.theme.dim('Filter: ')
     const inputWidth = Math.max(1, width - visibleWidth(prefix))
     const filter = truncateToWidth(this.filter.render(inputWidth).join(''), inputWidth, '')
-    const help = truncateToWidth('type to filter • ↑/↓ move • Enter select • Esc clear', width, '…')
+    const help = truncateToWidth('type to filter • ↑/↓ move • Enter select • Esc clear/back', width, '…')
     return [
       `${prefix}${filter}`,
       '',

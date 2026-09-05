@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { InstallerTui, assertInteractiveTerminal } from '../src/index.ts'
+import { InstallerChoiceBackError, InstallerTui, assertInteractiveTerminal } from '../src/index.ts'
 import { HeadlessTerminal } from './headless-terminal.ts'
 
 const open = async (
@@ -76,6 +76,25 @@ describe('Machtiani Installer TUI', () => {
     await expect(answer).resolves.toBe('deepseek')
     await harness.terminal.waitForFrame()
     expect(await harness.terminal.snapshot({ includeScrollback: true })).toContain('DeepSeek')
+  })
+
+  it('clears a nonempty menu filter before Escape navigates back', async () => {
+    const harness = await open()
+    opened.push(harness)
+    const answer = harness.tui.choose('Choose one.', [
+      { value: 'one', label: 'One' },
+      { value: 'two', label: 'Two' },
+    ])
+    harness.terminal.send('two')
+    harness.terminal.send('\x1b')
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot()).toContain('One')
+    harness.terminal.send('\x1b')
+    await expect(answer).rejects.toBeInstanceOf(InstallerChoiceBackError)
+
+    const next = harness.tui.choose('Choose again.', [{ value: 'one', label: 'One' }])
+    harness.terminal.send('\r')
+    await expect(next).resolves.toBe('one')
   })
 
   it.each([

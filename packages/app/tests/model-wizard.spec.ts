@@ -7,7 +7,7 @@ import type {
   InstallerAuthMethodId,
   InstallerModelSetup,
 } from '@dearmachine/machtiani-installer-dsh-adapter'
-import { SecretInputCancelledError, type InstallerChoice } from '@dearmachine/machtiani-installer-tui'
+import { InstallerChoiceBackError, SecretInputCancelledError, type InstallerChoice } from '@dearmachine/machtiani-installer-tui'
 import { runInstallerModelWizard } from '../src/model-wizard.ts'
 
 class ScriptedTui {
@@ -19,7 +19,7 @@ class ScriptedTui {
   private cancellation: (() => void) | undefined
 
   constructor(
-    private readonly answers: string[],
+    private readonly answers: Array<string | InstallerChoiceBackError>,
     private readonly cancelFirstSecret = false,
   ) {}
 
@@ -34,10 +34,15 @@ class ScriptedTui {
     return { close: () => {} }
   }
   cancelInteraction(): void { this.cancellation?.() }
-  ask(question: { message: string }): Promise<string> { this.messages.push(question.message); return Promise.resolve(this.answers.shift() ?? '') }
+  ask(question: { message: string }): Promise<string> {
+    this.messages.push(question.message)
+    const answer = this.answers.shift() ?? ''
+    return answer instanceof InstallerChoiceBackError ? Promise.reject(answer) : Promise.resolve(answer)
+  }
   choose(message: string, _choices: readonly InstallerChoice[], selected?: string): Promise<string> {
     this.choices.push({ message, ...(selected === undefined ? {} : { selected }) })
-    return Promise.resolve(this.answers.shift() ?? '')
+    const answer = this.answers.shift() ?? ''
+    return answer instanceof InstallerChoiceBackError ? Promise.reject(answer) : Promise.resolve(answer)
   }
   captureSecret(): Promise<string> {
     this.secretAttempts += 1
@@ -172,6 +177,27 @@ describe('installer model setup wizard', () => {
       expect.stringContaining('model should conduct'),
       expect.stringContaining('How much reasoning'),
     ])
+  })
+
+  it('returns from a child menu to its parent when the human presses Escape', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-back-'))
+    const { setup, authentications } = fakeSetup(root)
+    const tui = new ScriptedTui([
+      'openrouter',
+      new InstallerChoiceBackError(),
+      'openrouter',
+      'api_key',
+      'z-ai/glm-5.3-flash',
+      new InstallerChoiceBackError(),
+      'z-ai/glm-5.3-flash',
+      'high',
+    ])
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toEqual({
+      provider: 'openrouter', model: 'z-ai/glm-5.3-flash', reasoningEffort: 'high',
+    })
+    expect(authentications).toEqual(['api_key'])
+    expect(tui.choices.filter(choice => choice.message.includes('AI service'))).toHaveLength(2)
+    expect(tui.choices.filter(choice => choice.message.includes('model should conduct'))).toHaveLength(2)
   })
 
   it('returns from cancelled secure entry to authentication choices', async () => {

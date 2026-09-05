@@ -43,6 +43,13 @@ export class SecretInputCancelledError extends Error {
   }
 }
 
+export class InstallerChoiceBackError extends Error {
+  constructor() {
+    super('installer choice navigated back')
+    this.name = 'InstallerChoiceBackError'
+  }
+}
+
 export interface ToolActivity {
   succeed(summary?: string): void
   fail(summary: string): void
@@ -327,6 +334,10 @@ export class InstallerTui {
         this.deactivateChoiceInput()
         this.addUser(choice.label)
         resolve(choice.value)
+      }
+      input.onBack = () => {
+        if (this.pendingQuestion?.mode !== 'choice' || this.choiceInput !== input) return
+        this.cancelPending(new InstallerChoiceBackError())
       }
     })
   }

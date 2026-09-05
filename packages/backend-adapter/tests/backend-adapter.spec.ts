@@ -83,9 +83,23 @@ printf 'result=ok\n'
     await mkdir(home)
     await writeFile(credential, 'OPENROUTER_API_KEY=forge-private-test-value\n', { mode: 0o600 })
     const commands: string[][] = []
-    const run = async (command: readonly string[]): Promise<ProcessResult> => {
+    const run = async (command: readonly string[], _cwd: string, environment: NodeJS.ProcessEnv): Promise<ProcessResult> => {
       commands.push([...command])
+      const isCredentialImport = command.length === 1 && command[0] === 'forge'
+      if (!isCredentialImport) expect(environment.OPENROUTER_API_KEY).toBeUndefined()
       if (command.includes('--version')) return { code: 0, stdout: 'forge 2.13.21\n', stderr: '' }
+      if (isCredentialImport) {
+        expect(environment.OPENROUTER_API_KEY).toBe('forge-private-test-value')
+        await mkdir(join(home, '.forge'), { recursive: true })
+        await writeFile(join(home, '.forge', '.credentials.json'), '{}\n', { mode: 0o600 })
+        return { code: 1, stdout: '', stderr: 'input closed after credential import' }
+      }
+      if (command.join(' ') === 'forge config get provider --porcelain') {
+        return { code: 0, stdout: 'open_router\n', stderr: '' }
+      }
+      if (command.join(' ') === 'forge config get model --porcelain') {
+        return { code: 0, stdout: 'z-ai/glm-5.3-flash\n', stderr: '' }
+      }
       if (command[0] === 'git') return { code: 0, stdout: '', stderr: '' }
       if (command.includes('--prompt')) return { code: 0, stdout: 'READY\n', stderr: '' }
       return { code: 0, stdout: '', stderr: '' }
@@ -100,7 +114,60 @@ printf 'result=ok\n'
     expect(commands.find(command => command.includes('model'))).toEqual([
       'forge', 'config', 'set', 'model', 'open_router', 'z-ai/glm-5.3-flash',
     ])
+    expect(commands).toContainEqual(['forge'])
+    expect(commands).toContainEqual(['forge', 'config', 'get', 'provider', '--porcelain'])
+    expect(commands).toContainEqual(['forge', 'config', 'get', 'model', '--porcelain'])
     expect(JSON.stringify(commands)).not.toContain('forge-private-test-value')
+  })
+
+  it('rejects Forge authentication cancellation before attempting a live probe', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-forge-cancelled-auth-'))
+    const home = join(root, 'home')
+    const credential = join(root, 'backends.env')
+    await mkdir(home)
+    await writeFile(credential, 'OPENROUTER_API_KEY=forge-private-test-value\n', { mode: 0o600 })
+    let liveProbeAttempted = false
+    const cancelled = async (command: readonly string[]): Promise<ProcessResult> => {
+      if (command.includes('--version')) return { code: 0, stdout: '2.13.21\n', stderr: '' }
+      if (command.includes('--prompt')) {
+        liveProbeAttempted = true
+        return { code: 0, stdout: 'READY\n', stderr: '' }
+      }
+      return { code: 0, stdout: '', stderr: 'API key input cancelled\n' }
+    }
+
+    await expect(prepareForge21321({
+      home, providerEnvironmentPath: credential, provider: 'openrouter', model: 'model', run: cancelled,
+    })).rejects.toThrow('did not import the selected provider credential')
+    expect(liveProbeAttempted).toBe(false)
+  })
+
+  it('rejects a zero-exit Forge configuration command unless the selection was retained', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-forge-unretained-config-'))
+    const home = join(root, 'home')
+    const credential = join(root, 'backends.env')
+    await mkdir(home)
+    await writeFile(credential, 'OPENROUTER_API_KEY=forge-private-test-value\n', { mode: 0o600 })
+    let liveProbeAttempted = false
+    const unretained = async (command: readonly string[]): Promise<ProcessResult> => {
+      if (command.includes('--version')) return { code: 0, stdout: '2.13.21\n', stderr: '' }
+      if (command.length === 1 && command[0] === 'forge') {
+        await mkdir(join(home, '.forge'), { recursive: true })
+        await writeFile(join(home, '.forge', '.credentials.json'), '{}\n', { mode: 0o600 })
+        return { code: 1, stdout: '', stderr: 'input closed after credential import' }
+      }
+      if (command.includes('--prompt')) {
+        liveProbeAttempted = true
+        return { code: 0, stdout: 'READY\n', stderr: '' }
+      }
+      if (command.includes('get')) return { code: 0, stdout: 'Not set\n', stderr: '' }
+      return { code: 0, stdout: '', stderr: 'API key input cancelled\n' }
+    }
+
+    await expect(prepareForge21321({
+      home, providerEnvironmentPath: credential, provider: 'openrouter', model: 'model', run: unretained,
+    })).rejects.toThrow('did not retain the selected provider and model')
+    expect(liveProbeAttempted).toBe(false)
   })
 
   it('cleans the Forge compatibility link after a failed probe and refuses an existing path', async () => {
@@ -111,6 +178,17 @@ printf 'result=ok\n'
     await writeFile(credential, 'OPENROUTER_API_KEY=forge-private-test-value\n', { mode: 0o600 })
     const failing = async (command: readonly string[]): Promise<ProcessResult> => {
       if (command.includes('--version')) return { code: 0, stdout: '2.13.21\n', stderr: '' }
+      if (command.length === 1 && command[0] === 'forge') {
+        await mkdir(join(home, '.forge'), { recursive: true })
+        await writeFile(join(home, '.forge', '.credentials.json'), '{}\n', { mode: 0o600 })
+        return { code: 1, stdout: '', stderr: 'input closed after credential import' }
+      }
+      if (command.join(' ') === 'forge config get provider --porcelain') {
+        return { code: 0, stdout: 'open_router\n', stderr: '' }
+      }
+      if (command.join(' ') === 'forge config get model --porcelain') {
+        return { code: 0, stdout: 'model\n', stderr: '' }
+      }
       if (command[0] === 'git') return { code: 0, stdout: '', stderr: '' }
       if (command.includes('--prompt')) return { code: 1, stdout: '', stderr: 'private diagnostic' }
       return { code: 0, stdout: '', stderr: '' }

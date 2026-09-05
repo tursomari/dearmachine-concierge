@@ -142,16 +142,34 @@ export interface ForgePreparationOptions {
   run?: (command: readonly string[], cwd: string, environment: NodeJS.ProcessEnv, timeoutMs: number) => Promise<ProcessResult>
 }
 
+async function assertPrivateForgeCredentialStore(path: string): Promise<void> {
+  try {
+    const metadata = await lstat(path)
+    const owned = process.getuid === undefined || metadata.uid === process.getuid()
+    if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0 || !owned) throw new Error()
+  } catch {
+    throw new Error('Forge did not import the selected provider credential into its private credential store.')
+  }
+}
+
+function forgeConfigMatches(result: ProcessResult, label: 'Provider' | 'Model', expected: string): boolean {
+  if (result.code !== 0) return false
+  return result.stdout.split(/\r?\n/gu).some(line => {
+    const value = line.trim()
+    return value === expected || value === `${label}: ${expected}`
+  })
+}
+
 /**
  * Performs the one verified Forge 2.13.21 API-key migration without leaving a
  * broad home-directory credential surface behind. Call only after Forge was
  * explicitly selected by the human.
  */
 export async function prepareForge21321(options: ForgePreparationOptions): Promise<ForgePreparationReceipt> {
-  await loadPrivateEnvironment(options.providerEnvironmentPath)
+  const providerEnvironment = await loadPrivateEnvironment(options.providerEnvironmentPath)
   const command = options.forgeCommand ?? 'forge'
   const execute = options.run ?? runBounded
-  const environment = { ...process.env, HOME: options.home, FORGE_TERM: 'false' }
+  const environment = { ...backendBaseEnvironment(undefined), HOME: options.home, FORGE_TERM: 'false' }
   const versionResult = await execute([command, '--version'], options.home, environment, 30_000)
   const version = /(?:^|\s)(2\.13\.21)(?:\s|$)/u.exec(`${versionResult.stdout}\n${versionResult.stderr}`)?.[1]
   if (versionResult.code !== 0 || version !== '2.13.21') {
@@ -173,8 +191,23 @@ export async function prepareForge21321(options: ForgePreparationOptions): Promi
   try {
     await symlink(await realpath(options.providerEnvironmentPath), compatibilityPath)
     linked = true
+    // Forge 2.13.21 imports a provider key from its environment only while
+    // entering direct mode. A closed stdin may make that command exit non-zero
+    // after the import, so the private store is the authoritative postcondition.
+    await execute([command], options.home, { ...environment, ...providerEnvironment }, 60_000)
+    await assertPrivateForgeCredentialStore(join(options.home, '.forge', '.credentials.json'))
+    await unlink(compatibilityPath)
+    linked = false
+
     const configured = await execute([command, 'config', 'set', 'model', providerName, options.model], options.home, environment, 60_000)
     if (configured.code !== 0) throw new Error('Forge did not accept the selected provider and model.')
+    const [selectedProvider, selectedModel] = await Promise.all([
+      execute([command, 'config', 'get', 'provider', '--porcelain'], options.home, environment, 30_000),
+      execute([command, 'config', 'get', 'model', '--porcelain'], options.home, environment, 30_000),
+    ])
+    if (!forgeConfigMatches(selectedProvider, 'Provider', providerName) || !forgeConfigMatches(selectedModel, 'Model', options.model)) {
+      throw new Error('Forge did not retain the selected provider and model after credential import.')
+    }
     await execute(['git', 'init', '--quiet'], probe, environment, 30_000)
     const checked = await execute(
       [command, '-C', probe, '--prompt', 'Reply with exactly READY. Do not run tools or alter files.'],

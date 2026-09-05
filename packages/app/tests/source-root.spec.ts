@@ -7,12 +7,22 @@ import { installerAgentPrompt, installerTurnMessage, validatedSourceRoot } from 
 
 describe('installer source root', () => {
   it('gives one agent the contract and transcript-free credential bridge commands', () => {
-    const prompt = installerAgentPrompt('INSTALLATION CONTRACT', '/private/credential-helper.mjs')
+    const prompt = installerAgentPrompt(
+      'INSTALLATION CONTRACT',
+      '/private/credential-helper.mjs',
+      { provider: 'openai-codex', model: 'gpt-5.6-luna', reasoningEffort: 'high' },
+      '/home/test/.config/machtiani/model-profile.json',
+    )
     expect(prompt).toContain('INSTALLATION CONTRACT')
     expect(prompt).toContain('Do not use ask_user_question')
     expect(prompt).toContain('/private/credential-helper.mjs')
-    expect(prompt).toContain('llm "<selected provider>"')
     expect(prompt).toContain('email "<selected transport>"')
+    expect(prompt).not.toContain('llm "<selected provider>"')
+    expect(prompt).toContain('"provider":"openai-codex"')
+    expect(prompt).toContain('"model":"gpt-5.6-luna"')
+    expect(prompt).toContain('"reasoningEffort":"high"')
+    expect(prompt).toContain('"profile":"/home/test/.config/machtiani/model-profile.json"')
+    expect(prompt).toContain('absolute path returned by command -v machtiani-model-host')
     expect(prompt).toContain('If it reports cancellation, do not continue the credential step')
     expect(prompt).toContain('Never inspect, stat, source, parse, measure')
     expect(prompt).toContain('Canonical messages must be presented exactly')

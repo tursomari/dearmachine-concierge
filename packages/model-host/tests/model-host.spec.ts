@@ -227,26 +227,62 @@ describe('shared model host profile', () => {
     let captured = ''
     output.setEncoding('utf8').on('data', chunk => { captured += String(chunk) })
     const observed: string[] = []
-    const host = {
-      profile: { provider: 'openrouter', authMethod: 'api_key' as const },
-      authenticated: async () => true,
-      models: () => [],
-      async * generate(request: { caller: string; sessionId: string }) {
-        observed.push(`${request.caller}:${request.sessionId}`)
-        yield { type: 'text-delta' as const, index: 0, text: request.sessionId }
-        yield { type: 'finish' as const, reason: 'stop' as const }
-      },
-    }
-    const serving = serveModelHost('/private/profile', input, output, async () => host as never)
+    const localHistories: string[][] = []
+    const serving = serveModelHost('/private/profile', input, output, async () => {
+      const instance = localHistories.length
+      const localHistory: string[] = []
+      localHistories.push(localHistory)
+      return {
+        profile: { provider: 'openrouter', authMethod: 'api_key' as const },
+        authenticated: async () => true,
+        models: () => [],
+        async * generate(request: { caller: string; sessionId: string }) {
+          const identity = `${request.caller}:${request.sessionId}`
+          observed.push(identity)
+          localHistory.push(identity)
+          yield { type: 'text-delta' as const, index: 0, text: `${instance}:${localHistory.join(',')}` }
+          yield { type: 'finish' as const, reason: 'stop' as const }
+        },
+      } as never
+    })
     input.write(`${JSON.stringify({ v: 1, id: 'installer-request', method: 'generation/start', params: { caller: 'installer', sessionId: 'installer-session', messages: [] } })}\n`)
     input.write(`${JSON.stringify({ v: 1, id: 'machtiani-request', method: 'generation/start', params: { caller: 'machtiani', sessionId: 'service-session', messages: [] } })}\n`)
     input.end()
     await serving
     expect(observed.sort()).toEqual(['installer:installer-session', 'machtiani:service-session'])
+    expect(localHistories).toHaveLength(2)
+    expect(localHistories.every(history => history.length === 1)).toBe(true)
     expect(captured).toContain('"id":"installer-request"')
-    expect(captured).toContain('"text":"installer-session"')
+    expect(captured).toMatch(/"text":"[01]:installer:installer-session"/u)
     expect(captured).toContain('"id":"machtiani-request"')
-    expect(captured).toContain('"text":"service-session"')
+    expect(captured).toMatch(/"text":"[01]:machtiani:service-session"/u)
+  })
+
+  it('preserves every actionable provider failure and retry hint over the wire', async () => {
+    const failures = [
+      ['AUTH_REQUIRED', undefined],
+      ['AUTH_EXPIRED', undefined],
+      ['RATE_LIMITED', 2750],
+      ['QUOTA_EXHAUSTED', undefined],
+      ['MODEL_UNAVAILABLE', undefined],
+      ['UPSTREAM_CHANGED', undefined],
+      ['CANCELLED', undefined],
+    ] as const
+    for (const [code, retryAfterMs] of failures) {
+      const input = new PassThrough()
+      const output = new PassThrough()
+      let captured = ''
+      output.setEncoding('utf8').on('data', chunk => { captured += String(chunk) })
+      const host = {
+        profile: { provider: 'openai-codex', authMethod: 'subscription' as const },
+        async * generate() { throw new ModelHostError(code, 'provider detail', retryAfterMs) },
+      }
+      const serving = serveModelHost('/private/profile', input, output, async () => host as never)
+      input.end(`${JSON.stringify({ v: 1, id: code, method: 'generation/start', params: { caller: 'machtiani', sessionId: `failure-${code}`, messages: [] } })}\n`)
+      await serving
+      const envelope = JSON.parse(captured) as { error: { code: string; message: string; retryAfterMs?: number } }
+      expect(envelope.error).toEqual({ code, message: 'provider detail', ...(retryAfterMs === undefined ? {} : { retryAfterMs }) })
+    }
   })
 
   it('forwards the selected subscription login mode over the private protocol', async () => {

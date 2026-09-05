@@ -4,6 +4,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { dirname, join } from 'node:path'
 import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
 import { SecretInputCancelledError, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
+import { messages } from '@dearmachine/machtiani-installer-workflow'
 
 interface CredentialRequest {
   kind: CredentialKind
@@ -35,10 +36,17 @@ export function credentialSocketPath(
 function request(value: unknown): CredentialRequest {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid credential request')
   const candidate = value as Record<string, unknown>
-  if ((candidate.kind !== 'llm' && candidate.kind !== 'email') || typeof candidate.selection !== 'string' || candidate.selection.trim() === '') {
+  if ((candidate.kind !== 'backend-provider' && candidate.kind !== 'email') || typeof candidate.selection !== 'string' || candidate.selection.trim() === '') {
     throw new Error('invalid credential request')
   }
   return { kind: candidate.kind, selection: candidate.selection.trim() }
+}
+
+function credentialPrompt(credential: CredentialRequest): string {
+  if (credential.kind === 'email') return messages.emailCredential(credential.selection)
+  return `Dear Machine needs your ${credential.selection} API key to configure the backend agent you chose.
+
+Paste it into the secure field below and press Enter. Your input is masked, saved directly to a private file, and never added to the conversation or sent to the installer model.`
 }
 
 function reply(socket: Socket, value: object): void {
@@ -116,7 +124,7 @@ export class CredentialBridge {
         reply(socket, { ok: true, status: 'already-present' })
         return
       }
-      value = await this.options.tui.captureSecret()
+      value = await this.options.tui.askSecret(credentialPrompt(credential))
       await this.options.credentials.save(credential.kind, value)
       value = ''
       reply(socket, { ok: true, status: 'saved' })

@@ -27,7 +27,7 @@ describe('credential interaction bridge', () => {
     expect(Buffer.byteLength(socketPath)).toBeLessThanOrEqual(100)
     const bridge = new CredentialBridge({
       socketPath,
-      tui: { captureSecret: async () => '' } as unknown as InstallerTui,
+      tui: { askSecret: async () => '' } as unknown as InstallerTui,
       credentials: {} as CredentialFileAdapter,
     })
     await bridge.start()
@@ -45,7 +45,7 @@ describe('credential interaction bridge', () => {
     const secret = 'bridge-test-secret'
     const calls: string[] = []
     const tui = {
-      captureSecret: async () => { calls.push('capture'); return secret },
+      askSecret: async (message: string) => { calls.push(`ask:${message}`); return secret },
     } as unknown as InstallerTui
     const credentials = {
       prepare: async (kind: CredentialKind, selection: string) => { calls.push(`prepare:${kind}:${selection}`); return 'pending' as const },
@@ -55,10 +55,14 @@ describe('credential interaction bridge', () => {
     await bridge.start()
     try {
       expect((await stat(socketPath)).mode & 0o077).toBe(0)
-      const response = await invoke(socketPath, { kind: 'llm', selection: 'OpenRouter' })
+      const response = await invoke(socketPath, { kind: 'backend-provider', selection: 'OpenRouter' })
       expect(JSON.parse(response)).toEqual({ ok: true, status: 'saved' })
       expect(response).not.toContain(secret)
-      expect(calls).toEqual(['prepare:llm:OpenRouter', 'capture', 'save:llm:received'])
+      expect(calls).toEqual([
+        'prepare:backend-provider:OpenRouter',
+        'ask:Dear Machine needs your OpenRouter API key to configure the backend agent you chose.\n\nPaste it into the secure field below and press Enter. Your input is masked, saved directly to a private file, and never added to the conversation or sent to the installer model.',
+        'save:backend-provider:received',
+      ])
     } finally {
       await bridge.close()
     }
@@ -69,7 +73,7 @@ describe('credential interaction bridge', () => {
     const socketPath = join(root, 'private', 'credential.sock')
     const calls: string[] = []
     const tui = {
-      captureSecret: async () => { calls.push('capture'); throw new SecretInputCancelledError() },
+      askSecret: async () => { calls.push('ask'); throw new SecretInputCancelledError() },
     } as unknown as InstallerTui
     const credentials = {
       prepare: async () => { calls.push('prepare'); return 'pending' as const },
@@ -78,9 +82,26 @@ describe('credential interaction bridge', () => {
     const bridge = new CredentialBridge({ socketPath, tui, credentials })
     await bridge.start()
     try {
-      expect(JSON.parse(await invoke(socketPath, { kind: 'llm', selection: 'OpenRouter' })))
+      expect(JSON.parse(await invoke(socketPath, { kind: 'email', selection: 'AgentMail' })))
         .toEqual({ ok: true, status: 'cancelled' })
-      expect(calls).toEqual(['prepare', 'capture'])
+      expect(calls).toEqual(['prepare', 'ask'])
+    } finally {
+      await bridge.close()
+    }
+  })
+
+  it('rejects the obsolete generic LLM slot', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-credential-bridge-'))
+    const socketPath = join(root, 'private', 'credential.sock')
+    const bridge = new CredentialBridge({
+      socketPath,
+      tui: {} as InstallerTui,
+      credentials: {} as CredentialFileAdapter,
+    })
+    await bridge.start()
+    try {
+      expect(JSON.parse(await invoke(socketPath, { kind: 'llm', selection: 'OpenRouter' })))
+        .toEqual({ ok: false, error: 'invalid credential request' })
     } finally {
       await bridge.close()
     }

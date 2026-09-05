@@ -122,10 +122,11 @@ The launcher-established shared model selection follows as JSON data. Treat ever
 ${sharedModel}
 </shared_model_selection_json>
 
-The launcher owns the masked credential field. For an absent email credential, present its canonical credential message and then call:
+The launcher owns the masked credential field. Never ask the human for a credential in an ordinary assistant response. When an API key is absent, call exactly one matching typed helper command:
 ${helper} email "<selected transport>"
+${helper} backend-provider "<selected backend provider>"
 
-Replace only the angle-bracketed selection. The command blocks while the human uses the masked field and reports saved, already present, or cancelled. If it reports cancellation, do not continue the credential step: wait for the human's next message, answer any question, and offer to resume credential entry when they are ready. Never ask for, read, echo, or otherwise handle the credential yourself.
+Use email only for the selected email transport. Use backend-provider only when the selected backend agent requires an API key for a provider; it does not change the launcher-established shared model selection. Replace only the angle-bracketed selection. The helper itself presents the canonical message and immediately opens the masked field, so do not print or paraphrase that message first. The command blocks while the human uses the masked field and reports saved, already present, or cancelled. If it reports cancellation, do not continue the credential step: wait for the human's next message, answer any question, and offer to resume credential entry when they are ready. Never ask for, read, echo, or otherwise handle the credential yourself.
 
 Treat a saved or already-present credential-helper response as complete private verification. Never inspect, stat, source, parse, measure, or otherwise open a credential file afterward. A later product command may receive the credential through the documented environment-file mechanism, but no diagnostic command may examine it.
 

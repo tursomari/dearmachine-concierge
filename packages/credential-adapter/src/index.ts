@@ -3,7 +3,7 @@ import { access, chmod, lstat, mkdir, open, readFile, realpath, rename, unlink }
 import { randomUUID } from 'node:crypto'
 import { dirname, join, relative, sep } from 'node:path'
 
-export type CredentialKind = 'llm' | 'email'
+export type CredentialKind = 'backend-provider' | 'email'
 
 export interface CredentialReference {
   kind: CredentialKind
@@ -14,8 +14,11 @@ export interface CredentialReference {
 
 const providerVariables: Readonly<Record<string, string>> = {
   openrouter: 'OPENROUTER_API_KEY',
+  'open router': 'OPENROUTER_API_KEY',
   deepseek: 'DEEPSEEK_API_KEY',
+  'deep seek': 'DEEPSEEK_API_KEY',
   'deepseek official': 'DEEPSEEK_API_KEY',
+  openai: 'OPENAI_API_KEY',
 }
 
 const transportIds: Readonly<Record<string, string>> = {
@@ -29,7 +32,7 @@ function normalized(value: string): string {
 }
 
 export function resolveCredentialReference(kind: CredentialKind, selection: string, home: string): CredentialReference {
-  if (kind === 'llm') {
+  if (kind === 'backend-provider') {
     const variable = providerVariables[normalized(selection)]
     if (variable === undefined) throw new Error(`Machtiani Installer does not yet know the credential variable for ${selection}.`)
     return {
@@ -93,7 +96,7 @@ export class CredentialFileAdapter {
     try {
       handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
       const content = reference.format === 'environment'
-        ? `${reference.variable}=${value}\n`
+        ? await updatedEnvironmentContent(reference.destination, reference.variable!, value)
         : `${value}\n`
       await handle.writeFile(content, 'utf8')
       await handle.sync()
@@ -116,8 +119,8 @@ export class CredentialFileAdapter {
     }
     const content = await readFile(reference.destination, 'utf8')
     if (reference.format === 'environment') {
-      const prefix = `${reference.variable}=`
-      if (!content.startsWith(prefix) || content.slice(prefix.length).trim() === '') {
+      const stored = parseEnvironment(content).get(reference.variable!)
+      if (stored === undefined || stored === '') {
         throw new Error('credential input did not create the expected credential reference')
       }
     } else if (content.trim() === '' || /\s/u.test(content.trim())) {
@@ -133,8 +136,8 @@ export class CredentialFileAdapter {
       }
       const content = await readFile(reference.destination, 'utf8')
       if (reference.format === 'environment') {
-        const prefix = `${reference.variable}=`
-        return content.startsWith(prefix) && content.slice(prefix.length).trim() !== ''
+        const stored = parseEnvironment(content).get(reference.variable!)
+        return stored !== undefined && stored !== ''
       }
       return content.trim() !== '' && !/\s/u.test(content.trim())
     } catch (error) {
@@ -142,6 +145,30 @@ export class CredentialFileAdapter {
       throw error
     }
   }
+}
+
+function parseEnvironment(content: string): Map<string, string> {
+  const values = new Map<string, string>()
+  for (const line of content.split(/\r?\n/gu)) {
+    if (line === '') continue
+    const match = /^([A-Z_][A-Z0-9_]*)=(\S+)$/u.exec(line)
+    if (match === null) throw new Error('provider credential file contains an invalid assignment')
+    if (values.has(match[1]!)) throw new Error(`provider credential file contains duplicate assignment ${match[1]}`)
+    values.set(match[1]!, match[2]!)
+  }
+  return values
+}
+
+async function updatedEnvironmentContent(destination: string, variable: string, value: string): Promise<string> {
+  let content = ''
+  try {
+    content = await readFile(destination, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const values = parseEnvironment(content)
+  values.set(variable, value)
+  return [...values].map(([name, stored]) => `${name}=${stored}`).join('\n') + '\n'
 }
 
 function validateCredential(value: string): void {

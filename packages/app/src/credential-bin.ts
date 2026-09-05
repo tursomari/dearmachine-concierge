@@ -5,8 +5,8 @@ const [kind, ...selectionParts] = process.argv.slice(2)
 const selection = selectionParts.join(' ').trim()
 const socketPath = process.env.MACHTIANI_INSTALLER_CREDENTIAL_SOCKET
 
-if ((kind !== 'llm' && kind !== 'email') || selection === '' || socketPath === undefined || socketPath === '') {
-  process.stderr.write('Usage: machtiani-installer-credential <llm|email> <provider-or-transport>\n')
+if ((kind !== 'backend-provider' && kind !== 'email') || selection === '' || socketPath === undefined || socketPath === '') {
+  process.stderr.write('Usage: machtiani-installer-credential <backend-provider|email> <provider-or-transport>\n')
   process.exitCode = 2
 } else {
   const socket = createConnection(socketPath)

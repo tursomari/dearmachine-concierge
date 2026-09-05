@@ -6,18 +6,19 @@ import { CredentialFileAdapter, resolveCredentialReference } from '../src/index.
 
 describe('credential file adapter', () => {
   it('maps supported selections to private references without values', () => {
-    expect(resolveCredentialReference('llm', 'OpenRouter', '/home/test')).toEqual({
-      kind: 'llm', destination: '/home/test/.config/dearmachine/backends.env',
+    expect(resolveCredentialReference('backend-provider', 'OpenRouter', '/home/test')).toEqual({
+      kind: 'backend-provider', destination: '/home/test/.config/dearmachine/backends.env',
       format: 'environment', variable: 'OPENROUTER_API_KEY',
     })
+    expect(resolveCredentialReference('backend-provider', 'OpenAI', '/home/test').variable).toBe('OPENAI_API_KEY')
     expect(resolveCredentialReference('email', 'Sendmux', '/home/test').destination).toBe('/home/test/.config/dearmachine/sendmux-api-key')
   })
 
   it('atomically saves environment and raw credentials with private permissions', async () => {
     const home = await mkdtemp(join(tmpdir(), 'machtiani-credential-adapter-'))
     const adapter = new CredentialFileAdapter({ home })
-    await expect(adapter.prepare('llm', 'OpenRouter')).resolves.toBe('pending')
-    await adapter.save('llm', 'provider-test-value')
+    await expect(adapter.prepare('backend-provider', 'OpenRouter')).resolves.toBe('pending')
+    await adapter.save('backend-provider', 'provider-test-value')
     const providerPath = join(home, '.config/dearmachine/backends.env')
     expect(await readFile(providerPath, 'utf8')).toBe('OPENROUTER_API_KEY=provider-test-value\n')
     expect((await lstat(providerPath)).mode & 0o777).toBe(0o600)
@@ -30,21 +31,29 @@ describe('credential file adapter', () => {
     expect((await readdir(join(home, '.config/dearmachine'))).filter(name => name.startsWith('.machtiani-credential-'))).toEqual([])
 
     const restarted = new CredentialFileAdapter({ home })
-    await expect(restarted.prepare('llm', 'OpenRouter')).resolves.toBe('ready')
+    await expect(restarted.prepare('backend-provider', 'OpenRouter')).resolves.toBe('ready')
     await expect(restarted.prepare('email', 'AgentMail')).resolves.toBe('ready')
   })
 
-  it('replaces a credential when the selected provider changes without retaining the old value', async () => {
+  it('preserves independent provider credentials in the shared environment file', async () => {
     const home = await mkdtemp(join(tmpdir(), 'machtiani-credential-switch-'))
     const destination = join(home, '.config', 'dearmachine', 'backends.env')
     await mkdir(join(home, '.config', 'dearmachine'), { recursive: true, mode: 0o700 })
-    await writeFile(destination, 'OPENROUTER_API_KEY=previous-provider-value\n', { mode: 0o600 })
+    await writeFile(destination, [
+      'MACHTIANI_CUSTOM_OPENAI_REMOTE_API_KEY=custom-provider-value',
+      'OPENROUTER_API_KEY=previous-provider-value',
+      '',
+    ].join('\n'), { mode: 0o600 })
     const adapter = new CredentialFileAdapter({ home })
-    await expect(adapter.prepare('llm', 'DeepSeek')).resolves.toBe('pending')
-    await adapter.save('llm', 'replacement-provider-value')
+    await expect(adapter.prepare('backend-provider', 'DeepSeek')).resolves.toBe('pending')
+    await adapter.save('backend-provider', 'replacement-provider-value')
     const stored = await readFile(destination, 'utf8')
-    expect(stored).toBe('DEEPSEEK_API_KEY=replacement-provider-value\n')
-    expect(stored).not.toContain('previous-provider-value')
+    expect(stored).toBe([
+      'MACHTIANI_CUSTOM_OPENAI_REMOTE_API_KEY=custom-provider-value',
+      'OPENROUTER_API_KEY=previous-provider-value',
+      'DEEPSEEK_API_KEY=replacement-provider-value',
+      '',
+    ].join('\n'))
   })
 
   it('rejects multiline and whitespace-bearing input without creating a file', async () => {

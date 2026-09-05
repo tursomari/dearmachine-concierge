@@ -113,6 +113,7 @@ describe('backend selection', () => {
     await expect(runThroughBackendSelection(ports)).resolves.toBeUndefined()
     expect(checks).toBe(0)
     expect(test.asked).toEqual([messages.backendReadiness('Codex')])
+    expect(test.asked[0]).toContain('a separate AI worker similar to a subagent')
   })
 
   it('checks every candidate only after permission and records the human choice', async () => {
@@ -148,7 +149,41 @@ describe('backend selection', () => {
     expect(checked).toEqual(['Codex', 'Forge'])
     expect(result?.backend).toEqual(expect.objectContaining({ name: 'Forge', id: 'forge', status: 'ready' }))
     expect(test.saved?.stage).toBe('ready-to-install')
-    expect(test.asked[1]).toBe(messages.backendChoice('Codex is ready.\nForge is ready.'))
+    expect(test.asked[1]).toBe(messages.backendChoice('Codex is ready.\nForge is ready.', ['Codex', 'Forge']))
+    expect(test.asked[1]).toContain('Dear Machine only needs one backend.')
+    expect(test.asked[1]).not.toContain('lower separate API costs')
+  })
+
+  it('confirms the only ready backend without presenting the full catalogue again', async () => {
+    const test = fixture([], {
+      stage: 'complete', provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', transport: 'AgentMail',
+      authorizedSender: 'sender@example.test', detectedBackends: ['Forge'],
+    })
+    const answers = ['yes', 'yes']
+    const ports: GuidedWorkflowPorts = {
+      ...test.ports,
+      conversation: {
+        ...test.ports.conversation,
+        ask: async message => {
+          test.asked.push(message)
+          const answer = answers.shift()
+          if (answer === undefined) throw new Error('missing backend answer')
+          return answer
+        },
+      },
+      backends: {
+        discover: async () => [{ name: 'Forge', id: 'forge', executable: '/usr/bin/forge' }],
+        check: async candidates => candidates.map(candidate => ({
+          ...candidate, status: 'ready' as const, summary: 'functional probe passed',
+        })),
+      },
+    }
+
+    const result = await runThroughBackendSelection(ports)
+    expect(result?.backend).toEqual(expect.objectContaining({ name: 'Forge', status: 'ready' }))
+    expect(test.asked[1]).toBe(messages.backendChoice('Forge is ready.', ['Forge']))
+    expect(test.asked[1]).toContain('Dear Machine only needs one backend; adding another is optional.')
+    expect(test.asked[1]).toContain('Use Forge?')
   })
 })
 

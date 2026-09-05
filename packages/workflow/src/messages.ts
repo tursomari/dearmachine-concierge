@@ -16,18 +16,26 @@ Paste it into the secure field below and press Enter. Your input is masked, save
 
 Paste it into the secure field below and press Enter. Your input is masked, saved directly to a private file, and never added to the conversation or sent to the installer model.`,
   authorizedSender: 'What email address should be allowed to send work to Dear Machine?',
-  backendReadiness: (detectedAgents: string) => `Dear Machine works through a backend agent. I found these supported agents already installed: ${detectedAgents}.
+  backendReadiness: (detectedAgents: string) => `Dear Machine delegates work to a backend agent—a separate AI worker similar to a subagent. I found these supported agents already installed: ${detectedAgents}.
 
-With your permission, I can check whether they are already signed in and ready to use with Dear Machine. May I do that?`,
-  backendChoice: (readinessSummary: string) => `${readinessSummary}
+With your permission, I can check whether they are signed in and ready. May I do that?`,
+  backendChoice: (readinessSummary: string, readyAgents: readonly string[]) => {
+    if (readyAgents.length === 1) return `${readinessSummary}
 
-Using an agent you already have through a subscription can make Dear Machine more capable and may lower separate API costs. Dear Machine supports Codex, Forge, and OMP.
+Dear Machine only needs one backend; adding another is optional. ${readyAgents[0]} can make changes on your behalf, and Dear Machine will ask when authorization is needed.
 
-Codex, Forge, and OMP can make changes on your behalf and will exercise common-sense care. Dear Machine will ask when authorization is needed.
+Use ${readyAgents[0]}?`
+    if (readyAgents.length > 1) return `${readinessSummary}
 
-If your preferred agent is not listed, I can help you create an adapter.
+Dear Machine only needs one backend. The selected agent can make changes on your behalf, and Dear Machine will ask when authorization is needed.
 
-Which agent would you like Dear Machine to use?`,
+Which ready agent should it use?`
+    return `${readinessSummary}
+
+Dear Machine needs one ready backend before installation can continue.
+
+Which installed agent would you like to configure?`
+  },
   productInstallation: 'I have what I need. I’m installing Machtiani and Dear Machine now. This may take a few minutes.',
   testEmail: (inboxAddress: string) => `Please send a short test email to ${inboxAddress}.
 

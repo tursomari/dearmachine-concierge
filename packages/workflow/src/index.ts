@@ -249,8 +249,13 @@ export async function runThroughBackendSelection(ports: GuidedWorkflowPorts): Pr
 
   if (state.stage === 'backend-choice') {
     const readiness = state.backendReadiness ?? []
-    const answer = (await ports.conversation.ask(messages.backendChoice(readinessSummary(readiness)))).trim()
-    const selected = readiness.find(candidate => candidate.name.localeCompare(answer, undefined, { sensitivity: 'accent' }) === 0)
+    const ready = readiness.filter(candidate => candidate.status === 'ready')
+    const answer = (await ports.conversation.ask(messages.backendChoice(
+      readinessSummary(readiness), ready.map(candidate => candidate.name),
+    ))).trim()
+    const selected = ready.length === 1 && yes(answer)
+      ? ready[0]
+      : readiness.find(candidate => candidate.name.localeCompare(answer, undefined, { sensitivity: 'accent' }) === 0)
     if (selected === undefined) throw new Error(`The selected backend ${answer || '(empty)'} was not one of the checked agents.`)
     if (selected.status !== 'ready') throw new Error(`${selected.name} is not ready yet: ${selected.summary}`)
     state = { ...state, stage: 'ready-to-install', backend: selected }

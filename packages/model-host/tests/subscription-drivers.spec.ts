@@ -88,6 +88,7 @@ class FakeCodexServer implements CodexAppServerPort {
       setTimeout(() => {
         this.emit({ method: 'item/reasoning/summaryTextDelta', params: { threadId: 'thread-1', turnId: 'turn-1', delta: 'thinking' } })
         this.emit({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', delta: 'working' } })
+        this.emit({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', turnId: 'turn-1', tokenUsage: { last: { inputTokens: 12, outputTokens: 4, totalTokens: 16, cachedInputTokens: 8, reasoningOutputTokens: 2 } } } })
         this.emit({ id: 77, method: 'item/tool/call', params: { threadId: 'thread-1', turnId: 'turn-1', callId: 'call-1', tool: 'diagnose', arguments: { safe: true } } })
         this.emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } })
       }, 0)
@@ -217,6 +218,7 @@ describe('subscription runtime boundaries', () => {
         { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"safe":true}' } } },
         { type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_stop', index: 2 } },
         { type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_stop' } },
+        { type: 'result', subtype: 'success', is_error: false, result: '', errors: [], usage: { input_tokens: 12, output_tokens: 4, cache_read_input_tokens: 8, cache_creation_input_tokens: 3 } },
       ] : []
       return {
         async * [Symbol.asyncIterator]() { for (const message of messages) yield message },
@@ -243,6 +245,7 @@ describe('subscription runtime boundaries', () => {
       expect(events).toContainEqual({ type: 'reasoning-delta', index: 0, text: 'considering' })
       expect(events).toContainEqual({ type: 'text-delta', index: 1, text: 'checking' })
       expect(events).toContainEqual({ type: 'tool-end', index: 2, id: 'claude-call-1', name: 'diagnose', arguments: '{"safe":true}' })
+      expect(events).toContainEqual({ type: 'usage', inputTokens: 12, outputTokens: 4, cacheReadTokens: 8, cacheWriteTokens: 3 })
       expect(events.at(-1)).toEqual({ type: 'finish', reason: 'tool-calls' })
       const generation = calls.at(-1)!.options!
       expect(generation).toMatchObject({
@@ -252,6 +255,15 @@ describe('subscription runtime boundaries', () => {
       expect(generation.env.ANTHROPIC_API_KEY).toBeUndefined()
       expect(generation.env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined()
       expect(generation.env.CLAUDE_CONFIG_DIR).toBe(root)
+      const firstWorkspace = generation.cwd
+      const restartedEvents = []
+      for await (const event of driver.generate({
+        caller: 'machtiani', sessionId: 'claude-two', messages: [{ role: 'user', content: 'inspect again' }],
+        tools: [{ name: 'diagnose', description: 'read-only diagnosis', parameters: { type: 'object', properties: { safe: { type: 'boolean' } } } }],
+      })) restartedEvents.push(event)
+      expect(restartedEvents).toContainEqual({ type: 'usage', inputTokens: 12, outputTokens: 4, cacheReadTokens: 8, cacheWriteTokens: 3 })
+      expect(calls.at(-1)?.options?.cwd).not.toBe(firstWorkspace)
+      expect(calls.at(-1)?.options?.persistSession).toBe(false)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -289,12 +301,23 @@ describe('subscription runtime boundaries', () => {
     expect(events).toContainEqual({ type: 'reasoning-delta', index: 1, text: 'thinking' })
     expect(events).toContainEqual({ type: 'text-delta', index: 0, text: 'working' })
     expect(events).toContainEqual({ type: 'tool-end', index: 2, id: 'call-1', name: 'diagnose', arguments: '{"safe":true}' })
+    expect(events).toContainEqual({ type: 'usage', inputTokens: 12, outputTokens: 4, totalTokens: 16, cacheReadTokens: 8, reasoningTokens: 2 })
     expect(events.at(-1)).toEqual({ type: 'finish', reason: 'tool-calls' })
     const generation = servers.at(-1)!
     expect(generation.responses).toContainEqual({ id: 77, result: { contentItems: [{ type: 'inputText', text: 'The host will execute this tool call.' }], success: true } })
     expect(generation.calls.some(call => call.method === 'turn/interrupt')).toBe(true)
     const thread = generation.calls.find(call => call.method === 'thread/start')?.params as Record<string, unknown>
     expect(thread).toMatchObject({ sandbox: 'read-only', environments: [], runtimeWorkspaceRoots: [], ephemeral: true })
+    const firstWorkspace = thread.cwd
+    const restartedEvents = []
+    for await (const event of driver.generate({
+      caller: 'machtiani', sessionId: 'test-two', messages: [{ role: 'user', content: 'inspect again' }],
+      tools: [{ name: 'diagnose', description: 'read-only diagnosis', parameters: { type: 'object' } }],
+    })) restartedEvents.push(event)
+    expect(restartedEvents).toContainEqual({ type: 'usage', inputTokens: 12, outputTokens: 4, totalTokens: 16, cacheReadTokens: 8, reasoningTokens: 2 })
+    const restartedThread = servers.at(-1)?.calls.find(call => call.method === 'thread/start')?.params as Record<string, unknown>
+    expect(restartedThread.cwd).not.toBe(firstWorkspace)
+    expect(restartedThread).toMatchObject({ ephemeral: true, environments: [], runtimeWorkspaceRoots: [] })
   })
 
   it('starts the official Codex app-server from a new private runtime profile', async () => {

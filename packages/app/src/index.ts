@@ -183,6 +183,8 @@ function renderInstallationOutcome(outcome: InstallationOutcome): string {
   return `${heading}\n\n${outcome.summary}${receipts}${remaining}`
 }
 
+export const installationProgressLabel = 'Machtiani installation in progress'
+
 function renderAgentEvent(tui: InstallerTui, tools: Map<string, ReturnType<InstallerTui['beginTool']>>, event: InstallerAgentEvent): void {
   switch (event.type) {
     case 'assistant':
@@ -295,7 +297,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       outcomePath,
       environment: { MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath },
       onEvent: event => { renderAgentEvent(tui, tools, event) },
-      onStatus: status => { tui.setProgress(status === 'running' ? 'Machtiani is working' : undefined) },
+      onStatus: status => { tui.setProgress(status === 'running' ? installationProgressLabel : undefined) },
     })
     await agent.start()
     const contract = await readFile(join(source, 'INSTALL.md'), 'utf8')

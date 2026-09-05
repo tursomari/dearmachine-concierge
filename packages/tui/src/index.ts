@@ -189,7 +189,7 @@ export class InstallerTui {
         this.progressTimer = setInterval(() => {
           this.progressFrame += 1
           this.renderProgress()
-        }, 240)
+        }, 600)
         this.progressTimer.unref()
       }
     }
@@ -198,7 +198,7 @@ export class InstallerTui {
   }
 
   beginTool(name: string, detail: string): ToolActivity {
-    const row = new Text(this.theme.warning(`◌ ${displayText(name)}  ${displayText(detail)}`), 0, 0)
+    const row = new Text(this.theme.dim(`◌ ${displayText(name)}  ${displayText(detail)}`), 0, 0)
     this.transcript.addChild(new Spacer(1))
     this.transcript.addChild(row)
     this.requestRender()
@@ -207,7 +207,7 @@ export class InstallerTui {
       if (settled) return
       settled = true
       const marker = kind === 'success' ? '✓' : '×'
-      const paint = kind === 'success' ? this.theme.success : this.theme.error
+      const paint = kind === 'success' ? this.theme.dim : this.theme.error
       row.setText(paint(`${marker} ${displayText(name)}${summary === undefined ? '' : `  ${displayText(summary)}`}`))
       this.requestRender()
     }
@@ -480,9 +480,9 @@ export class InstallerTui {
   private renderProgress(): void {
     const message = this.progressMessage
     if (message === undefined) return
-    const frames = ['◌', '◔', '◑', '◕', '●', '◕', '◑', '◔'] as const
+    const frames = ['', '.', '..', '...'] as const
     const marker = frames[this.progressFrame % frames.length]
-    this.status.setText(this.theme.dim(`${marker} ${message}`))
+    this.status.setText(this.theme.dim(`${message}${marker}`))
     this.requestRender()
   }
 }

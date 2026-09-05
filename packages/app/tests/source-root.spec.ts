@@ -3,9 +3,13 @@ import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { installerAgentPrompt, installerTurnMessage, validatedSourceRoot } from '../src/index.ts'
+import { installationProgressLabel, installerAgentPrompt, installerTurnMessage, validatedSourceRoot } from '../src/index.ts'
 
 describe('installer source root', () => {
+  it('describes the whole guided session as installation progress', () => {
+    expect(installationProgressLabel).toBe('Machtiani installation in progress')
+  })
+
   it('gives one agent the contract and transcript-free credential bridge commands', () => {
     const prompt = installerAgentPrompt(
       'INSTALLATION CONTRACT',

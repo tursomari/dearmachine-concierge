@@ -235,10 +235,12 @@ describe('Machtiani Installer TUI', () => {
   it('renders tool progress and settles it without leaving terminal progress active', async () => {
     const harness = await open()
     opened.push(harness)
-    harness.tui.setProgress('Inspecting this computer…')
+    harness.tui.setProgress('Inspecting this computer')
     await harness.terminal.waitForFrame()
     const firstProgress = await harness.terminal.snapshot()
-    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(firstProgress).toContain('Inspecting this computer')
+    expect(firstProgress).not.toMatch(/[◌◔◑◕●] Inspecting this computer/u)
+    await new Promise(resolve => setTimeout(resolve, 650))
     await harness.terminal.waitForFrame()
     const nextProgress = await harness.terminal.snapshot()
     expect(nextProgress).not.toBe(firstProgress)
@@ -251,6 +253,31 @@ describe('Machtiani Installer TUI', () => {
     const snapshot = await harness.terminal.snapshot()
     expect(snapshot).toContain('✓ Environment check  ready')
     expect(harness.terminal.progress).toBe(false)
+  })
+
+  it('recesses routine tool activity while keeping failures prominent', async () => {
+    const terminal = new HeadlessTerminal()
+    const tui = new InstallerTui({ terminal, color: true })
+    const harness = { terminal, tui }
+    opened.push(harness)
+    tui.start()
+    await terminal.waitForFrame()
+
+    const successful = tui.beginTool('Read configuration', 'Working')
+    await terminal.waitForFrame()
+    let snapshot = await terminal.snapshot({ includeScrollback: true })
+    expect(snapshot).toContain('◌ Read configuration  Working')
+    expect(snapshot).toMatch(/style .* dim/u)
+    expect(snapshot).not.toContain('fg=yellow')
+
+    successful.succeed('Done')
+    const failed = tui.beginTool('Backend check', 'Working')
+    failed.fail('Failed')
+    await terminal.waitForFrame()
+    snapshot = await terminal.snapshot({ includeScrollback: true })
+    expect(snapshot).toContain('✓ Read configuration  Done')
+    expect(snapshot).toContain('× Backend check  Failed')
+    expect(snapshot).toContain('fg=red')
   })
 
   it('interrupts first, warns, and exits only on a second Ctrl-C', async () => {

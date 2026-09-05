@@ -104,6 +104,9 @@ describe('native product installer', () => {
     expect(test.runner.requests.find(request => request.label === 'Check Machtiani configuration')?.command).toEqual([
       'machtiani', 'config', 'check',
     ])
+    expect(test.runner.requests.find(request => request.label === 'Verify shared model host')?.command).toEqual([
+      'sh', '-c', 'test -x "$1"', 'verify-model-host', join(test.home, '.nix-profile', 'bin', 'machtiani-model-host'),
+    ])
     expect(test.runner.requests.find(request => request.label === 'Verify Machtiani model roles')?.command).toEqual([
       'machtiani', 'verify', '--json',
     ])
@@ -118,6 +121,7 @@ describe('native product installer', () => {
     expect(machtianiConfig).toContain('[model_defaults]')
     expect(machtianiConfig).toContain('cache_enabled = true')
     expect(machtianiConfig).toContain('cache_control = { type = "ephemeral" }')
+    expect(machtianiConfig).toContain(`command = ${JSON.stringify(join(test.home, '.nix-profile', 'bin', 'machtiani-model-host'))}`)
     expect(await readFile(join(test.home, '.dearmachine', 'config', 'dearmachine.toml'), 'utf8')).toBe(
       'version = 1\nbackends = ["codex-yolo"]\nresponse_tier = "formatted"\n',
     )

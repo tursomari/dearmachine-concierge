@@ -145,7 +145,7 @@ function parseInbox(status: string, sender: string, transport: string): string {
   throw new Error('Dear Machine started, but its registered inbox could not be verified.')
 }
 
-async function verifiedMachtianiConfig(path: string, profilePath: string, model: string, reasoningEffort?: string): Promise<boolean> {
+async function verifiedMachtianiConfig(path: string, profilePath: string, modelHostCommand: string, model: string, reasoningEffort?: string): Promise<boolean> {
   let content: string
   try { content = await readFile(path, 'utf8') } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
@@ -158,7 +158,7 @@ async function verifiedMachtianiConfig(path: string, profilePath: string, model:
     'provider = "dearmachine-host"',
     'transport = "model-host"',
     `profile = ${JSON.stringify(profilePath)}`,
-    'command = "machtiani-model-host"',
+    `command = ${JSON.stringify(modelHostCommand)}`,
     'cache_enabled = true',
     'cache_key_name = "cache_control"',
     'cache_control = { type = "ephemeral" }',
@@ -172,8 +172,8 @@ async function verifiedMachtianiConfig(path: string, profilePath: string, model:
   return true
 }
 
-async function requireMachtianiConfig(path: string, profilePath: string, model: string, reasoningEffort?: string): Promise<void> {
-  if (!await verifiedMachtianiConfig(path, profilePath, model, reasoningEffort)) {
+async function requireMachtianiConfig(path: string, profilePath: string, modelHostCommand: string, model: string, reasoningEffort?: string): Promise<void> {
+  if (!await verifiedMachtianiConfig(path, profilePath, modelHostCommand, model, reasoningEffort)) {
     throw new Error('Machtiani configuration was not created.')
   }
 }
@@ -372,6 +372,7 @@ export class NativeProductInstaller {
     const installer = join(this.options.sourceRoot, 'machtiani-installer')
     const machtianiConfigPath = join(this.options.home, '.machtiani', 'config.toml')
     const modelProfilePath = this.options.modelProfilePath ?? join(this.options.home, '.config', 'machtiani', 'model-profile.json')
+    const modelHostCommand = join(this.options.home, '.nix-profile', 'bin', 'machtiani-model-host')
     const deviceConfig = join(this.options.home, '.dearmachine', 'config', 'dearmachine.toml')
     const entryPoint = join(this.options.home, '.dearmachine', 'entrypoint', 'main')
     environment.MACHTIANI_CONFIG = machtianiConfigPath
@@ -427,16 +428,16 @@ export class NativeProductInstaller {
 
     if (!atLeast(journal.stage, 'model-host-installed')) {
       await run('Install shared model host', ['nix', 'profile', 'install', `path:${installer}`], installer)
-      await run('Verify shared model host', ['sh', '-c', 'command -v machtiani-model-host >/dev/null'])
+      await run('Verify shared model host', ['sh', '-c', 'test -x "$1"', 'verify-model-host', modelHostCommand])
       await advance('model-host-installed')
     }
 
     if (!atLeast(journal.stage, 'machtiani-configured')) {
-      if (!await verifiedMachtianiConfig(machtianiConfigPath, modelProfilePath, selection.model, reasoningEffort)) {
-        const config = `default_model = "dearmachine"\nshell_agent_model = "dearmachine"\nanswer_model = "dearmachine"\nfile_discovery_model = "dearmachine"\n\n[model_defaults]\ncache_enabled = true\ncache_key_name = "cache_control"\ncache_control = { type = "ephemeral" }\ncache_trigger_threshold = 4096\ncache_lookback_offset = 1\n\n[providers.dearmachine-host]\ntransport = "model-host"\nprofile = ${JSON.stringify(modelProfilePath)}\ncommand = "machtiani-model-host"\n\n[models.dearmachine]\nprovider = "dearmachine-host"\nmodel = ${JSON.stringify(selection.model)}\ncontext_length = 131072\n${reasoningEffort === undefined ? '' : `\n[models.dearmachine.params.reasoning]\neffort = ${JSON.stringify(reasoningEffort)}\n`}`
+      if (!await verifiedMachtianiConfig(machtianiConfigPath, modelProfilePath, modelHostCommand, selection.model, reasoningEffort)) {
+        const config = `default_model = "dearmachine"\nshell_agent_model = "dearmachine"\nanswer_model = "dearmachine"\nfile_discovery_model = "dearmachine"\n\n[model_defaults]\ncache_enabled = true\ncache_key_name = "cache_control"\ncache_control = { type = "ephemeral" }\ncache_trigger_threshold = 4096\ncache_lookback_offset = 1\n\n[providers.dearmachine-host]\ntransport = "model-host"\nprofile = ${JSON.stringify(modelProfilePath)}\ncommand = ${JSON.stringify(modelHostCommand)}\n\n[models.dearmachine]\nprovider = "dearmachine-host"\nmodel = ${JSON.stringify(selection.model)}\ncontext_length = 131072\n${reasoningEffort === undefined ? '' : `\n[models.dearmachine.params.reasoning]\neffort = ${JSON.stringify(reasoningEffort)}\n`}`
         await writePrivate(machtianiConfigPath, config)
         await run('Check Machtiani configuration', ['machtiani', 'config', 'check'], this.options.workspace)
-        await requireMachtianiConfig(machtianiConfigPath, modelProfilePath, selection.model, reasoningEffort)
+        await requireMachtianiConfig(machtianiConfigPath, modelProfilePath, modelHostCommand, selection.model, reasoningEffort)
       }
       await advance('machtiani-configured')
     }

@@ -74,22 +74,7 @@ export class SpawnCommandRunner implements CommandRunner {
   }
 }
 
-interface ProviderSpec {
-  credential: 'environment-file' | 'provider-owned'
-  preset?: string
-  variable?: string
-}
 interface TransportSpec { id: string; variable: string; credentialPath: string }
-
-const providers: Readonly<Record<string, ProviderSpec>> = {
-  openrouter: { credential: 'environment-file', preset: 'openrouter', variable: 'OPENROUTER_API_KEY' },
-  deepseek: { credential: 'environment-file', preset: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
-  'deepseek official': { credential: 'environment-file', preset: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
-  openai: { credential: 'environment-file', preset: 'openai', variable: 'OPENAI_API_KEY' },
-  'openai api': { credential: 'environment-file', preset: 'openai', variable: 'OPENAI_API_KEY' },
-  'openai codex': { credential: 'provider-owned' },
-  'anthropic claude': { credential: 'provider-owned' },
-}
 
 const transports: Readonly<Record<string, Omit<TransportSpec, 'credentialPath'>>> = {
   agentmail: { id: 'agentmail', variable: 'AGENTMAIL_API_KEY_FILE' },
@@ -101,23 +86,24 @@ function normalized(value: string): string {
   return value.trim().toLocaleLowerCase('en-US').replace(/[-_]+/gu, ' ').replace(/\s+/gu, ' ')
 }
 
-function providerSpec(selection: string): ProviderSpec {
-  const spec = providers[normalized(selection)]
-  if (spec === undefined) throw new Error(`Product installation does not yet support provider ${selection}.`)
-  return spec
-}
-
 function transportSpec(selection: string, home: string): TransportSpec {
   const spec = transports[normalized(selection)]
   if (spec === undefined) throw new Error(`Product installation does not yet support email transport ${selection}.`)
   return { ...spec, credentialPath: join(home, '.config', 'dearmachine', `${spec.id}-api-key`) }
 }
 
-async function privateRegularFile(path: string): Promise<void> {
-  const metadata = await lstat(path)
-  const owned = process.getuid === undefined || metadata.uid === process.getuid()
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || (metadata.mode & 0o077) !== 0 || !owned) {
-    throw new Error('transport credential must be a nonempty private regular file owned by the current user')
+async function privateRegularFile(path: string, label: string): Promise<void> {
+  try {
+    const metadata = await lstat(path)
+    const owned = process.getuid === undefined || metadata.uid === process.getuid()
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || (metadata.mode & 0o077) !== 0 || !owned) {
+      throw new Error(`${label} must be a nonempty private regular file owned by the current user`)
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new Error(`${label} must be a nonempty private regular file owned by the current user`)
+    }
+    throw error
   }
 }
 
@@ -359,12 +345,10 @@ export class NativeProductInstaller {
     if (reasoningEffort !== undefined && (reasoningEffort.trim() === '' || /[\r\n\0]/u.test(reasoningEffort))) {
       throw new Error('The reasoning effort is invalid.')
     }
-    const provider = providerSpec(selection.provider)
+    const modelProfilePath = this.options.modelProfilePath ?? join(this.options.home, '.config', 'machtiani', 'model-profile.json')
     const transport = transportSpec(selection.transport, this.options.home)
-    if (provider.credential === 'environment-file') {
-      await privateRegularFile(join(this.options.home, '.config', 'dearmachine', 'backends.env'))
-    }
-    await privateRegularFile(transport.credentialPath)
+    await privateRegularFile(modelProfilePath, 'shared model profile')
+    await privateRegularFile(transport.credentialPath, 'transport credential')
 
     const environment: NodeJS.ProcessEnv = {
       ...process.env,
@@ -378,7 +362,6 @@ export class NativeProductInstaller {
     const dearMachine = join(this.options.sourceRoot, 'dearmachine')
     const installer = join(this.options.sourceRoot, 'machtiani-installer')
     const machtianiConfigPath = join(this.options.home, '.machtiani', 'config.toml')
-    const modelProfilePath = this.options.modelProfilePath ?? join(this.options.home, '.config', 'machtiani', 'model-profile.json')
     const modelHostCommand = join(this.options.home, '.nix-profile', 'bin', 'machtiani-model-host')
     const deviceConfig = join(this.options.home, '.dearmachine', 'config', 'dearmachine.toml')
     const entryPoint = join(this.options.home, '.dearmachine', 'entrypoint', 'main')

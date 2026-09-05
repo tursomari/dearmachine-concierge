@@ -2,6 +2,8 @@ import { lstat, readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { NativeProductInstaller, type InstalledProducts } from '@dearmachine/machtiani-installer-products'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
+import { InstallerModelSetup } from '@dearmachine/machtiani-installer-dsh-adapter'
+import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { acquireInstallerLock } from './lock.ts'
 import { defaultInstallerPaths, validatedSourceRoot } from './index.ts'
 
@@ -77,6 +79,28 @@ export async function loadHeadlessSelection(path: string): Promise<ReadyInstalla
   return parseSelection(JSON.parse(await readFile(path, 'utf8')) as unknown)
 }
 
+export async function saveHeadlessModelProfile(
+  home: string,
+  stateDirectory: string,
+  selection: Pick<ReadyInstallationSelection, 'provider' | 'model'>,
+  reasoningEffort?: string,
+  environment: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const credentialPath = join(home, '.config', 'dearmachine', 'backends.env')
+  const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
+  const setup = await InstallerModelSetup.open(join(stateDirectory, 'dsh'), environment, { credentialPath, home })
+  try {
+    await saveModelHostProfile(modelProfilePath, setup.profileFor({
+      provider: selection.provider,
+      model: selection.model,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    }))
+  } finally {
+    await setup.close()
+  }
+  return modelProfilePath
+}
+
 export async function runHeadlessProductInstallation(sourceRoot: string, selectionFile: string, existingInboxId?: string, reasoningEffort?: string): Promise<InstalledProducts> {
   const source = await validatedSourceRoot(sourceRoot)
   const home = process.env.HOME
@@ -85,12 +109,14 @@ export async function runHeadlessProductInstallation(sourceRoot: string, selecti
   const selection = await loadHeadlessSelection(selectionFile)
   const lock = await acquireInstallerLock(join(paths.stateDirectory, 'installer.lock'))
   try {
+    const modelProfilePath = await saveHeadlessModelProfile(home, paths.stateDirectory, selection, reasoningEffort)
     const installerOptions = {
       home,
       sourceRoot: source,
       workspace: paths.workspace,
       journalPath: join(paths.stateDirectory, 'product-installation.json'),
       diagnosticPath: join(paths.stateDirectory, 'product-command-diagnostic.json'),
+      modelProfilePath,
     }
     const configuredOptions = reasoningEffort === undefined ? installerOptions : { ...installerOptions, reasoningEffort }
     const installer = existingInboxId === undefined

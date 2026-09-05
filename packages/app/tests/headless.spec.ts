@@ -1,8 +1,8 @@
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { loadHeadlessSelection, parseHeadlessArguments } from '../src/headless.ts'
+import { loadHeadlessSelection, parseHeadlessArguments, saveHeadlessModelProfile } from '../src/headless.ts'
 
 const selection = {
   provider: 'openrouter',
@@ -47,5 +47,25 @@ describe('headless product gate', () => {
     await writeFile(path, `${JSON.stringify(selection)}\n`, { mode: 0o600 })
     await chmod(path, 0o644)
     await expect(loadHeadlessSelection(path)).rejects.toThrow('private regular file')
+  })
+
+  it('derives the headless product profile from the same selected provider and model', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-headless-profile-'))
+    const home = join(root, 'home')
+    const path = await saveHeadlessModelProfile(home, join(root, 'state'), selection, 'high', {})
+
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({
+      version: 1,
+      driver: 'pi-ai',
+      provider: 'openrouter',
+      authMethod: 'api_key',
+      model: 'z-ai/glm-5.3-flash',
+      reasoningEffort: 'high',
+      credential: {
+        kind: 'environment-file',
+        path: join(home, '.config', 'dearmachine', 'backends.env'),
+        variable: 'OPENROUTER_API_KEY',
+      },
+    })
   })
 })

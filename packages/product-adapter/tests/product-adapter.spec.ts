@@ -36,10 +36,23 @@ async function fixture() {
   const workspace = join(root, 'workspace')
   const journalPath = join(root, 'state', 'product-installation.json')
   await mkdir(join(home, '.config', 'dearmachine'), { recursive: true })
+  await mkdir(join(home, '.config', 'machtiani'), { recursive: true })
   await mkdir(join(sourceRoot, 'machtiani-harness'), { recursive: true })
   await mkdir(join(sourceRoot, 'dearmachine'), { recursive: true })
   await mkdir(join(sourceRoot, 'machtiani-installer'), { recursive: true })
   await writeFile(join(home, '.config', 'dearmachine', 'backends.env'), 'OPENROUTER_API_KEY=product-test-secret\n', { mode: 0o600 })
+  await writeFile(join(home, '.config', 'machtiani', 'model-profile.json'), `${JSON.stringify({
+    version: 1,
+    driver: 'pi-ai',
+    provider: 'openrouter',
+    authMethod: 'api_key',
+    model: 'z-ai/glm-5.3-flash',
+    credential: {
+      kind: 'environment-file',
+      path: join(home, '.config', 'dearmachine', 'backends.env'),
+      variable: 'OPENROUTER_API_KEY',
+    },
+  })}\n`, { mode: 0o600 })
   await writeFile(join(home, '.config', 'dearmachine', 'agentmail-api-key'), 'email-test-secret\n', { mode: 0o600 })
   const runner = new RecordingRunner(home)
   const installer = new NativeProductInstaller({ home, sourceRoot, workspace, journalPath, runner, environment: { PATH: '/usr/bin:/bin' } })
@@ -154,6 +167,48 @@ describe('native product installer', () => {
     expect(config).toContain(`profile = ${JSON.stringify(modelProfilePath)}`)
     expect(config).toContain(`model = ${JSON.stringify(model)}`)
     expect(test.runner.requests.filter(request => request.label === 'Verify Machtiani model roles')).toHaveLength(1)
+  })
+
+  it('installs every role through the wizard-owned custom Chat Completions profile', async () => {
+    const test = await fixture()
+    await unlink(join(test.home, '.config', 'dearmachine', 'backends.env'))
+    const modelProfilePath = join(test.home, '.config', 'machtiani', 'model-profile.json')
+    await writeFile(modelProfilePath, `${JSON.stringify({
+      version: 1,
+      driver: 'openai-compatible',
+      provider: 'custom-openai-local',
+      authMethod: 'optional_api_key',
+      model: 'local-model',
+      customProvider: {
+        kind: 'openai-compatible',
+        scope: 'local',
+        name: 'Local model server',
+        chatCompletionsEndpoint: 'http://localhost:11434/v1/chat/completions',
+        usesApiKey: false,
+      },
+    })}\n`, { mode: 0o600 })
+
+    await expect(test.installer.install({
+      ...selection,
+      provider: 'custom-openai-local',
+      model: 'local-model',
+    })).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
+
+    const config = await readFile(join(test.home, '.machtiani', 'config.toml'), 'utf8')
+    expect(config).toContain(`profile = ${JSON.stringify(modelProfilePath)}`)
+    expect(config).toContain('default_model = "dearmachine"')
+    expect(config).toContain('shell_agent_model = "dearmachine"')
+    expect(config).toContain('answer_model = "dearmachine"')
+    expect(config).toContain('file_discovery_model = "dearmachine"')
+    expect(test.runner.requests.filter(request => request.label === 'Verify Machtiani model roles')).toHaveLength(1)
+  })
+
+  it('refuses product installation when the wizard-owned model profile is absent', async () => {
+    const test = await fixture()
+    await unlink(join(test.home, '.config', 'machtiani', 'model-profile.json'))
+
+    await expect(test.installer.install(selection)).rejects.toThrow('shared model profile')
+    expect(test.runner.requests).toEqual([])
   })
 
   it('stops before Dear Machine installation when any Machtiani role is unverified', async () => {

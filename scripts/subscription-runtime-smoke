@@ -111,7 +111,19 @@ if (process.env.MACHTIANI_SMOKE_EXISTING_CONFIG !== 'yes') {
 }
 NODE
 
-"$model_host" auth login --profile "$profile_path" --mode "$mode"
+if printf '%s\n' '{"v":1,"id":"status","method":"auth/status"}' | "$model_host" --profile "$profile_path" |
+  node --input-type=module -e '
+    let input = ""
+    for await (const chunk of process.stdin) input += chunk
+    const lines = input.trim().split(/\r?\n/u).filter(Boolean)
+    const status = lines.map(line => JSON.parse(line)).find(value => value.id === "status")
+    process.exit(status?.result?.authenticated === true ? 0 : 1)
+  '
+then
+  printf 'Existing provider-owned authentication is available; sign-in was not repeated.\n'
+else
+  "$model_host" auth login --profile "$profile_path" --mode "$mode"
+fi
 MACHTIANI_CONFIG=$config_path "$machtiani" config check
 MACHTIANI_CONFIG=$config_path "$machtiani" verify --json >"$first_report"
 MACHTIANI_CONFIG=$config_path "$machtiani" verify --json >"$second_report"

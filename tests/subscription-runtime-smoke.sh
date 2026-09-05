@@ -11,6 +11,11 @@ mkdir -p "$BIN" "$CAPTURE"
 cat >"$BIN/machtiani-model-host" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ $1 == --profile ]]; then
+  read -r request
+  printf '%s\n' "{\"v\":1,\"id\":\"status\",\"result\":{\"authenticated\":${SMOKE_AUTHENTICATED:-false},\"method\":\"subscription\"}}"
+  exit
+fi
 printf '%s\n' "$*" >"$SMOKE_CAPTURE/login-args"
 profile=${4:?profile argument is missing}
 cp "$profile" "$SMOKE_CAPTURE/profile.json"
@@ -29,6 +34,7 @@ EOF
 chmod 0700 "$BIN/machtiani" "$BIN/machtiani-model-host"
 
 SMOKE_CAPTURE=$CAPTURE \
+SMOKE_AUTHENTICATED=false \
 MACHTIANI_BIN=$BIN/machtiani \
 MACHTIANI_MODEL_HOST_BIN=$BIN/machtiani-model-host \
 MACHTIANI_SUBSCRIPTION_SMOKE_CONFIRM=yes \
@@ -67,6 +73,7 @@ cp "$EXISTING/model-profile.json" "$EXISTING/model-profile.before"
 cp "$EXISTING/config.toml" "$EXISTING/config.before"
 
 SMOKE_CAPTURE=$CLAUDE_CAPTURE \
+SMOKE_AUTHENTICATED=true \
 MACHTIANI_BIN=$BIN/machtiani \
 MACHTIANI_MODEL_HOST_BIN=$BIN/machtiani-model-host \
 MACHTIANI_SUBSCRIPTION_SMOKE_CONFIRM=yes \
@@ -77,6 +84,6 @@ MACHTIANI_CONFIG=$EXISTING/config.toml \
 cmp "$EXISTING/model-profile.before" "$EXISTING/model-profile.json"
 cmp "$EXISTING/config.before" "$EXISTING/config.toml"
 [[ $(grep -c '^verify --json$' "$CLAUDE_CAPTURE/machtiani-args") == 2 ]]
-grep -F -- "--profile $EXISTING/model-profile.json --mode browser" "$CLAUDE_CAPTURE/login-args" >/dev/null
+[[ ! -e $CLAUDE_CAPTURE/login-args ]]
 
 printf 'subscription runtime smoke harness passed\n'

@@ -74,6 +74,8 @@ export interface ModelHostTool {
 
 export interface ModelHostGenerateRequest {
   caller: 'installer' | 'machtiani' | string
+  /** Machtiani model role, kept separate from caller and session identity. */
+  role?: string
   sessionId: string
   messages: readonly ModelHostMessage[]
   system?: string
@@ -554,12 +556,12 @@ export class ModelHost {
   }
 
   async * generate(request: ModelHostGenerateRequest): AsyncIterable<ModelHostEvent> {
+    if (request.sessionId.trim() === '' || request.caller.trim() === '') throw new ModelHostError('INVALID_REQUEST', 'Generation requires caller and session identity.')
     if (this.profile.authMethod === 'subscription') {
       try { yield * subscriptionDriver(this.profile).generate(request) }
       catch (error) { throw error instanceof ModelHostError ? error : mappedError(error instanceof Error ? error.message : String(error)) }
       return
     }
-    if (request.sessionId.trim() === '' || request.caller.trim() === '') throw new ModelHostError('INVALID_REQUEST', 'Generation requires caller and session identity.')
     if (!await this.authenticated()) throw new ModelHostError('AUTH_REQUIRED', `Sign in to ${providerDefinition(this.profile.provider).name} before using this model.`)
     const models = hostModels(this.profile)
     const modelId = request.model ?? this.profile.model

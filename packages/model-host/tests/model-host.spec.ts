@@ -30,6 +30,23 @@ function streamEvents(response: ServerResponse, events: readonly Record<string, 
 }
 
 describe('shared model host profile', () => {
+  it('rejects missing caller and session identity before starting subscription runtimes', async () => {
+    const host = new ModelHost({
+      version: 1,
+      driver: 'openai-codex-app-server',
+      provider: 'openai-codex',
+      authMethod: 'subscription',
+      model: 'gpt-test',
+      runtimeProfile: '/must-not-be-opened',
+    })
+    const consume = async () => {
+      for await (const _event of host.generate({ caller: '', sessionId: '', role: 'planner', messages: [] })) {
+        // No provider event is expected.
+      }
+    }
+    await expect(consume()).rejects.toMatchObject({ code: 'INVALID_REQUEST' })
+  })
+
   it('separates HTTPS remote endpoints from loopback-only local endpoints', () => {
     expect(validateCustomOpenAIEndpoint('https://models.example/v1/chat/completions', 'remote')).toBe('https://models.example/v1/chat/completions')
     expect(validateCustomOpenAIEndpoint('http://127.0.0.1:11434/v1/chat/completions/', 'local')).toBe('http://127.0.0.1:11434/v1/chat/completions')

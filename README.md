@@ -97,6 +97,15 @@ then runs isolated backend health probes, installs and starts Machtiani and
 Dear Machine, asks for one live test email, follows that message through the
 selected backend, and reports success only after the reply is sent.
 
+The installer shares Machtiani's semantic terminal palette: Truth identifies
+structure and live state, Goodness marks success, Beauty highlights links,
+Provenance identifies code and secondary detail, and Rupture marks failures.
+`MACHTIANI_THEME` accepts `terminal`, `machtiani-dark`, `machtiani-light`, or
+`none`. The explicit dark and light profiles use their muted truecolor palettes
+when the terminal advertises truecolor and otherwise fall back to the standard
+terminal palette. `NO_COLOR` removes hue while retaining useful emphasis;
+`TERM=dumb` and the `none` profile disable ANSI styling.
+
 Run the live DSH recursion smoke test only with a disposable or explicitly
 authorized OpenRouter credential already present in the environment:
 

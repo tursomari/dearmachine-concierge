@@ -31,6 +31,7 @@ export interface InstallerTuiOptions {
   terminal?: Terminal
   title?: string
   color?: boolean
+  environment?: NodeJS.ProcessEnv
   onSubmit?(text: string): void | Promise<void>
   onInterrupt?(): void | Promise<void>
   onExit?(): void
@@ -92,10 +93,13 @@ export class InstallerTui {
 
   constructor(private readonly options: InstallerTuiOptions = {}) {
     this.terminal = options.terminal ?? new ProcessTerminal()
-    this.theme = createInstallerTheme(options.color ?? true)
+    this.theme = createInstallerTheme({
+      color: options.color ?? true,
+      ...(options.environment === undefined ? {} : { environment: options.environment }),
+    })
     this.markdown = markdownTheme(this.theme)
     this.secureInputLabel = new Text(
-      `${this.theme.bold(this.theme.accent('🔒  Secure API key — input hidden'))}  ${this.theme.dim('Ctrl+C to cancel key entry')}`,
+      `${this.theme.bold(this.theme.truth('🔒  Secure API key — input hidden'))}  ${this.theme.dim('Ctrl+C to cancel key entry')}`,
       0,
       0,
     )
@@ -123,17 +127,17 @@ export class InstallerTui {
           this.options.onExit?.()
         } else {
           this.exitArmed = true
-          this.interruptNotice.setText(this.theme.warning('Activity stopped. Press Ctrl+C again to exit the installer.'))
+          this.interruptNotice.setText(this.theme.provenance('Activity stopped. Press Ctrl+C again to exit the installer.'))
           this.requestRender()
           const interrupt = this.cancellationHandler ?? this.options.onInterrupt
           if (interrupt !== undefined) {
             try {
               void Promise.resolve(interrupt()).catch(() => {
-                this.interruptNotice.setText(this.theme.error('The activity did not stop cleanly. Press Ctrl+C again to exit the installer.'))
+                this.interruptNotice.setText(this.theme.rupture('The activity did not stop cleanly. Press Ctrl+C again to exit the installer.'))
                 this.requestRender()
               })
             } catch {
-              this.interruptNotice.setText(this.theme.error('The activity did not stop cleanly. Press Ctrl+C again to exit the installer.'))
+              this.interruptNotice.setText(this.theme.rupture('The activity did not stop cleanly. Press Ctrl+C again to exit the installer.'))
               this.requestRender()
             }
           }
@@ -207,7 +211,7 @@ export class InstallerTui {
       if (settled) return
       settled = true
       const marker = kind === 'success' ? '✓' : '×'
-      const paint = kind === 'success' ? this.theme.dim : this.theme.error
+      const paint = kind === 'success' ? this.theme.dim : this.theme.rupture
       row.setText(paint(`${marker} ${displayText(name)}${summary === undefined ? '' : `  ${displayText(summary)}`}`))
       this.requestRender()
     }
@@ -291,7 +295,7 @@ export class InstallerTui {
     if (this.externalWaitLabel !== undefined) return Promise.reject(new Error('an external installer action is pending'))
     if (signal?.aborted === true) return Promise.reject(new Error('the installer question was withdrawn'))
     this.secureInputLabel.setText(
-      `${this.theme.bold(this.theme.accent(`🔒  ${displayText(label)}`))}  ${this.theme.dim(displayText(cancellationHint))}`,
+      `${this.theme.bold(this.theme.truth(`🔒  ${displayText(label)}`))}  ${this.theme.dim(displayText(cancellationHint))}`,
     )
     this.suspendedProgressMessage = this.progressMessage
     this.setProgress(undefined)
@@ -370,14 +374,14 @@ export class InstallerTui {
   }
 
   private appendBanner(): void {
-    const title = this.theme.bold(this.theme.accent('MACHTIANI INSTALLER'))
+    const title = this.theme.bold(this.theme.truth('MACHTIANI INSTALLER'))
     this.transcript.addChild(new Text(title, 1, 0))
     this.transcript.addChild(new Text(this.theme.dim('A guided setup for Dear Machine'), 1, 0))
   }
 
   private addRole(role: string, message: string): void {
     this.transcript.addChild(new Spacer(1))
-    this.transcript.addChild(new Text(this.theme.bold(this.theme.accent(role)), 0, 0))
+    this.transcript.addChild(new Text(this.theme.bold(this.theme.truth(role)), 0, 0))
     this.transcript.addChild(new Markdown(displayText(message), 0, 0, this.markdown, undefined, {
       preserveOrderedListMarkers: true,
       preserveBackslashEscapes: true,

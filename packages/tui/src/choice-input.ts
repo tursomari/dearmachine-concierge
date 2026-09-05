@@ -35,11 +35,11 @@ export class ChoiceInput implements Component, Focusable {
   ) {
     this.items = items
     this.selectTheme = {
-      selectedPrefix: theme.accent,
-      selectedText: theme.accent,
+      selectedPrefix: theme.truth,
+      selectedText: theme.truth,
       description: theme.dim,
       scrollInfo: theme.dim,
-      noMatch: theme.warning,
+      noMatch: theme.provenance,
     }
     this.list = this.buildList(selectedValue)
   }

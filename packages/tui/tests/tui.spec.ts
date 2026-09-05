@@ -257,7 +257,7 @@ describe('Machtiani Installer TUI', () => {
 
   it('recesses routine tool activity while keeping failures prominent', async () => {
     const terminal = new HeadlessTerminal()
-    const tui = new InstallerTui({ terminal, color: true })
+    const tui = new InstallerTui({ terminal, color: true, environment: { TERM: 'xterm-256color' } })
     const harness = { terminal, tui }
     opened.push(harness)
     tui.start()

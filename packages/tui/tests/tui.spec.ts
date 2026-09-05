@@ -15,6 +15,7 @@ const open = async (
   const tui = new InstallerTui({
     terminal,
     color: false,
+    environment: { TERM: 'xterm-256color' },
     ...(onExit === undefined ? {} : { onExit }),
     ...(onInterrupt === undefined ? {} : { onInterrupt }),
   })
@@ -278,6 +279,25 @@ describe('Machtiani Installer TUI', () => {
     expect(snapshot).toContain('✓ Read configuration  Done')
     expect(snapshot).toContain('× Backend check  Failed')
     expect(snapshot).toContain('fg=red')
+  })
+
+  it.each([
+    ['reduced', 'Machtiani installation in progress...'],
+    ['none', 'Machtiani installation in progress'],
+  ] as const)('renders %s motion as a stable status', async (motion, expected) => {
+    const terminal = new HeadlessTerminal()
+    const tui = new InstallerTui({
+      terminal,
+      color: false,
+      environment: { TERM: 'xterm-256color', MACHTIANI_MOTION: motion },
+    })
+    const harness = { terminal, tui }
+    opened.push(harness)
+    tui.start()
+    await terminal.waitForFrame()
+    tui.setProgress('Machtiani installation in progress')
+    await terminal.waitForFrame()
+    expect(await terminal.snapshot()).toContain(expected)
   })
 
   it('interrupts first, warns, and exits only on a second Ctrl-C', async () => {

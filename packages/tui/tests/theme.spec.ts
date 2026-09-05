@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createInstallerTheme } from '../src/theme.ts'
+import { createInstallerTheme, resolveInstallerMotion } from '../src/theme.ts'
 
 describe('installer theme', () => {
   it('uses Machtiani semantic roles with the terminal palette by default', () => {
@@ -41,5 +41,14 @@ describe('installer theme', () => {
   it('rejects an unknown Machtiani theme profile', () => {
     expect(() => createInstallerTheme({ environment: { TERM: 'xterm', MACHTIANI_THEME: 'surprise' } }))
       .toThrow('unknown UI theme')
+  })
+
+  it('mirrors Machtiani motion overrides and disables motion for a dumb terminal', () => {
+    expect(resolveInstallerMotion({ TERM: 'xterm' })).toBe('full')
+    expect(resolveInstallerMotion({ TERM: 'xterm', MACHTIANI_MOTION: 'reduced' })).toBe('reduced')
+    expect(resolveInstallerMotion({ TERM: 'xterm', MACHTIANI_MOTION: 'none' })).toBe('none')
+    expect(resolveInstallerMotion({ TERM: 'dumb', MACHTIANI_MOTION: 'full' })).toBe('none')
+    expect(() => resolveInstallerMotion({ TERM: 'xterm', MACHTIANI_MOTION: 'surprise' }))
+      .toThrow('unknown UI motion mode')
   })
 })

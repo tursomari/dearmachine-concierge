@@ -17,7 +17,14 @@ import {
   type Terminal,
 } from '@earendil-works/pi-tui'
 import { displayText } from './text.ts'
-import { createInstallerTheme, editorTheme, markdownTheme, type InstallerTheme } from './theme.ts'
+import {
+  createInstallerTheme,
+  editorTheme,
+  markdownTheme,
+  resolveInstallerMotion,
+  type InstallerMotionMode,
+  type InstallerTheme,
+} from './theme.ts'
 import { MaskedInput } from './masked-input.ts'
 import { ChoiceInput, type InstallerChoice } from './choice-input.ts'
 
@@ -74,6 +81,7 @@ export class InstallerTui {
   private externalWaitLabel: Text | undefined
   private cancellationHandler: (() => void) | undefined
   private readonly theme: InstallerTheme
+  private readonly motionMode: InstallerMotionMode
   private readonly markdown
   private readonly removeInputListener: () => void
   private pendingQuestion: {
@@ -93,10 +101,12 @@ export class InstallerTui {
 
   constructor(private readonly options: InstallerTuiOptions = {}) {
     this.terminal = options.terminal ?? new ProcessTerminal()
+    const environment = options.environment ?? process.env
     this.theme = createInstallerTheme({
       color: options.color ?? true,
-      ...(options.environment === undefined ? {} : { environment: options.environment }),
+      environment,
     })
+    this.motionMode = resolveInstallerMotion(environment)
     this.markdown = markdownTheme(this.theme)
     this.secureInputLabel = new Text(
       `${this.theme.bold(this.theme.truth('🔒  Secure API key — input hidden'))}  ${this.theme.dim('Ctrl+C to cancel key entry')}`,
@@ -189,7 +199,7 @@ export class InstallerTui {
       if (nextMessage !== this.progressMessage) this.progressFrame = 0
       this.progressMessage = nextMessage
       this.renderProgress()
-      if (this.progressTimer === undefined) {
+      if (this.motionMode === 'full' && this.progressTimer === undefined) {
         this.progressTimer = setInterval(() => {
           this.progressFrame += 1
           this.renderProgress()
@@ -485,7 +495,9 @@ export class InstallerTui {
     const message = this.progressMessage
     if (message === undefined) return
     const frames = ['', '.', '..', '...'] as const
-    const marker = frames[this.progressFrame % frames.length]
+    const marker = this.motionMode === 'full'
+      ? frames[this.progressFrame % frames.length]
+      : this.motionMode === 'reduced' ? '...' : ''
     this.status.setText(this.theme.dim(`${message}${marker}`))
     this.requestRender()
   }

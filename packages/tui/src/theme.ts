@@ -1,6 +1,7 @@
 import type { EditorTheme, MarkdownTheme, SelectListTheme } from '@earendil-works/pi-tui'
 
 export type InstallerThemeProfile = 'terminal' | 'machtiani-dark' | 'machtiani-light' | 'none'
+export type InstallerMotionMode = 'full' | 'reduced' | 'none'
 
 export interface InstallerTheme {
   truth(text: string): string
@@ -27,6 +28,14 @@ function resolveProfile(environment: NodeJS.ProcessEnv): InstallerThemeProfile {
   if (value === '') return 'terminal'
   if (value === 'terminal' || value === 'machtiani-dark' || value === 'machtiani-light' || value === 'none') return value
   throw new Error(`unknown UI theme ${JSON.stringify(value)} (want terminal, machtiani-dark, machtiani-light, or none)`)
+}
+
+export function resolveInstallerMotion(environment: NodeJS.ProcessEnv): InstallerMotionMode {
+  if (environment.TERM?.trim().toLowerCase() === 'dumb') return 'none'
+  const value = environment.MACHTIANI_MOTION?.trim().toLowerCase() ?? ''
+  if (value === '') return 'full'
+  if (value === 'full' || value === 'reduced' || value === 'none') return value
+  throw new Error(`unknown UI motion mode ${JSON.stringify(value)} (want full, reduced, or none)`)
 }
 
 const terminalPalette = {

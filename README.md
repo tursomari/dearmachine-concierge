@@ -105,6 +105,9 @@ Provenance identifies code and secondary detail, and Rupture marks failures.
 when the terminal advertises truecolor and otherwise fall back to the standard
 terminal palette. `NO_COLOR` removes hue while retaining useful emphasis;
 `TERM=dumb` and the `none` profile disable ANSI styling.
+`MACHTIANI_MOTION` accepts `full`, `reduced`, or `none`; reduced motion uses a
+static progress mark, while none and `TERM=dumb` retain the status text without
+animation.
 
 Run the live DSH recursion smoke test only with a disposable or explicitly
 authorized OpenRouter credential already present in the environment:

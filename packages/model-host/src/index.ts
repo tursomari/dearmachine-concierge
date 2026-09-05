@@ -518,6 +518,7 @@ function systemPrompt(request: ModelHostGenerateRequest): string | undefined {
 
 function mappedError(message: string): ModelHostError {
   if (/abort|cancel/iu.test(message)) return new ModelHostError('CANCELLED', 'The model request was cancelled.')
+  if (/(?:auth|oauth|token|credential).*(?:expired|revoked)|(?:expired|revoked).*(?:auth|oauth|token|credential)/iu.test(message)) return new ModelHostError('AUTH_EXPIRED', 'The model provider sign-in has expired or was revoked.')
   if (/401|403|auth|credential|api key/iu.test(message)) return new ModelHostError('AUTH_REQUIRED', 'The model provider needs authentication. Run machtiani auth login.')
   if (/429|rate.?limit/iu.test(message)) return new ModelHostError('RATE_LIMITED', 'The model provider is temporarily rate-limited.')
   if (/quota|credit|billing/iu.test(message)) return new ModelHostError('QUOTA_EXHAUSTED', 'The model provider account has no available usage.')

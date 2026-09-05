@@ -68,6 +68,7 @@ class FakeCodexServer implements CodexAppServerPort {
   listeners = new Set<(message: RpcMessage) => void>()
   responses: unknown[] = []
   calls: Array<{ method: string; params?: unknown }> = []
+  constructor(private readonly transportFailure = false) {}
   async start(): Promise<void> {}
   async close(): Promise<void> {}
   onMessage(listener: (message: RpcMessage) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener) }
@@ -86,6 +87,10 @@ class FakeCodexServer implements CodexAppServerPort {
     if (method === 'thread/start') return { thread: { id: 'thread-1' } }
     if (method === 'turn/start') {
       setTimeout(() => {
+        if (this.transportFailure) {
+          this.emit({ method: 'transport/error', params: {} })
+          return
+        }
         this.emit({ method: 'item/reasoning/summaryTextDelta', params: { threadId: 'thread-1', turnId: 'turn-1', delta: 'thinking' } })
         this.emit({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', delta: 'working' } })
         this.emit({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', turnId: 'turn-1', tokenUsage: { last: { inputTokens: 12, outputTokens: 4, totalTokens: 16, cachedInputTokens: 8, reasoningOutputTokens: 2 } } } })
@@ -329,6 +334,46 @@ describe('subscription runtime boundaries', () => {
       const metadata = await lstat(runtimeProfile)
       expect(metadata.isDirectory()).toBe(true)
       expect(metadata.mode & 0o777).toBe(0o700)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('reports pinned Codex transport drift distinctly', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-codex-drift-'))
+    const driver = new OpenAICodexDriver(
+      profile('openai-codex-app-server', 'openai-codex', root),
+      () => new FakeCodexServer(true),
+    )
+    const consume = async () => {
+      for await (const _event of driver.generate(generation([{ role: 'user', content: 'hello' }]))) {
+        // Transport drift produces no model event.
+      }
+    }
+    try {
+      await expect(consume()).rejects.toMatchObject({ code: 'UPSTREAM_CHANGED' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('reports expired Claude subscription authentication distinctly', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-claude-expired-'))
+    const driver = new AnthropicClaudeDriver(
+      profile('anthropic-claude-agent-sdk', 'anthropic-claude', root),
+      () => ({
+        async * [Symbol.asyncIterator]() { throw new Error('OAuth token expired') },
+        close: () => {},
+      }) as never,
+      { authenticated: async () => true, login: async () => {}, logout: async () => {} },
+    )
+    const consume = async () => {
+      for await (const _event of driver.generate(generation([{ role: 'user', content: 'hello' }]))) {
+        // Authentication failure produces no model event.
+      }
+    }
+    try {
+      await expect(consume()).rejects.toMatchObject({ code: 'AUTH_EXPIRED' })
     } finally {
       await rm(root, { recursive: true, force: true })
     }

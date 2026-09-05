@@ -267,7 +267,10 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
     let loginId: string | undefined
     try {
       const completion = new Promise<void>((resolve, reject) => server.onMessage(message => {
-        if (message.method === 'transport/error') { reject(new Error('Codex app-server exited during sign-in')); return }
+        if (message.method === 'transport/error') {
+          reject(new ModelHostError('UPSTREAM_CHANGED', 'The pinned Codex app-server stopped during sign-in.'))
+          return
+        }
         if (message.method !== 'account/login/completed') return
         const result = message.params as { loginId?: string; success?: boolean; error?: string }
         if (result.loginId !== loginId) return
@@ -316,7 +319,7 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
     let toolCall = false
     const stop = server.onMessage(message => {
       const params = message.params as Record<string, unknown> | undefined
-      if (message.method === 'transport/error') queue.close(new Error('Codex app-server exited during generation'))
+      if (message.method === 'transport/error') queue.close(new ModelHostError('UPSTREAM_CHANGED', 'The pinned Codex app-server stopped during generation.'))
       else if (message.method === 'item/agentMessage/delta' && params?.turnId === turnId) {
         const delta = String(params.delta ?? ''); if (text === '') queue.push({ type: 'text-start', index: 0 }); text += delta; queue.push({ type: 'text-delta', index: 0, text: delta })
       } else if ((message.method === 'item/reasoning/summaryTextDelta' || message.method === 'item/reasoning/textDelta') && params?.turnId === turnId) {
@@ -625,6 +628,9 @@ interface ClaudeStreamBlock {
 function claudeFailure(error: unknown): ModelHostError {
   if (error instanceof ModelHostError) return error
   const message = error instanceof Error ? error.message : String(error)
+  if (/(?:auth|oauth|token|credential).*(?:expired|revoked)|(?:expired|revoked).*(?:auth|oauth|token|credential)/iu.test(message)) {
+    return new ModelHostError('AUTH_EXPIRED', 'The Claude subscription sign-in has expired or was revoked.')
+  }
   if (/auth|login|oauth|credential/iu.test(message)) return new ModelHostError('AUTH_REQUIRED', 'Claude sign-in is required or has expired.')
   if (/rate.?limit|too many requests/iu.test(message)) return new ModelHostError('RATE_LIMITED', 'Claude temporarily rate-limited this request.')
   if (/quota|usage limit|credit/iu.test(message)) return new ModelHostError('QUOTA_EXHAUSTED', 'The Claude subscription usage limit has been reached.')

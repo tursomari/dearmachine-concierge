@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, join } from 'node:path'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
-import { ModelHost } from '@dearmachine/machtiani-model-host'
 
 export interface CommandRequest {
   label: string
@@ -160,6 +159,11 @@ async function verifiedMachtianiConfig(path: string, profilePath: string, model:
     'transport = "model-host"',
     `profile = ${JSON.stringify(profilePath)}`,
     'command = "machtiani-model-host"',
+    'cache_enabled = true',
+    'cache_key_name = "cache_control"',
+    'cache_control = { type = "ephemeral" }',
+    'cache_trigger_threshold = 4096',
+    'cache_lookback_offset = 1',
   ]
   if (reasoningEffort !== undefined) expected.push(`effort = ${JSON.stringify(reasoningEffort)}`)
   if (!expected.every(line => lines.has(line))) {
@@ -188,7 +192,6 @@ export interface ProductInstallerOptions {
   environment?: NodeJS.ProcessEnv
   runner?: CommandRunner
   modelProfilePath?: string
-  verifyProvider?(profilePath: string, model: string, reasoningEffort?: string): Promise<void>
 }
 
 export interface InstalledProducts { inboxAddress: string }
@@ -371,6 +374,7 @@ export class NativeProductInstaller {
     const modelProfilePath = this.options.modelProfilePath ?? join(this.options.home, '.config', 'machtiani', 'model-profile.json')
     const deviceConfig = join(this.options.home, '.dearmachine', 'config', 'dearmachine.toml')
     const entryPoint = join(this.options.home, '.dearmachine', 'entrypoint', 'main')
+    environment.MACHTIANI_CONFIG = machtianiConfigPath
     const run = async (label: string, command: readonly string[], cwd = this.options.workspace, stdin?: string, timeoutMs?: number | null): Promise<CommandResult> => {
       const request: CommandRequest = { label, command, cwd, environment, ...(timeoutMs === undefined ? {} : { timeoutMs }) }
       if (stdin !== undefined) request.stdin = stdin
@@ -429,7 +433,7 @@ export class NativeProductInstaller {
 
     if (!atLeast(journal.stage, 'machtiani-configured')) {
       if (!await verifiedMachtianiConfig(machtianiConfigPath, modelProfilePath, selection.model, reasoningEffort)) {
-        const config = `default_model = "dearmachine"\nshell_agent_model = "dearmachine"\nanswer_model = "dearmachine"\nfile_discovery_model = "dearmachine"\n\n[providers.dearmachine-host]\ntransport = "model-host"\nprofile = ${JSON.stringify(modelProfilePath)}\ncommand = "machtiani-model-host"\n\n[models.dearmachine]\nprovider = "dearmachine-host"\nmodel = ${JSON.stringify(selection.model)}\ncontext_length = 131072\n${reasoningEffort === undefined ? '' : `\n[models.dearmachine.params.reasoning]\neffort = ${JSON.stringify(reasoningEffort)}\n`}`
+        const config = `default_model = "dearmachine"\nshell_agent_model = "dearmachine"\nanswer_model = "dearmachine"\nfile_discovery_model = "dearmachine"\n\n[model_defaults]\ncache_enabled = true\ncache_key_name = "cache_control"\ncache_control = { type = "ephemeral" }\ncache_trigger_threshold = 4096\ncache_lookback_offset = 1\n\n[providers.dearmachine-host]\ntransport = "model-host"\nprofile = ${JSON.stringify(modelProfilePath)}\ncommand = "machtiani-model-host"\n\n[models.dearmachine]\nprovider = "dearmachine-host"\nmodel = ${JSON.stringify(selection.model)}\ncontext_length = 131072\n${reasoningEffort === undefined ? '' : `\n[models.dearmachine.params.reasoning]\neffort = ${JSON.stringify(reasoningEffort)}\n`}`
         await writePrivate(machtianiConfigPath, config)
         await run('Check Machtiani configuration', ['machtiani', 'config', 'check'], this.options.workspace)
         await requireMachtianiConfig(machtianiConfigPath, modelProfilePath, selection.model, reasoningEffort)
@@ -438,8 +442,8 @@ export class NativeProductInstaller {
     }
 
     if (!atLeast(journal.stage, 'provider-verified')) {
-      const verify = this.options.verifyProvider ?? verifyModelHostProvider
-      await verify(modelProfilePath, selection.model, reasoningEffort)
+      const verification = await run('Verify Machtiani model roles', ['machtiani', 'verify', '--json'])
+      requireMachtianiVerificationReport(verification.stdout)
       await advance('provider-verified')
     }
 
@@ -494,13 +498,15 @@ export class NativeProductInstaller {
   }
 }
 
-async function verifyModelHostProvider(profilePath: string, model: string, reasoningEffort?: string): Promise<void> {
-  const host = await ModelHost.open(profilePath)
-  let reply = ''
-  for await (const event of host.generate({
-    caller: 'installer-validation', sessionId: 'provider-check', model,
-    messages: [{ role: 'user', content: 'Reply with exactly MACHTIANI_PROVIDER_OK.' }],
-    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-  })) if (event.type === 'text-delta') reply += event.text
-  if (!reply.includes('MACHTIANI_PROVIDER_OK')) throw new Error('The shared model host completed its live provider check without the expected confirmation.')
+function requireMachtianiVerificationReport(stdout: string): void {
+  let report: { version?: unknown; status?: unknown; roles?: unknown }
+  try { report = JSON.parse(stdout) as typeof report } catch {
+    throw new Error('Machtiani model-role verification returned an invalid report.')
+  }
+  const roles = Array.isArray(report.roles) ? report.roles : []
+  const names = roles.map(role => (role as { role?: unknown }).role)
+  const expected = ['planner', 'shell-agent', 'answer', 'file-discovery']
+  if (report.version !== 1 || report.status !== 'ok' || names.length !== expected.length || expected.some((name, index) => names[index] !== name)) {
+    throw new Error('Machtiani did not verify every configured model role.')
+  }
 }

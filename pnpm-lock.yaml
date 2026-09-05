@@ -153,10 +153,6 @@ importers:
       '@dearmachine/machtiani-installer-workflow':
         specifier: workspace:*
         version: link:../workflow
-      '@dearmachine/machtiani-model-host':
-        specifier: workspace:*
-        version: link:../model-host
-
   packages/tui:
     dependencies:
       '@earendil-works/pi-tui':

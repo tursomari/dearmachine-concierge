@@ -14,7 +14,6 @@
   "files": ["dist", "src"],
   "scripts": { "build": "tsdown" },
   "dependencies": {
-    "@dearmachine/machtiani-model-host": "workspace:*",
     "@dearmachine/machtiani-installer-backends": "workspace:*",
     "@dearmachine/machtiani-installer-workflow": "workspace:*"
   }

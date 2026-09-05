@@ -95,7 +95,7 @@ printf 'result=ok\n'
         return { code: 1, stdout: '', stderr: 'input closed after credential import' }
       }
       if (command.join(' ') === 'forge config get provider --porcelain') {
-        return { code: 0, stdout: 'open_router\n', stderr: '' }
+        return { code: 0, stdout: 'OpenRouter\n', stderr: '' }
       }
       if (command.join(' ') === 'forge config get model --porcelain') {
         return { code: 0, stdout: 'z-ai/glm-5.3-flash\n', stderr: '' }

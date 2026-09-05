@@ -155,8 +155,13 @@ async function assertPrivateForgeCredentialStore(path: string): Promise<void> {
 function forgeConfigMatches(result: ProcessResult, label: 'Provider' | 'Model', expected: string): boolean {
   if (result.code !== 0) return false
   return result.stdout.split(/\r?\n/gu).some(line => {
-    const value = line.trim()
-    return value === expected || value === `${label}: ${expected}`
+    const output = line.trim()
+    const value = output.startsWith(`${label}: `) ? output.slice(label.length + 2) : output
+    if (label === 'Provider') {
+      const canonical = (provider: string): string => provider.toLowerCase().replace(/[^a-z0-9]/gu, '')
+      return canonical(value) === canonical(expected)
+    }
+    return value === expected
   })
 }
 

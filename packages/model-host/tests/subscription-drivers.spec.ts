@@ -103,6 +103,16 @@ class FakeCodexServer implements CodexAppServerPort {
   }
 }
 
+class SynchronousCodexServer extends FakeCodexServer {
+  override async call(method: string, params?: unknown): Promise<unknown> {
+    if (method !== 'turn/start') return await super.call(method, params)
+    this.calls.push({ method, ...(params === undefined ? {} : { params }) })
+    this.emit({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-fast', delta: 'READY' } })
+    this.emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-fast' } } })
+    return { turn: { id: 'turn-fast' } }
+  }
+}
+
 describe('subscription runtime boundaries', () => {
   it('continues Claude tool results without tag-shaped transcript markup', () => {
     const prompt = claudeConversationPrompt({
@@ -352,6 +362,22 @@ describe('subscription runtime boundaries', () => {
     }
     try {
       await expect(consume()).rejects.toMatchObject({ code: 'UPSTREAM_CHANGED' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not lose a fast Codex response emitted before turn/start returns', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-codex-fast-turn-'))
+    const driver = new OpenAICodexDriver(
+      profile('openai-codex-app-server', 'openai-codex', root),
+      () => new SynchronousCodexServer(),
+    )
+    const events = []
+    try {
+      for await (const event of driver.generate(generation([{ role: 'user', content: 'Reply READY.' }]))) events.push(event)
+      expect(events).toContainEqual({ type: 'text-delta', index: 0, text: 'READY' })
+      expect(events.at(-1)).toEqual({ type: 'finish', reason: 'stop' })
     } finally {
       await rm(root, { recursive: true, force: true })
     }

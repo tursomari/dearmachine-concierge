@@ -319,12 +319,20 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
     let toolCall = false
     const stop = server.onMessage(message => {
       const params = message.params as Record<string, unknown> | undefined
+      const notificationTurnId = typeof params?.turnId === 'string'
+        ? params.turnId
+        : typeof (params?.turn as { id?: unknown } | undefined)?.id === 'string'
+          ? (params!.turn as { id: string }).id
+          : undefined
+      const currentTurn = params?.threadId === threadId && notificationTurnId !== undefined &&
+        (turnId === '' || notificationTurnId === turnId)
+      if (currentTurn && turnId === '') turnId = notificationTurnId
       if (message.method === 'transport/error') queue.close(new ModelHostError('UPSTREAM_CHANGED', 'The pinned Codex app-server stopped during generation.'))
-      else if (message.method === 'item/agentMessage/delta' && params?.turnId === turnId) {
+      else if (message.method === 'item/agentMessage/delta' && currentTurn) {
         const delta = String(params.delta ?? ''); if (text === '') queue.push({ type: 'text-start', index: 0 }); text += delta; queue.push({ type: 'text-delta', index: 0, text: delta })
-      } else if ((message.method === 'item/reasoning/summaryTextDelta' || message.method === 'item/reasoning/textDelta') && params?.turnId === turnId) {
+      } else if ((message.method === 'item/reasoning/summaryTextDelta' || message.method === 'item/reasoning/textDelta') && currentTurn) {
         const delta = String(params.delta ?? ''); if (reasoning === '') queue.push({ type: 'reasoning-start', index: 1 }); reasoning += delta; queue.push({ type: 'reasoning-delta', index: 1, text: delta })
-      } else if (message.method === 'thread/tokenUsage/updated' && params?.turnId === turnId) {
+      } else if (message.method === 'thread/tokenUsage/updated' && currentTurn) {
         const last = (params.tokenUsage as { last?: Record<string, number> } | undefined)?.last
         if (last !== undefined) queue.push({ type: 'usage', inputTokens: last.inputTokens ?? 0, outputTokens: last.outputTokens ?? 0,
           ...(last.totalTokens === undefined ? {} : { totalTokens: last.totalTokens }),
@@ -334,7 +342,7 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
         })
       } else if (message.method === 'item/tool/call' && message.id !== undefined) {
         const call = params as { callId: string; tool: string; arguments: unknown; turnId: string }
-        if (call.turnId !== turnId) return
+        if (!currentTurn) return
         toolCall = true
         const args = JSON.stringify(call.arguments)
         queue.push({ type: 'tool-start', index: 2, id: call.callId, name: call.tool })
@@ -342,7 +350,7 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
         queue.push({ type: 'tool-end', index: 2, id: call.callId, name: call.tool, arguments: args })
         server.respond(message.id, { contentItems: [{ type: 'inputText', text: 'The host will execute this tool call.' }], success: true })
         void server.call('turn/interrupt', { threadId, turnId }).catch(() => {})
-      } else if (message.method === 'turn/completed' && params?.threadId === threadId && (params.turn as { id?: string } | undefined)?.id === turnId) {
+      } else if (message.method === 'turn/completed' && currentTurn) {
         if (text !== '') queue.push({ type: 'text-end', index: 0, text })
         if (reasoning !== '') queue.push({ type: 'reasoning-end', index: 1, text: reasoning })
         queue.push({ type: 'finish', reason: toolCall ? 'tool-calls' : request.signal?.aborted ? 'cancelled' : 'stop' })

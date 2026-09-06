@@ -42,6 +42,19 @@
               ./packages/workflow/package.json
             ];
           };
+          packageSource = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = path: _type:
+              let name = builtins.baseNameOf path;
+              in !(builtins.elem name [
+                ".direnv"
+                ".git"
+                "coverage"
+                "dist"
+                "node_modules"
+                "result"
+              ] || builtins.match "result-.*" name != null);
+          };
           pnpmDeps = pkgs.fetchPnpmDeps {
             pname = "machtiani-installer";
             version = "0.0.1";
@@ -59,7 +72,7 @@
           default = pkgs.stdenvNoCC.mkDerivation {
             pname = "machtiani-installer";
             version = "0.0.1";
-            src = self;
+            src = packageSource;
             inherit pnpmDeps;
             nativeBuildInputs = [ pkgs.nodejs_24 pkgs.pnpm pkgs.pnpmConfigHook pkgs.makeWrapper ];
             buildPhase = ''

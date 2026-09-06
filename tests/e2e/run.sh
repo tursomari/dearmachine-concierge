@@ -46,6 +46,7 @@ done
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 installer_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
 dockerfile=$script_dir/Dockerfile
+installer_flake=$installer_root/flake.nix
 transaction_lib=$umbrella_root/tests/e2e-installation-procedure/lib/txn.sh
 agentmail_lib=$umbrella_root/tests/e2e-installation-procedure/lib/agentmail.sh
 secrets_lib=$umbrella_root/tests/e2e-installation-procedure/lib/secrets.sh
@@ -72,6 +73,15 @@ test "$dependency_copy_line" -lt "$dependency_install_line" && \
   fail 'QSE Dockerfile must cache dependencies before copying and testing changing source'
 grep -F -- '--network-concurrency=1' "$dockerfile" >/dev/null || \
   fail 'QSE Dockerfile must bound pnpm download concurrency for memory safety'
+grep -F -- 'src = packageSource;' "$installer_flake" >/dev/null || \
+  fail 'installer package source must exclude development artifacts before the Nix build'
+grep -F -- 'packageSource = pkgs.lib.cleanSourceWith {' "$installer_flake" >/dev/null || \
+  fail 'installer package source must use an explicit source filter'
+grep -F -- '"node_modules"' "$installer_flake" >/dev/null || \
+  fail 'installer package source filter must exclude node_modules'
+if grep -F -- 'src = self;' "$installer_flake" >/dev/null; then
+  fail 'installer package source must not expose path-flake development artifacts to the Nix build'
+fi
 
 qse_agentmail_secrets_path() {
   qse_agentmail_root=$1

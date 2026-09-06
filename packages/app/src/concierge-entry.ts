@@ -37,6 +37,7 @@ export function parseInvocation(args: readonly string[], environment: NodeJS.Pro
     if (['status', 'up', 'down', 'restart'].includes(args[0]!)) return { mode: 'control', command: args[0] as DaemonCommand }
   }
   if (args.length === 3 && ['--install', '--concierge'].includes(args[0]!) && args[1] === '--source-root' && args[2] !== '') {
+    if (!isAbsolute(args[2]!)) throw new Error('--source-root must be absolute.')
     return { mode: args[0] === '--install' ? 'install' : 'concierge', sourceRoot: args[2]! }
   }
   throw new Error(entryHelp)

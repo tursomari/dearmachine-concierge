@@ -113,3 +113,7 @@ it('accepts the native source-root environment through the existing concierge mo
   expect(parseInvocation(['--help'], { DEARMACHINE_SOURCE_ROOT: 'invalid' })).toEqual({ mode: 'help' })
   expect(() => parseInvocation(['--concierge'], { DEARMACHINE_SOURCE_ROOT: 'relative' })).toThrow('absolute')
 })
+
+it('rejects a relative explicit concierge source root before setup', () => {
+  expect(() => parseInvocation(['--concierge', '--source-root', 'relative'])).toThrow('absolute')
+})

@@ -51,10 +51,16 @@ COPY machtiani-installer/packages/model-host/package.json /workspace/machtiani/m
 COPY machtiani-installer/packages/product-adapter/package.json /workspace/machtiani/machtiani-installer/packages/product-adapter/package.json
 COPY machtiani-installer/packages/tui/package.json /workspace/machtiani/machtiani-installer/packages/tui/package.json
 COPY machtiani-installer/packages/workflow/package.json /workspace/machtiani/machtiani-installer/packages/workflow/package.json
-RUN nix build --no-link path:/workspace/machtiani/machtiani-installer#build-dependencies
 RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
       pnpm --dir /workspace/machtiani/machtiani-installer install --frozen-lockfile \
         --network-concurrency=1 --child-concurrency=1
+RUN set -eu; \
+    install -d /opt/machtiani-installer-dependencies; \
+    cd /workspace/machtiani/machtiani-installer; \
+    cp --parents flake.nix flake.lock package.json pnpm-lock.yaml pnpm-workspace.yaml \
+      packages/*/package.json /opt/machtiani-installer-dependencies; \
+    cp -R --parents patches /opt/machtiani-installer-dependencies; \
+    nix build --no-link path:/opt/machtiani-installer-dependencies#build-dependencies
 
 # Exercise the full installer semantic, snapshot, and PTY suite in the same
 # sparse source-only image used by the live product gate.

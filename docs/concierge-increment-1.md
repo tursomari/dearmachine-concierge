@@ -1,5 +1,9 @@
 # Concierge increment 1 in the installer repository
 
+See [increment 3](concierge-increment-3.md) for current bootstrap, discovery,
+systemd consent, and conversational management behavior. The notes below record
+the earlier increments.
+
 This checkout has no Dear Machine Go source or populated submodule. The native
 supervisor, singleton lock, child ownership, backoff, and `dearmachine` dispatch
 are implemented in the companion Go repository. This increment does not replace

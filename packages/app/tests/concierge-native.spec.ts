@@ -22,7 +22,7 @@ async function fixture() {
   await mkdir(join(source, 'dearmachine'), { recursive: true })
   await mkdir(join(source, 'machtiani-harness'))
   const env = {
-    PATH: process.env.PATH!, HOME: home, TERM: 'xterm-256color',
+    PATH: process.env.PATH!, HOME: home, XDG_RUNTIME_DIR: join(home, 'run'), DEARMACHINE_SUPERVISOR_SOCKET: join(home, '.dearmachine', 'run', 'supervisor.sock'), TERM: 'xterm-256color',
     XDG_STATE_HOME: join(home, 'xdg-state'), XDG_DATA_HOME: join(home, 'xdg-data'), XDG_CONFIG_HOME: join(home, 'xdg-config'),
     DEARMACHINE_CONCIERGE_BIN: wrapper, DEARMACHINE_SOURCE_ROOT: source,
     CONCIERGE_TEST_NODE: process.execPath, CONCIERGE_TEST_APP: resolve('packages/app/dist/bin.mjs'),
@@ -60,6 +60,34 @@ async function stop(child: ChildProcess) {
 }
 
 describe.skipIf(!native)('native Go to TS foreground handoff', () => {
+  it('bootstraps an absent native supervisor and honestly reports a local startup failure', async () => {
+    const { home, env } = await fixture()
+    const root = join(home, '.dearmachine')
+    await mkdir(join(root, 'config'), { recursive: true, mode: 0o700 })
+    const inbox = randomUUID()
+    await writeFile(join(root, 'pairs.toml'), `version = 2\n[[inboxes]]\nid = "${inbox}"\ntransport = "agentmail"\nprovider_id = "fixture"\naddress = "machine@example.test"\n[[pairs]]\nid = "${randomUUID()}"\nuser_email = "user@example.test"\ninbox_id = "${inbox}"\n`, { mode: 0o600 })
+    // Guaranteed local parse failure before application/provider construction.
+    await writeFile(join(root, 'config', 'runtime.toml'), '[invalid', { mode: 0o600 })
+    const control = new SocketDaemonControl(env.DEARMACHINE_SUPERVISOR_SOCKET, 500)
+    cleanups.push(async () => {
+      try {
+        const status = await control.request('status') as unknown as { supervisorPid: number }
+        process.kill(status.supervisorPid, 'SIGTERM')
+        await expect.poll(async () => { try { await control.request('status'); return false } catch { return true } }).toBe(true)
+      } catch { /* No owner was started. */ }
+    })
+    const result = await terminal(env, [
+      { prompt: 'Use /help', input: '/up\r' },
+      { prompt: 'Bootstrapping', input: '/help\r' },
+      { prompt: 'Run dearmachine status', input: '/down\r' },
+      { prompt: 'Daemon: stopped', input: '/quit\r' },
+    ])
+    expect(result.code, result.output).toBe(0)
+    expect(result.output).toContain('startup is not yet confirmed')
+    expect(result.output).not.toContain('Daemon: running')
+    expect((await control.request('status')).supervisor).toBe('stopped')
+  })
+
   it('opens fresh setup consent and exits without a provider', async () => {
     const { env } = await fixture()
     const result = await terminal(env, [{ prompt: 'Would you like to continue', input: '/quit\r' }])
@@ -100,6 +128,14 @@ setInterval(() => {}, 1000);
     const launches = (await readFile(join(root, 'run', 'launches'), 'utf8')).trim().split('\n')
     expect(launches).toHaveLength(4) // Initial start, /up, /restart, /up.
     expect(new Set(launches).size).toBe(4)
+    // Missing saved profile fails before any provider process/request; local controls survive.
+    const offline = await terminal(env, [
+      { prompt: 'Use /help', input: 'What is running?\r' },
+      { prompt: 'provider is unavailable', input: '/help\r' },
+      { prompt: 'Native fallback CLI', input: '/status\r' },
+      { prompt: 'Daemon: running', input: '/quit\r' },
+    ])
+    expect(offline.code, offline.output).toBe(0)
     // First Ctrl+C stays in the TS shell; second exits and restores the TTY.
     const interrupted = await terminal(env, [
       { prompt: 'Use /help', input: '\x03' },

@@ -63,7 +63,7 @@ The concierge tests are part of the maintained aggregate suite. After `pnpm buil
 run the focused contracts and terminal exercises with:
 
 ```console
-nix develop -c pnpm exec vitest run packages/app/tests/concierge-control.spec.ts packages/app/tests/concierge-entry.spec.ts packages/app/tests/concierge-shell.spec.ts packages/app/tests/concierge-cli.spec.ts packages/tui/tests/concierge.spec.ts
+nix develop -c pnpm exec vitest run packages/app/tests/concierge-control.spec.ts packages/app/tests/concierge-entry.spec.ts packages/app/tests/concierge-shell.spec.ts packages/app/tests/concierge-cli.spec.ts packages/tui/tests/concierge.spec.ts packages/app/tests/concierge-bootstrap.spec.ts packages/app/tests/concierge-consent.spec.ts packages/app/tests/concierge-agent.spec.ts packages/dsh-adapter/tests/adapter.spec.ts
 ```
 
 They use temporary homes/state/socket paths and disposable processes, with no
@@ -77,6 +77,16 @@ its absolute binary path (the suite skips when it is unset):
 ```console
 DEARMACHINE_TEST_BIN=/absolute/path/to/test-dearmachine nix develop -c pnpm exec vitest run packages/app/tests/concierge-native.spec.ts
 ```
+
+Increment 3 adds bootstrap/race/deadline, separate consent, lazy management agent,
+and failed-provider fallback coverage. Mock systemctl/loginctl runners never
+configure a real service. See [increment 3](docs/concierge-increment-3.md).
+
+All gates must be launched with disposable HOME, XDG state/config/data/runtime
+directories and DEARMACHINE_SUPERVISOR_SOCKET. Individual fixtures further isolate
+state. With existing pnpm dependencies and a disposable HOME,
+`pnpm --config.verify-deps-before-run=false ...` skips pnpm's store relocation
+check without reinstalling dependencies.
 
 This gate runs the actual native foreground launcher and supervisor with a
 disposable HOME, socket, registry, and dummy daemon. It exercises fresh-install

@@ -1,3 +1,4 @@
+import { ManagementConversation, openManagementAgent } from './concierge-agent.ts'
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { nativeSupervisionChoice, defaultConciergeControl, type DaemonControl } from './concierge-control.ts'
 import { inspectInstallation, runConciergeEntry, type InstallationDiagnosis } from './concierge-entry.ts'
@@ -9,16 +10,28 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
   let requestExit!: () => void
   const exited = new Promise<void>(resolve => { requestExit = resolve })
   let shell!: ConciergeShell
+  const conversation = new ManagementConversation(() => openManagementAgent({
+    event: event => {
+      if (event.type === 'assistant' && event.text.trim()) tui.addAssistant(event.text)
+      if (event.type === 'turn-end' && event.outcome !== 'completed') {
+        tui.setProgress(undefined)
+        tui.addAssistant('The management assistant could not complete that turn. Use /help for local controls; inspect dearmachine status for any unconfirmed operation.')
+      }
+    },
+    status: status => tui.setProgress(status === 'running' ? 'Thinking' : undefined),
+  }))
   const tui = new InstallerTui({
     title: 'Dear Machine Concierge', exitWindowMs: 2_000, interruptHint: conciergeInterruptHint,
     onSubmit: text => shell.submit(text),
     onLocalCommand: text => shell.submit(text),
+    onInterrupt: () => conversation.interrupt(),
     onExit: () => { void shell.submit('/quit') },
   })
   shell = new ConciergeShell({
     chooseSupervision: nativeSupervisionChoice,
+    converse: text => conversation.submit(text),
     control, say: text => tui.addAssistant(text),
-    // This entry never spawns or attaches to a daemon or subscribes to logs.
+    // Native control owns daemon startup; this interface has no daemon attachment or log subscription.
     ensureIndependent: async () => {}, unsubscribe: async () => {},
     close: async () => { requestExit() },
   })
@@ -28,13 +41,13 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
     if (diagnosis.guidance !== undefined) tui.addAssistant(diagnosis.guidance)
     tui.addAssistant('Use /help for local commands. Opening and leaving this interface does not change daemon state.')
     await exited
-  } finally { await tui.dispose() }
+  } finally { try { await conversation.close() } finally { await tui.dispose() } }
 }
 
 export async function launchConcierge(sourceRoot?: string): Promise<void> {
   const home = process.env.HOME
   if (!home) throw new Error('HOME is required to locate installation state.')
-  const control = defaultConciergeControl(process.env, text => { process.stdout.write(text + '\n') })
+  const control = defaultConciergeControl()
   await runConciergeEntry({
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     inspect: () => inspectInstallation(home, control),

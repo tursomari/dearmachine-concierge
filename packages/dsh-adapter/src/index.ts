@@ -56,7 +56,7 @@ function installerToolsPlugin(): string {
   return require.resolve('@dearmachine/machtiani-installer-dsh-adapter/installer-tools')
 }
 
-function profilePatch(selection: InstallerModelSelection): string {
+function profilePatch(selection: InstallerModelSelection, mode: 'installer' | 'management' = 'installer'): string {
   return `- id: agent-default-model
   config:
     provider: ${JSON.stringify(MODEL_HOST_PROVIDER)}
@@ -98,9 +98,9 @@ function profilePatch(selection: InstallerModelSelection): string {
 - insert:
     - id: machtiani-model-host
       name: ${JSON.stringify(modelHostPlugin())}
-    - id: machtiani-installer-tools
+${mode === 'management' ? '' : `    - id: machtiani-installer-tools
       name: ${JSON.stringify(installerToolsPlugin())}
-`
+`}`
 }
 
 function settings(selection: InstallerModelSelection): string {
@@ -113,12 +113,13 @@ ${selection.reasoningEffort === undefined ? '' : `  reasoningEffort: ${JSON.stri
 export async function prepareIsolatedDshHome(
   dshHome: string,
   selection: InstallerModelSelection = DEFAULT_INSTALLER_MODEL_SELECTION,
+  mode: 'installer' | 'management' = 'installer',
 ): Promise<void> {
   const profile = join(dshHome, 'profiles', 'machtiani-installer')
   await mkdir(profile, { recursive: true, mode: 0o700 })
   await Promise.all([
     writeFile(join(profile, 'cordis.yml'), '[]\n', { mode: 0o600 }),
-    writeFile(join(profile, 'cordis.patch.yml'), profilePatch(selection), { mode: 0o600 }),
+    writeFile(join(profile, 'cordis.patch.yml'), profilePatch(selection, mode), { mode: 0o600 }),
     writeFile(join(profile, 'package.json'), profilePackage, { mode: 0o600 }),
     writeFile(join(profile, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n', { mode: 0o600 }),
     writeFile(join(dshHome, 'settings.yaml'), settings(selection), { mode: 0o600 }),
@@ -153,6 +154,7 @@ export type InstallerAgentEvent =
 export type InstallerAgentStatus = 'running' | 'idle'
 
 export interface DshAgentSessionOptions {
+  mode?: 'installer' | 'management'
   dshHome: string
   workspace: string
   environment?: NodeJS.ProcessEnv
@@ -292,7 +294,7 @@ export class DshAgentSession {
   async start(): Promise<void> {
     if (this.child !== undefined) throw new Error('the DSH installer session is already started')
     const selection = this.options.selection ?? DEFAULT_INSTALLER_MODEL_SELECTION
-    await prepareIsolatedDshHome(this.options.dshHome, selection)
+    await prepareIsolatedDshHome(this.options.dshHome, selection, this.options.mode)
     const child = spawn(process.execPath, [dshBin(), '--profile', 'machtiani-installer'], {
       cwd: this.options.workspace,
       env: {
@@ -351,6 +353,24 @@ export class DshAgentSession {
 
   async shutdown(): Promise<void> {
     if (this.child === undefined || this.closed) return
+    if (this.options.mode === 'management') {
+      const child = this.child
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          this.request('shutdown', {}).then(() => this.exit).catch(() => this.exit),
+          new Promise<void>(resolve => {
+            timer = setTimeout(() => {
+              child.kill('SIGKILL')
+              child.stdout.destroy()
+              child.stderr.destroy()
+              resolve()
+            }, 500)
+          }),
+        ])
+      } finally { clearTimeout(timer) }
+      return
+    }
     try {
       await this.request('shutdown', {})
     } finally {

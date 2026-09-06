@@ -274,3 +274,23 @@ describe('pinned DSH compatibility boundary', () => {
     })
   })
 })
+
+it('uses the shared model host without installer mutation tools in management mode', async () => {
+ const root=await mkdtemp(join(tmpdir(), 'concierge-dsh-'))
+ await prepareIsolatedDshHome(root, undefined, 'management')
+ const patch=await readFile(join(root,'profiles','machtiani-installer','cordis.patch.yml'),'utf8')
+ expect(patch).toContain('machtiani-model-host')
+ expect(patch).not.toContain('machtiani-installer-tools')
+})
+
+it.each([false, true])('bounds management shutdown when the provider protocol stops responding or fails (%s)', async fails => {
+ const { DshAgentSession } = await import('../src/index.ts')
+ const root=await mkdtemp(join(tmpdir(), 'concierge-shutdown-'))
+ const session=new DshAgentSession({dshHome:root,workspace:root,modelProfilePath:join(root,'profile.json'),outcomePath:join(root,'unused.json'),mode:'management'})
+ let stopped!:()=>void
+ const exit=new Promise<number>(resolve=>{stopped=()=>resolve(0)})
+ const signals:string[]=[]
+ Object.assign(session,{child:{stdin:{write:(_data: string, callback: (error: Error | null) => void)=>{ if(fails) callback(new Error("protocol failed")) }},kill:(signal:string)=>{signals.push(signal);stopped()},stdout:{destroy:()=>{}},stderr:{destroy:()=>{}}},exit})
+ await session.shutdown()
+ expect(signals).toEqual(['SIGKILL'])
+}, 1_500)

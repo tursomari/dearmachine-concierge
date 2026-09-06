@@ -32,13 +32,33 @@ RUN set -eu; \
       test "$(/usr/local/bin/forge --version)" = "forge 2.13.21" \
     '
 
-# Exercise the full installer semantic, snapshot, and PTY suite in the same
-# sparse source-only image used by the live product gate. The pinned runtime
-# layers above stay reusable when only installer sources change.
-COPY . /workspace/machtiani
+# Cache the installer dependency graph separately from changing source. Keep
+# downloads serial because the subscription runtime packages are large enough
+# to put memory-constrained Docker daemons under avoidable pressure.
+COPY machtiani-installer/flake.nix \
+     machtiani-installer/flake.lock \
+     machtiani-installer/package.json \
+     machtiani-installer/pnpm-lock.yaml \
+     machtiani-installer/pnpm-workspace.yaml \
+     /workspace/machtiani/machtiani-installer/
+COPY machtiani-installer/patches /workspace/machtiani/machtiani-installer/patches
+COPY machtiani-installer/packages/app/package.json /workspace/machtiani/machtiani-installer/packages/app/package.json
+COPY machtiani-installer/packages/backend-adapter/package.json /workspace/machtiani/machtiani-installer/packages/backend-adapter/package.json
+COPY machtiani-installer/packages/credential-adapter/package.json /workspace/machtiani/machtiani-installer/packages/credential-adapter/package.json
+COPY machtiani-installer/packages/dsh-adapter/package.json /workspace/machtiani/machtiani-installer/packages/dsh-adapter/package.json
+COPY machtiani-installer/packages/environment-adapter/package.json /workspace/machtiani/machtiani-installer/packages/environment-adapter/package.json
+COPY machtiani-installer/packages/model-host/package.json /workspace/machtiani/machtiani-installer/packages/model-host/package.json
+COPY machtiani-installer/packages/product-adapter/package.json /workspace/machtiani/machtiani-installer/packages/product-adapter/package.json
+COPY machtiani-installer/packages/tui/package.json /workspace/machtiani/machtiani-installer/packages/tui/package.json
+COPY machtiani-installer/packages/workflow/package.json /workspace/machtiani/machtiani-installer/packages/workflow/package.json
 RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
       pnpm --dir /workspace/machtiani/machtiani-installer install --frozen-lockfile \
- && nix develop path:/workspace/machtiani/machtiani-installer -c \
+        --network-concurrency=1 --child-concurrency=1
+
+# Exercise the full installer semantic, snapshot, and PTY suite in the same
+# sparse source-only image used by the live product gate.
+COPY . /workspace/machtiani
+RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
       pnpm --dir /workspace/machtiani/machtiani-installer test
 
 RUN install -d -m 0700 /run/machtiani-installer-qse/secrets

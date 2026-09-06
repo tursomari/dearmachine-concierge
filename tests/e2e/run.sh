@@ -45,6 +45,7 @@ done
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 installer_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+dockerfile=$script_dir/Dockerfile
 transaction_lib=$umbrella_root/tests/e2e-installation-procedure/lib/txn.sh
 agentmail_lib=$umbrella_root/tests/e2e-installation-procedure/lib/agentmail.sh
 secrets_lib=$umbrella_root/tests/e2e-installation-procedure/lib/secrets.sh
@@ -52,6 +53,25 @@ helper_source=$umbrella_root/tests/e2e-installation-procedure/agentmail-helper
 for qse_path in "$transaction_lib" "$agentmail_lib" "$secrets_lib" "$helper_source/main.go"; do
   test -e "$qse_path" || fail "required umbrella test support is missing: $qse_path"
 done
+
+dockerfile_line() {
+  dockerfile_pattern=$1
+  dockerfile_description=$2
+  dockerfile_match=$(grep -nF -- "$dockerfile_pattern" "$dockerfile" | sed -n '1p')
+  test -n "$dockerfile_match" || fail "QSE Dockerfile lacks $dockerfile_description"
+  printf '%s\n' "${dockerfile_match%%:*}"
+}
+
+dependency_copy_line=$(dockerfile_line 'COPY machtiani-installer/flake.nix' 'the dependency-manifest cache boundary')
+dependency_install_line=$(dockerfile_line 'pnpm --dir /workspace/machtiani/machtiani-installer install' 'the dependency installation step')
+source_copy_line=$(dockerfile_line 'COPY . /workspace/machtiani' 'the complete source copy')
+source_test_line=$(dockerfile_line 'pnpm --dir /workspace/machtiani/machtiani-installer test' 'the source test step')
+test "$dependency_copy_line" -lt "$dependency_install_line" && \
+  test "$dependency_install_line" -lt "$source_copy_line" && \
+  test "$source_copy_line" -lt "$source_test_line" || \
+  fail 'QSE Dockerfile must cache dependencies before copying and testing changing source'
+grep -F -- '--network-concurrency=1' "$dockerfile" >/dev/null || \
+  fail 'QSE Dockerfile must bound pnpm download concurrency for memory safety'
 
 lock_file=${TMPDIR:-/var/tmp}/machtiani-installer-qse-$(id -u).lock
 umask 077

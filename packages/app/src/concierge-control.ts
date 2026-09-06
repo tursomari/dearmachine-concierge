@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { createConnection } from 'node:net'
 import { isAbsolute, join } from 'node:path'
 
@@ -14,6 +15,7 @@ export interface DaemonStatus {
 export interface DaemonControl {
   /** Mutations return confirmed observations, never just an acknowledgement. */
   request(command: DaemonCommand): Promise<DaemonStatus>
+  bootstrapUp?(): Promise<DaemonStatus>
 }
 
 function isStatus(value: unknown): value is DaemonStatus {
@@ -41,7 +43,11 @@ export function resolveSupervisorSocket(environment: NodeJS.ProcessEnv = process
   return join(home, '.dearmachine', 'run', 'supervisor.sock')
 }
 
-/** Client half of the proposed supervisor-lite v1 contract. No native process is launched here. */
+export class EndpointAbsentError extends Error {
+  constructor() { super('Supervisor endpoint absent. Run dearmachine status for recovery.') }
+}
+
+/** Socket-only control: never launches a process or retries a mutation. */
 export class SocketDaemonControl implements DaemonControl {
   constructor(private readonly socketPath: string = resolveSupervisorSocket(), private readonly timeoutMs = 5_000) {
     if (!isAbsolute(socketPath)) throw new Error('The supervisor control socket path must be absolute.')
@@ -53,12 +59,13 @@ export class SocketDaemonControl implements DaemonControl {
       const socket = createConnection(this.socketPath)
       let response = Buffer.alloc(0)
       let settled = false
-      const finish = (status?: DaemonStatus) => {
+      const finish = (status?: DaemonStatus, absent = false) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
         socket.destroy()
         if (status !== undefined) resolve(status)
+        else if (absent) reject(new EndpointAbsentError())
         else reject(new Error(`Supervisor control unavailable or returned an invalid response. ${command === 'status' ? '' : 'The operation may have completed; do not retry blindly. '}Run dearmachine status and dearmachine --help for recovery.`))
       }
       // A total deadline, rather than an idle timeout, also bounds trickled responses.
@@ -74,7 +81,7 @@ export class SocketDaemonControl implements DaemonControl {
           finish(reply.version === 1 && reply.ok === true && isStatus(reply.status) ? reply.status : undefined)
         } catch { finish() }
       })
-      socket.once('error', () => finish())
+      socket.once('error', (error: NodeJS.ErrnoException) => finish(undefined, error.code === 'ENOENT' || error.code === 'ECONNREFUSED'))
       socket.once('end', () => finish())
       socket.once('close', () => finish())
     })
@@ -88,4 +95,56 @@ export function selectSupervision(options: {
 }): { owner: 'supervisor-lite' | 'systemd'; enablePersistence: boolean } {
   const systemd = options.usableUserManager && options.consent.useSystemd
   return { owner: systemd ? 'systemd' : 'supervisor-lite', enablePersistence: systemd && options.consent.enablePersistence }
+}
+
+/** Only an explicit up may cross this bootstrap boundary. Go owns all processes. */
+export class BootstrapDaemonControl implements DaemonControl {
+  private starting: Promise<DaemonStatus> | undefined
+  constructor(private readonly socket: DaemonControl, private readonly bootstrap: () => Promise<void>,
+    private readonly timeoutMs = 20_000, private readonly progress: (text: string) => void = () => {}) {}
+  request(command: DaemonCommand): Promise<DaemonStatus> { return this.socket.request(command) }
+  bootstrapUp(): Promise<DaemonStatus> {
+    if (this.starting !== undefined) return this.starting
+    this.progress('Bootstrapping the native supervisor. Daemon startup is not yet confirmed; use /status to inspect progress.')
+    this.starting = this.waitForBootstrap().finally(() => { this.starting = undefined })
+    return this.starting
+  }
+  private async waitForBootstrap(): Promise<DaemonStatus> {
+    // A failing starter may have lost the singleton race; socket observations win.
+    void this.bootstrap().catch(() => {})
+    const deadline = Date.now() + this.timeoutMs
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async (): Promise<DaemonStatus> => {
+      while (Date.now() < deadline) {
+        try {
+          const state = await this.socket.request('status')
+          if (!['starting', 'unreachable'].includes(state.supervisor)) return state
+        } catch (error) { if (!(error instanceof EndpointAbsentError)) throw error }
+        await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(0, deadline - Date.now()))))
+      }
+      throw new Error('Bootstrap timed out; inspect dearmachine status.')
+    }
+    try {
+      return await Promise.race([poll(), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Bootstrap timed out; inspect dearmachine status.')), this.timeoutMs)
+      })])
+    } finally { clearTimeout(timer) }
+  }
+}
+
+export function nativeBootstrap(environment: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const home = environment.HOME
+  if (!home || !isAbsolute(home) || resolveSupervisorSocket(environment) !== join(home, '.dearmachine', 'run', 'supervisor.sock')) {
+    return Promise.reject(new Error('Bootstrap requires the native HOME socket. Start a custom owner explicitly.'))
+  }
+  const binary = environment.DEARMACHINE_NATIVE_BIN || 'dearmachine'
+  if (!isAbsolute(binary) && (binary.includes('/') || binary.includes('\\'))) return Promise.reject(new Error('Invalid native executable.'))
+  return new Promise((resolve, reject) => {
+    execFile(binary, ['up', '--bootstrap'], { env: environment, timeout: 20_000, maxBuffer: 65_536, windowsHide: true },
+      error => { if (error) reject(new Error('Native bootstrap failed; inspect dearmachine status.')); else resolve() })
+  })
+}
+
+export function defaultConciergeControl(environment: NodeJS.ProcessEnv = process.env, progress?: (text: string) => void): DaemonControl {
+  return new BootstrapDaemonControl(new SocketDaemonControl(resolveSupervisorSocket(environment)), () => nativeBootstrap(environment), 20_000, progress)
 }

@@ -1,11 +1,9 @@
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
-import { SocketDaemonControl, resolveSupervisorSocket, type DaemonControl } from './concierge-control.ts'
+import { defaultConciergeControl, type DaemonControl } from './concierge-control.ts'
 import { inspectInstallation, runConciergeEntry, type InstallationDiagnosis } from './concierge-entry.ts'
 import { ConciergeShell, formatDaemonStatus, conciergeInterruptHint } from './concierge-shell.ts'
 
-export function defaultConciergeControl(environment: NodeJS.ProcessEnv = process.env): DaemonControl {
-  return new SocketDaemonControl(resolveSupervisorSocket(environment))
-}
+export { defaultConciergeControl } from './concierge-control.ts'
 
 export async function runLocalConcierge(control: DaemonControl, diagnosis: InstallationDiagnosis): Promise<void> {
   let requestExit!: () => void
@@ -35,7 +33,7 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
 export async function launchConcierge(sourceRoot?: string): Promise<void> {
   const home = process.env.HOME
   if (!home) throw new Error('HOME is required to locate installation state.')
-  const control = defaultConciergeControl()
+  const control = defaultConciergeControl(process.env, text => { process.stdout.write(text + '\n') })
   await runConciergeEntry({
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     inspect: () => inspectInstallation(home, control),

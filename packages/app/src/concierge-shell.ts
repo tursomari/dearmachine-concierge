@@ -1,4 +1,4 @@
-import type { DaemonCommand, DaemonControl, DaemonStatus } from './concierge-control.ts'
+import { EndpointAbsentError, type DaemonCommand, type DaemonControl, type DaemonStatus } from './concierge-control.ts'
 
 export const conciergeInterruptHint = 'Use /quit to leave. Press Ctrl+C again within 2 seconds to exit the interface only. A committed operation is not undone; inspect dearmachine status.'
 
@@ -36,7 +36,11 @@ export function formatDaemonStatus(status: DaemonStatus): string {
 /** The scriptable command and slash-command paths share this result validation. */
 export async function executeDaemonCommand(control: DaemonControl, command: DaemonCommand): Promise<{ code: 0 | 1; message: string }> {
   try {
-    let status = await control.request('status')
+    let status: DaemonStatus
+    try { status = await control.request('status') } catch (error) {
+      if (command !== 'up' || !(error instanceof EndpointAbsentError) || !control.bootstrapUp) throw error
+      status = await control.bootstrapUp()
+    }
     if (command === 'status') {
       return { code: ['failed', 'unreachable'].includes(status.supervisor) || status.daemon === 'unknown' || ['partial', 'unreadable'].includes(status.installation) ? 1 : 0, message: formatDaemonStatus(status) }
     }

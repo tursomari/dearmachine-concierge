@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { entryHelp, parseInvocation } from './concierge-entry.ts'
 import { executeDaemonCommand } from './concierge-shell.ts'
-import { SocketDaemonControl } from './concierge-control.ts'
+import { defaultConciergeControl } from './concierge-control.ts'
 
 export { parseInvocation as parseArguments } from './concierge-entry.ts'
 export type { InstallerInvocation } from './concierge-entry.ts'
@@ -13,7 +13,7 @@ async function main(): Promise<void> {
     return
   }
   if (invocation.mode === 'control') {
-    const control = new SocketDaemonControl()
+    const control = defaultConciergeControl()
     const result = await executeDaemonCommand(control, invocation.command)
     ;(result.code === 0 ? process.stdout : process.stderr).write(result.message + '\n')
     process.exitCode = result.code

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { BootstrapDaemonControl, EndpointAbsentError, type DaemonControl, type DaemonStatus } from '../src/concierge-control.ts'
+import { BootstrapDaemonControl, EndpointAbsentError, type DaemonCommand, type DaemonControl, type DaemonStatus } from '../src/concierge-control.ts'
 import { executeDaemonCommand } from '../src/concierge-shell.ts'
 
 const running: DaemonStatus = { installation: 'installed', supervisor: 'running', daemon: 'running', persistence: 'unknown' }
@@ -37,4 +37,16 @@ describe('native bootstrap', () => {
     const control = new BootstrapDaemonControl({ request: async () => { throw new EndpointAbsentError() } }, () => new Promise(() => {}), 30)
     expect((await executeDaemonCommand(control, 'up')).code).toBe(1)
   })
+})
+
+it.each(['backing-off', 'failed', 'stopped'] as const)('does not retry a completed bootstrap observed as %s', async supervisor => {
+  let available = false
+  const request = vi.fn(async (_command: DaemonCommand) => {
+    if (!available) throw new EndpointAbsentError()
+    return { ...running, supervisor, daemon: 'stopped' as const }
+  })
+  const control = new BootstrapDaemonControl({ request }, async () => { available = true }, 100)
+  const result = await executeDaemonCommand(control, 'up')
+  expect(result.code).toBe(1)
+  expect(request.mock.calls.every(args => args.length === 1 && args[0] === 'status')).toBe(true)
 })

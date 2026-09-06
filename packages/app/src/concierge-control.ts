@@ -15,7 +15,7 @@ export interface DaemonStatus {
 export interface DaemonControl {
   /** Mutations return confirmed observations, never just an acknowledgement. */
   request(command: DaemonCommand): Promise<DaemonStatus>
-  bootstrapUp?(): Promise<DaemonStatus>
+  bootstrapUp?(progress?: (text: string) => void): Promise<DaemonStatus>
 }
 
 function isStatus(value: unknown): value is DaemonStatus {
@@ -103,9 +103,9 @@ export class BootstrapDaemonControl implements DaemonControl {
   constructor(private readonly socket: DaemonControl, private readonly bootstrap: () => Promise<void>,
     private readonly timeoutMs = 20_000, private readonly progress: (text: string) => void = () => {}) {}
   request(command: DaemonCommand): Promise<DaemonStatus> { return this.socket.request(command) }
-  bootstrapUp(): Promise<DaemonStatus> {
+  bootstrapUp(progress?: (text: string) => void): Promise<DaemonStatus> {
     if (this.starting !== undefined) return this.starting
-    this.progress('Bootstrapping the native supervisor. Daemon startup is not yet confirmed; use /status to inspect progress.')
+    ;(progress ?? this.progress)('Bootstrapping the native supervisor. Daemon startup is not yet confirmed; use /status to inspect progress.')
     this.starting = this.waitForBootstrap().finally(() => { this.starting = undefined })
     return this.starting
   }

@@ -40,12 +40,14 @@ export function formatDaemonStatus(status: DaemonStatus): string {
 }
 
 /** The scriptable command and slash-command paths share this result validation. */
-export async function executeDaemonCommand(control: DaemonControl, command: DaemonCommand): Promise<{ code: 0 | 1; message: string }> {
+export async function executeDaemonCommand(control: DaemonControl, command: DaemonCommand, progress?: (text: string) => void): Promise<{ code: 0 | 1; message: string }> {
   try {
     let status: DaemonStatus
+    let bootstrapped = false
     try { status = await control.request('status') } catch (error) {
       if (command !== 'up' || !(error instanceof EndpointAbsentError) || !control.bootstrapUp) throw error
-      status = await control.bootstrapUp()
+      status = await control.bootstrapUp(progress)
+      bootstrapped = true
     }
     if (command === 'status') {
       return { code: ['failed', 'unreachable'].includes(status.supervisor) || status.daemon === 'unknown' || ['partial', 'unreadable'].includes(status.installation) ? 1 : 0, message: formatDaemonStatus(status) }
@@ -56,7 +58,8 @@ export async function executeDaemonCommand(control: DaemonControl, command: Daem
     const confirmed = (state: DaemonStatus) => state.installation === 'installed' && (command === 'down'
       ? state.supervisor === 'stopped' && state.daemon === 'stopped'
       : state.supervisor === 'running' && state.daemon === 'running')
-    if (command !== 'restart' && confirmed(status)) return { code: 0, message: `Already ${status.daemon}. ${formatDaemonStatus(status)}` }
+    if (command !== 'restart' && confirmed(status)) return { code: 0, message: `${bootstrapped ? '' : `Already ${status.daemon}. `}${formatDaemonStatus(status)}` }
+    if (bootstrapped) return { code: 1, message: `Operation not confirmed. ${formatDaemonStatus(status)} Run dearmachine status before retrying.` }
     status = await control.request(command)
     return confirmed(status)
       ? { code: 0, message: formatDaemonStatus(status) }
@@ -108,7 +111,7 @@ export class ConciergeShell {
       const operation = this.operations.then(async () => {
         if (this.closed) return
         if (text === '/up' || text === '/down' || text === '/restart' || text === '/status') {
-          const result = await executeDaemonCommand(this.ports.control, text.slice(1) as DaemonCommand)
+          const result = await executeDaemonCommand(this.ports.control, text.slice(1) as DaemonCommand, this.ports.say)
           this.ports.say(result.message)
           return
         }

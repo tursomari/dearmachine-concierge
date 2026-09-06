@@ -1,5 +1,5 @@
 import { lstat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import type { DaemonCommand, DaemonControl, DaemonStatus, InstallationState } from './concierge-control.ts'
 
 export const entryHelp = `Usage: machtiani-installer [--concierge [--source-root /absolute/path/to/machtiani]]
@@ -9,7 +9,8 @@ export const entryHelp = `Usage: machtiani-installer [--concierge [--source-root
        machtiani-installer --help
 
 Bare interactive invocation opens the local concierge. Fresh installation
-requires --source-root. Without a TTY, bare invocation prints this help.
+requires --source-root or DEARMACHINE_SOURCE_ROOT (an absolute umbrella checkout).
+Without a TTY, bare invocation prints this help.
 Concierge controls require a compatible supervisor endpoint; see /help.
 Native rescue commands: dearmachine --help, dearmachine status,
 dearmachine up, dearmachine down, dearmachine restart.
@@ -23,8 +24,13 @@ export type InstallerInvocation =
   | { mode: 'concierge'; sourceRoot?: string }
   | { mode: 'control'; command: DaemonCommand }
 
-export function parseInvocation(args: readonly string[]): InstallerInvocation {
-  if (args.length === 0 || (args.length === 1 && args[0] === '--concierge')) return { mode: 'concierge' }
+export function parseInvocation(args: readonly string[], environment: NodeJS.ProcessEnv = {}): InstallerInvocation {
+  if (args.length === 0 || (args.length === 1 && args[0] === '--concierge')) {
+    const sourceRoot = environment.DEARMACHINE_SOURCE_ROOT
+    if (!sourceRoot) return { mode: 'concierge' }
+    if (!isAbsolute(sourceRoot)) throw new Error('DEARMACHINE_SOURCE_ROOT must be absolute.')
+    return { mode: 'concierge', sourceRoot }
+  }
   if (args.length === 1) {
     if (args[0] === '--help') return { mode: 'help' }
     if (args[0] === '--mock') return { mode: 'mock' }

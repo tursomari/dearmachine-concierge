@@ -71,6 +71,18 @@ provider requests or native Dear Machine control. The socket server and attachme
 handoff are fixtures; these tests do not verify a native supervisor implementation.
 See [the increment split and contract](docs/concierge-increment-1.md).
 
+For the optional cross-repository gate, build the companion Go CLI and supply
+its absolute binary path (the suite skips when it is unset):
+
+```console
+DEARMACHINE_TEST_BIN=/absolute/path/to/test-dearmachine nix develop -c pnpm exec vitest run packages/app/tests/concierge-native.spec.ts
+```
+
+This gate runs the actual native foreground launcher and supervisor with a
+disposable HOME, socket, registry, and dummy daemon. It exercises fresh-install
+consent, all lifecycle slash commands, terminal restoration, and two-press
+Ctrl+C with the built TS entry. It never starts the real provider-backed daemon.
+
 ## Manual terminal exercises
 
 These are interactive product exercises, not substitutes for automated tests:

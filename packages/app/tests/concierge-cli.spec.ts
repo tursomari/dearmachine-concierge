@@ -11,7 +11,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 async function fixture(withServer = false) {
   const root = await mkdtemp(join(tmpdir(), 'concierge-cli-'))
   cleanups.push(() => rm(root, { recursive: true, force: true }))
-  const env = { ...process.env, HOME: root, DEARMACHINE_SUPERVISOR_SOCKET: '', XDG_STATE_HOME: join(root, 'state'), XDG_DATA_HOME: join(root, 'data'), TERM: 'xterm-256color' }
+  const env = { ...process.env, HOME: root, DEARMACHINE_SUPERVISOR_SOCKET: '', DEARMACHINE_SOURCE_ROOT: '', XDG_STATE_HOME: join(root, 'state'), XDG_DATA_HOME: join(root, 'data'), TERM: 'xterm-256color' }
   const commands: string[] = []
   if (withServer) {
     await mkdir(join(root, '.dearmachine'))
@@ -90,12 +90,14 @@ describe('real PTY concierge exit', () => {
   })
 })
 
-it('keeps local help and quit available before installer consent or provider setup', async () => {
+it.each(['source-flag', 'source-env', 'install-flag'])('keeps consent and local help before provider setup via %s', async mode => {
   const { root, env } = await fixture()
   await mkdir(join(root, 'source', 'machtiani-harness'), { recursive: true })
   await mkdir(join(root, 'source', 'dearmachine'))
+  if (mode === 'source-env') env.DEARMACHINE_SOURCE_ROOT = join(root, 'source')
+  const args = mode === 'source-env' ? ['--concierge'] : [mode === 'install-flag' ? '--install' : '--concierge', '--source-root', join(root, 'source')]
   const result = await new Promise<{ code: number; output: string }>((resolveResult, reject) => {
-    const child = pty.spawn('bash', ['--noprofile', '--norc', '-c', 'before=$(stty -g); "$1" "$2" --concierge --source-root "$3"; code=$?; after=$(stty -g); [ "$before" = "$after" ] || exit 90; exit "$code"', 'concierge-test', process.execPath, app, join(root, 'source')], { env: env as Record<string, string>, cols: 100, rows: 30 })
+    const child = pty.spawn('bash', ['--noprofile', '--norc', '-c', 'before=$(stty -g); "$@"; code=$?; after=$(stty -g); [ "$before" = "$after" ] || exit 90; exit "$code"', 'concierge-test', process.execPath, app, ...args], { env: env as Record<string, string>, cols: 100, rows: 30 })
     let output = ''
     let stage = 0
     const timer = setTimeout(() => { child.kill(); reject(new Error('Pre-setup concierge PTY timed out')) }, 5_000)

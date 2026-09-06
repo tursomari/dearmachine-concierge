@@ -106,3 +106,10 @@ describe('installer invocation split', () => {
     expect(() => parseInvocation(args)).toThrow('Usage:')
   })
 })
+
+it('accepts the native source-root environment through the existing concierge mode', () => {
+  expect(parseInvocation(['--concierge'], { DEARMACHINE_SOURCE_ROOT: '/fixture/source' })).toEqual({ mode: 'concierge', sourceRoot: '/fixture/source' })
+  expect(parseInvocation(['--concierge', '--source-root', '/explicit'], { DEARMACHINE_SOURCE_ROOT: '/fixture/source' })).toEqual({ mode: 'concierge', sourceRoot: '/explicit' })
+  expect(parseInvocation(['--help'], { DEARMACHINE_SOURCE_ROOT: 'invalid' })).toEqual({ mode: 'help' })
+  expect(() => parseInvocation(['--concierge'], { DEARMACHINE_SOURCE_ROOT: 'relative' })).toThrow('absolute')
+})

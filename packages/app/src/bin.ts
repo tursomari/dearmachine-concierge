@@ -7,7 +7,7 @@ export { parseInvocation as parseArguments } from './concierge-entry.ts'
 export type { InstallerInvocation } from './concierge-entry.ts'
 
 async function main(): Promise<void> {
-  const invocation = parseInvocation(process.argv.slice(2))
+  const invocation = parseInvocation(process.argv.slice(2), process.stdin.isTTY && process.stdout.isTTY ? process.env : {})
   if (invocation.mode === 'help' || (invocation.mode === 'concierge' && (!process.stdin.isTTY || !process.stdout.isTTY))) {
     process.stdout.write(entryHelp)
     return

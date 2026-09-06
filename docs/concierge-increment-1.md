@@ -2,13 +2,13 @@
 
 This checkout has no Dear Machine Go source or populated submodule. The native
 supervisor, singleton lock, child ownership, backoff, and `dearmachine` dispatch
-are deferred to that repository. This increment does not replace the native
-supervisor with an interface-owned process.
+are implemented in the companion Go repository. This increment does not replace
+the native supervisor with an interface-owned process.
 
 ## Control boundary
 
-`SocketDaemonControl` is the client half of a proposed local Unix socket
-contract. A future native supervisor must implement and secure the server side
+`SocketDaemonControl` is the client half of the version 1 local Unix socket
+contract. The native supervisor implements and secures the server side
 in an owned private state directory. Each connection carries one newline-delimited
 JSON request, `{ "version": 1, "command": "status" }`, where command is `status`,
 `up`, `down`, or `restart`. No credentials or provider settings are transmitted.
@@ -52,8 +52,8 @@ installation from whether a daemon process happens to be running.
 An observed installed-but-stopped daemon opens management without starting it.
 Only absent state routes to the existing installer with its consent and model
 wizard. After setup returns, detection runs again before a management handoff;
-declining setup is not treated as success. The actual native bare `dearmachine`
-entry and its explicit rescue dispatch remain deferred to the Go checkout.
+declining setup is not treated as success. The native bare `dearmachine` entry
+now launches this executable as described below; its explicit rescue dispatch remains available in the Go checkout.
 
 ## Available launcher and local shell
 
@@ -112,11 +112,54 @@ cancellation behavior is preserved. Lifecycle requests already sent are allowed
 to settle (bounded by the control deadline); cancellation does not undo them.
 The mock preview keeps its existing interrupt behavior.
 
-Remaining user-story work includes native supervision and dispatch, agent-backed
-management with saved profiles, actual attached ownership/log transfer, native
-installation validation, service capability probing and persistence UI, and real
-logout/reboot verification. The existing installation agent, wizard, credential
+Remaining user-story work includes agent-backed management with saved profiles,
+actual attached ownership/log transfer, service capability probing and
+persistence UI, and real logout/reboot verification. The existing installation agent, wizard, credential
 bridge, and guarded product operations are reused when fresh setup is requested.
+
+## Increment 2: foreground concierge handoff
+
+Bare native invocation probes both stdin and stdout. `--help` always prints help;
+explicit subcommands retain their scriptable/rescue behavior.
+
+| stdin and stdout | Installation detection | Result |
+| --- | --- | --- |
+| Either is not a TTY | Not performed | Help, exit 0 |
+| Both TTY | Absent | Launch `machtiani-installer --concierge`, adding `--source-root` when configured; TS selects fresh setup |
+| Both TTY | Installed, including stopped | Launch `machtiani-installer --concierge` for management |
+| Both TTY | Partial, unreadable, invalid, or substituted state | Recovery guidance, exit 1; no launch |
+
+Discovery uses `DEARMACHINE_CONCIERGE_BIN` (one absolute executable path or PATH
+name). When unset it resolves the exact name `machtiani-installer` on PATH.
+Relative paths, shell command strings, and guessed checkout locations are not
+supported. Missing/unexecutable binaries print the honest installer or management
+guidance plus discovery instructions and exit 1. The override is not silently
+replaced by another binary when discovery fails.
+
+Set `DEARMACHINE_SOURCE_ROOT` to an absolute Machtiani umbrella source checkout
+for fresh setup. Native absence routing passes it as `--source-root`; the TS
+entry also accepts it for bare/`--concierge` launch. Explicit source arguments
+win. This reuses the existing detection, installation consent, model wizard,
+and post-install re-detection flow; opening the interface authorizes no product
+changes. If no source root is configured, the TS fresh-machine shell retains
+its exact setup command and local help. Source discovery/bundling remains a
+prerequisite for a zero-configuration IXE launch.
+
+The child inherits stdin, stdout, stderr, and environment and owns the foreground
+terminal process group. The native parent waits and restores the original
+foreground group. It installs no SIGINT handler and does not forward SIGINT:
+terminal interrupts reach TS directly, preserving its two-second second-press
+window. There is no daemonization or parent-death kill policy for the concierge;
+normal terminal/session semantics apply. SIGTTOU is ignored only during foreground
+restoration after the child exits.
+
+Child exit codes propagate unchanged, including nonzero codes without duplicate
+native error logging. Signal termination maps to `128 + signal` (e.g. SIGTERM
+143). Discovery/launch failures exit 1; successful help and ordinary child exit
+are 0. Merely opening or exiting the interface never starts/stops a daemon.
+An unavailable owner remains an unconfirmed control outcome; explicitly bootstrap
+it with native `dearmachine up`. The TS management interface provides local
+commands; agent-backed conversation remains deferred.
 
 ## Verification
 
@@ -126,3 +169,8 @@ terminal menu/credential boundaries, and real-PTY launch/exit checks. Every new
 socket, home, state directory, and disposable process uses isolated test state.
 No live provider, native daemon, systemd service, or credential is used. See
 [the testing entrypoint](../TESTING.md) for commands.
+
+Increment 2 verification: the app and TUI suites passed 145 tests across 13
+files, including the opt-in native handoff gate with a supplied native binary.
+The workspace build and repository typecheck passed. These tests exercise the
+existing consent screen without contacting a provider or performing installation.

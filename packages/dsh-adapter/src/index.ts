@@ -142,7 +142,7 @@ export interface DshTaskResult {
 
 export type InstallerAgentEvent =
   | { type: 'assistant'; text: string; reasoning: string }
-  | { type: 'tool-start'; id: string; name: string }
+  | { type: 'tool-start'; id: string; name: string; detail: string }
   | { type: 'tool-end'; id: string; failed: boolean }
   | {
       type: 'turn-end'
@@ -196,6 +196,35 @@ function contentText(value: unknown, type: 'text' | 'reasoning'): string {
   }).join('')
 }
 
+const secretShapedDetail = /(?:\b(?:sk|rk|pk)-[a-z0-9_-]{8,}|\bgh(?:p|o|u|s|r)_[a-z0-9_]{8,}|\bgithub_pat_[a-z0-9_]{8,}|\bAKIA[A-Z0-9]{16}\b|\bbearer\s+[a-z0-9._~+/=-]{8,}|\b(?:api[_ -]?key|password|secret|access[_ -]?token|refresh[_ -]?token)\s*[:=]\s*\S+)/iu
+
+function publicToolDetail(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.replace(/[\u0000-\u001f\u007f]+/gu, ' ').replace(/\s+/gu, ' ').trim()
+  if (normalized === '' || secretShapedDetail.test(normalized)) return undefined
+  const characters = [...normalized]
+  return characters.length <= 120 ? normalized : `${characters.slice(0, 119).join('')}…`
+}
+
+function toolCallDetail(name: string, encodedArguments: unknown): string {
+  if (typeof encodedArguments !== 'string') return 'Working'
+  let args: Record<string, unknown> | undefined
+  try { args = record(JSON.parse(encodedArguments)) } catch { return 'Working' }
+  if (args === undefined) return 'Working'
+
+  if (name === 'web_search') {
+    const count = Array.isArray(args.queries) ? args.queries.length : 0
+    return count === 1 ? '1 query' : count > 1 ? `${count} queries` : 'Working'
+  }
+
+  let candidate: unknown
+  if (name === 'bash') candidate = args.description
+  else if (name === 'read' || name === 'write' || name === 'edit' || name === 'apply_patch') candidate = args.file_path ?? args.path
+  else if (name === 'glob' || name === 'grep') candidate = args.pattern ?? args.path
+  else candidate = undefined
+  return publicToolDetail(candidate) ?? 'Working'
+}
+
 /** Normalize the pinned SDK event vocabulary before it reaches product code. */
 export function normalizeDshSessionEvent(value: unknown): InstallerAgentEvent | undefined {
   const event = record(value)
@@ -209,7 +238,7 @@ export function normalizeDshSessionEvent(value: unknown): InstallerAgentEvent | 
     }
   }
   if (event?.type === 'tool/call' && typeof data?.callId === 'string' && typeof data.name === 'string') {
-    return { type: 'tool-start', id: data.callId, name: data.name }
+    return { type: 'tool-start', id: data.callId, name: data.name, detail: toolCallDetail(data.name, data.arguments) }
   }
   if (event?.type === 'tool/result') {
     const message = record(data?.message)

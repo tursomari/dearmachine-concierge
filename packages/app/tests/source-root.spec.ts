@@ -3,11 +3,44 @@ import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { installationProgressLabel, installerAgentPrompt, installerTurnMessage, validatedSourceRoot } from '../src/index.ts'
+import {
+  installationProgressLabel,
+  installerAgentPrompt,
+  installerTurnMessage,
+  renderAgentEvent,
+  type AgentToolActivityState,
+  validatedSourceRoot,
+} from '../src/index.ts'
 
 describe('installer source root', () => {
   it('describes the whole guided session as installation progress', () => {
     expect(installationProgressLabel).toBe('Machtiani installation in progress')
+  })
+
+  it('keeps a safe tool purpose visible after the agent tool settles', () => {
+    const rows: string[] = []
+    const tui = {
+      addAssistant: () => {},
+      addReasoning: () => {},
+      beginTool: (name: string, detail: string) => {
+        rows.push(`start:${name}:${detail}`)
+        return {
+          succeed: (summary?: string) => { rows.push(`success:${name}:${summary ?? ''}`) },
+          fail: (summary: string) => { rows.push(`failure:${name}:${summary}`) },
+        }
+      },
+    }
+    const tools = new Map<string, AgentToolActivityState>()
+    renderAgentEvent(tui, tools, { type: 'tool-start', id: 'call-1', name: 'bash', detail: 'Inspect the environment' })
+    renderAgentEvent(tui, tools, { type: 'tool-end', id: 'call-1', failed: false })
+    renderAgentEvent(tui, tools, { type: 'tool-start', id: 'call-2', name: 'read', detail: 'docs/installation/01-environment.md' })
+    renderAgentEvent(tui, tools, { type: 'tool-end', id: 'call-2', failed: true })
+    expect(rows).toEqual([
+      'start:bash:Inspect the environment',
+      'success:bash:Inspect the environment',
+      'start:read:docs/installation/01-environment.md',
+      'failure:read:docs/installation/01-environment.md — Failed',
+    ])
   })
 
   it('gives one agent the contract and transcript-free credential bridge commands', () => {

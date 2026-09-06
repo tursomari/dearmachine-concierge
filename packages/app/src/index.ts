@@ -185,20 +185,31 @@ function renderInstallationOutcome(outcome: InstallationOutcome): string {
 
 export const installationProgressLabel = 'Machtiani installation in progress'
 
-function renderAgentEvent(tui: InstallerTui, tools: Map<string, ReturnType<InstallerTui['beginTool']>>, event: InstallerAgentEvent): void {
+interface AgentEventTui {
+  addAssistant(message: string): void
+  addReasoning(message: string): void
+  beginTool(name: string, detail: string): ReturnType<InstallerTui['beginTool']>
+}
+
+export interface AgentToolActivityState {
+  activity: ReturnType<InstallerTui['beginTool']>
+  detail: string
+}
+
+export function renderAgentEvent(tui: AgentEventTui, tools: Map<string, AgentToolActivityState>, event: InstallerAgentEvent): void {
   switch (event.type) {
     case 'assistant':
       if (event.reasoning.trim() !== '') tui.addReasoning(event.reasoning)
       if (event.text.trim() !== '') tui.addAssistant(event.text)
       break
     case 'tool-start':
-      tools.set(event.id, tui.beginTool(event.name, 'Working'))
+      tools.set(event.id, { activity: tui.beginTool(event.name, event.detail), detail: event.detail })
       break
     case 'tool-end': {
       const tool = tools.get(event.id)
       tools.delete(event.id)
-      if (event.failed) tool?.fail('Failed')
-      else tool?.succeed('Done')
+      if (event.failed) tool?.activity.fail(`${tool.detail} — Failed`)
+      else tool?.activity.succeed(tool.detail)
       break
     }
     case 'turn-end':
@@ -247,7 +258,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   let agent: DshAgentSession | undefined
   let setup: InstallerModelSetup | undefined
   let wizard: Promise<InstallerModelSelection> | undefined
-  const tools = new Map<string, ReturnType<InstallerTui['beginTool']>>()
+  const tools = new Map<string, AgentToolActivityState>()
   const tui = new InstallerTui({
     onSubmit: async text => { await agent?.prompt(text) },
     onInterrupt: async () => { await agent?.interrupt() },

@@ -217,8 +217,33 @@ describe('pinned DSH compatibility boundary', () => {
       data: { message: { content: [{ type: 'reasoning', text: 'considering' }, { type: 'text', text: 'Welcome.' }] } },
     })).toEqual({ type: 'assistant', text: 'Welcome.', reasoning: 'considering' })
     expect(normalizeDshSessionEvent({
-      type: 'tool/call', data: { callId: 'call-1', name: 'bash', arguments: '{"private":"omitted"}' },
-    })).toEqual({ type: 'tool-start', id: 'call-1', name: 'bash' })
+      type: 'tool/call',
+      data: {
+        callId: 'call-1',
+        name: 'bash',
+        arguments: JSON.stringify({
+          command: 'curl -H "Authorization: Bearer private-token" https://example.invalid',
+          description: 'Check the installation environment',
+        }),
+      },
+    })).toEqual({ type: 'tool-start', id: 'call-1', name: 'bash', detail: 'Check the installation environment' })
+    expect(JSON.stringify(normalizeDshSessionEvent({
+      type: 'tool/call',
+      data: {
+        callId: 'call-private',
+        name: 'bash',
+        arguments: JSON.stringify({ command: 'true', description: 'Use sk-private-value-now' }),
+      },
+    }))).not.toContain('sk-private-value-now')
+    expect(normalizeDshSessionEvent({
+      type: 'tool/call', data: { callId: 'call-read', name: 'read', arguments: '{"file_path":"docs/installation/01-environment.md"}' },
+    })).toEqual({ type: 'tool-start', id: 'call-read', name: 'read', detail: 'docs/installation/01-environment.md' })
+    expect(normalizeDshSessionEvent({
+      type: 'tool/call', data: { callId: 'call-search', name: 'web_search', arguments: '{"queries":["one","two"]}' },
+    })).toEqual({ type: 'tool-start', id: 'call-search', name: 'web_search', detail: '2 queries' })
+    expect(normalizeDshSessionEvent({
+      type: 'tool/call', data: { callId: 'call-unknown', name: 'custom', arguments: '{"private":"omitted"}' },
+    })).toEqual({ type: 'tool-start', id: 'call-unknown', name: 'custom', detail: 'Working' })
     expect(normalizeDshSessionEvent({
       type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'call-1', content: [] }] } },
     })).toEqual({ type: 'tool-end', id: 'call-1', failed: false })

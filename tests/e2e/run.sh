@@ -77,6 +77,10 @@ test "$dependency_copy_line" -lt "$dependency_install_line" && \
   fail 'QSE Dockerfile must cache dependencies before copying and testing changing source'
 grep -F -- '--network-concurrency=1' "$dockerfile" >/dev/null || \
   fail 'QSE Dockerfile must bound pnpm download concurrency for memory safety'
+grep -F -- 'id=machtiani-installer-qse-pnpm-v11,target=/root/.local/share/pnpm/store' "$dockerfile" >/dev/null || \
+  fail 'QSE Dockerfile must persist the pnpm content-addressable store'
+grep -F -- '--store-dir=/root/.local/share/pnpm/store' "$dockerfile" >/dev/null || \
+  fail 'QSE dependency install must use the persistent pnpm store'
 grep -F -- 'src = packageSource;' "$installer_flake" >/dev/null || \
   fail 'installer package source must exclude development artifacts before the Nix build'
 grep -F -- 'packageSource = pkgs.lib.cleanSourceWith {' "$installer_flake" >/dev/null || \

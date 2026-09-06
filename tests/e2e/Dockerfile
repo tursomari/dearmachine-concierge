@@ -51,9 +51,10 @@ COPY machtiani-installer/packages/model-host/package.json /workspace/machtiani/m
 COPY machtiani-installer/packages/product-adapter/package.json /workspace/machtiani/machtiani-installer/packages/product-adapter/package.json
 COPY machtiani-installer/packages/tui/package.json /workspace/machtiani/machtiani-installer/packages/tui/package.json
 COPY machtiani-installer/packages/workflow/package.json /workspace/machtiani/machtiani-installer/packages/workflow/package.json
-RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
+RUN --mount=type=cache,id=machtiani-installer-qse-pnpm-v11,target=/root/.local/share/pnpm/store,sharing=locked \
+    nix develop path:/workspace/machtiani/machtiani-installer -c \
       pnpm --dir /workspace/machtiani/machtiani-installer install --frozen-lockfile \
-        --network-concurrency=1 --child-concurrency=1
+        --store-dir=/root/.local/share/pnpm/store --network-concurrency=1 --child-concurrency=1
 RUN set -eu; \
     install -d /opt/machtiani-installer-dependencies; \
     cd /workspace/machtiani/machtiani-installer; \

@@ -54,6 +54,7 @@ COPY machtiani-installer/packages/workflow/package.json /workspace/machtiani/mac
 RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
       pnpm --dir /workspace/machtiani/machtiani-installer install --frozen-lockfile \
         --network-concurrency=1 --child-concurrency=1
+RUN nix build --no-link path:/workspace/machtiani/machtiani-installer#build-dependencies
 
 # Exercise the full installer semantic, snapshot, and PTY suite in the same
 # sparse source-only image used by the live product gate.

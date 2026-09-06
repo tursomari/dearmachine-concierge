@@ -65,10 +65,12 @@ dockerfile_line() {
 
 dependency_copy_line=$(dockerfile_line 'COPY machtiani-installer/flake.nix' 'the dependency-manifest cache boundary')
 dependency_install_line=$(dockerfile_line 'pnpm --dir /workspace/machtiani/machtiani-installer install' 'the dependency installation step')
+nix_dependency_cache_line=$(dockerfile_line 'nix build --no-link path:/workspace/machtiani/machtiani-installer#build-dependencies' 'the native Nix dependency cache')
 source_copy_line=$(dockerfile_line 'COPY . /workspace/machtiani' 'the complete source copy')
 source_test_line=$(dockerfile_line 'pnpm --dir /workspace/machtiani/machtiani-installer test' 'the source test step')
 test "$dependency_copy_line" -lt "$dependency_install_line" && \
-  test "$dependency_install_line" -lt "$source_copy_line" && \
+  test "$dependency_install_line" -lt "$nix_dependency_cache_line" && \
+  test "$nix_dependency_cache_line" -lt "$source_copy_line" && \
   test "$source_copy_line" -lt "$source_test_line" || \
   fail 'QSE Dockerfile must cache dependencies before copying and testing changing source'
 grep -F -- '--network-concurrency=1' "$dockerfile" >/dev/null || \

@@ -54,3 +54,64 @@ Only absent state routes to the existing installer with its consent and model
 wizard. After setup returns, detection runs again before a management handoff;
 declining setup is not treated as success. The actual native bare `dearmachine`
 entry and its explicit rescue dispatch remain deferred to the Go checkout.
+
+## Available launcher and local shell
+
+Run `machtiani-installer` or `machtiani-installer --concierge` in a terminal for
+the local concierge. On a fresh machine, supply
+`--concierge --source-root /absolute/path/to/machtiani` to enter the existing
+installer. Without a source root, the fresh-machine shell explains that command;
+source discovery is deferred. Existing `--install --source-root ...` and `--mock`
+entry points remain available. Bare non-TTY invocation and `--help` print help
+without loading the TUI, DSH, model wizard, or provider modules.
+
+`machtiani-installer status|up|down|restart` and `/up`, `/down` use the same
+control dispatcher. Exit code 0 means a successful observation or confirmed
+operation (including an already-running/already-stopped no-op); 1 means invalid
+arguments, missing prerequisites, failed status, or unconfirmed operation. Status
+also returns 1 for failed/unreachable supervision, unknown daemon state, or
+partial/unreadable installation. A stopped daemon alone is not an error.
+
+The proposed endpoint is `$XDG_STATE_HOME/machtiani-installer/supervisor.sock`,
+with `$HOME/.local/state` as the state-root fallback. These are installer-side
+integration paths, not a claim about the native CLI's current socket location.
+Without a compatible server, lifecycle requests fail with native CLI recovery
+guidance. They never launch an unsupervised replacement or control the existing
+native instance by a guessed PID.
+
+`/help`, `/up`, `/down`, `/quit`, and `/detach` are intercepted locally, including
+while a model choice or external sign-in is pending. Press Escape to return from
+partially typed slash input to the pending menu. Masked credential input is never
+interpreted as a command. Unknown slash commands and trailing arguments stay
+local. Provider failures point to `/help`; management conversation is a future
+integration, while this increment's management interface makes no model calls.
+
+`/quit` and `/detach` serialize behind in-flight lifecycle commands. The shell's
+attachment contract confirms independent ownership, unsubscribes logs, and only
+then closes the interface. A failed handoff or unsubscribe keeps it open. The
+current launcher does not own or attach to a daemon and has no log subscription,
+so those callbacks are no-ops. Actual foreground-daemon transfer and log attachment
+must be supplied by the future native integration; the fake attachment tests do
+not prove a native transfer. PTY tests prove terminal restoration and that an
+independently spawned disposable process survives interface exit.
+
+The concierge and live installer use a two-second second-Ctrl+C window. Normal
+input disarms it; expired windows cannot exit. The existing credential-specific
+cancellation behavior is preserved. Lifecycle requests already sent are allowed
+to settle (bounded by the control deadline); cancellation does not undo them.
+The mock preview keeps its existing interrupt behavior.
+
+Remaining user-story work includes native supervision and dispatch, agent-backed
+management with saved profiles, actual attached ownership/log transfer, native
+installation validation, service capability probing and persistence UI, and real
+logout/reboot verification. The existing installation agent, wizard, credential
+bridge, and guarded product operations are reused when fresh setup is requested.
+
+## Verification
+
+The maintained Vitest suite includes control socket fixtures, conservative entry
+routing, provider-free command dispatch, shell lifecycle contracts, headless
+terminal menu/credential boundaries, and real-PTY launch/exit checks. Every new
+socket, home, state directory, and disposable process uses isolated test state.
+No live provider, native daemon, systemd service, or credential is used. See
+[the testing entrypoint](../TESTING.md) for commands.

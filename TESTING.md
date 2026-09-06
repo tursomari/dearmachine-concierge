@@ -57,6 +57,20 @@ The active Vitest configuration collects `packages/*/tests/**/*.spec.ts` and
 Use Vitest's normal file or name filters after `pnpm build` for focused work;
 the full `pnpm test` remains the maintained aggregate suite.
 
+## Concierge increment checks
+
+The concierge tests are part of the maintained aggregate suite. After `pnpm build`,
+run the focused contracts and terminal exercises with:
+
+```console
+nix develop -c pnpm exec vitest run packages/app/tests/concierge-control.spec.ts packages/app/tests/concierge-entry.spec.ts packages/app/tests/concierge-shell.spec.ts packages/app/tests/concierge-cli.spec.ts packages/tui/tests/concierge.spec.ts
+```
+
+They use temporary homes/state/socket paths and disposable processes, with no
+provider requests or native Dear Machine control. The socket server and attachment
+handoff are fixtures; these tests do not verify a native supervisor implementation.
+See [the increment split and contract](docs/concierge-increment-1.md).
+
 ## Manual terminal exercises
 
 These are interactive product exercises, not substitutes for automated tests:

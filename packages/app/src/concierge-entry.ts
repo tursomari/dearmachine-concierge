@@ -17,7 +17,8 @@ Native init, setup-agents, and inbox remain commands of dearmachine.
 `
 
 export type InstallerInvocation =
-  | { mode: 'mock' | 'help' }
+  | { mode: 'mock' }
+  | { mode: 'help' }
   | { mode: 'install'; sourceRoot: string }
   | { mode: 'concierge'; sourceRoot?: string }
   | { mode: 'control'; command: DaemonCommand }

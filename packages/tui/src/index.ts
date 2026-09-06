@@ -39,6 +39,9 @@ export interface InstallerTuiOptions {
   title?: string
   color?: boolean
   environment?: NodeJS.ProcessEnv
+  onLocalCommand?(text: string): void | Promise<void>
+  exitWindowMs?: number
+  interruptHint?: string
   onSubmit?(text: string): void | Promise<void>
   onInterrupt?(): void | Promise<void>
   onExit?(): void
@@ -98,6 +101,8 @@ export class InstallerTui {
   private progressFrame = 0
   private progressTimer: ReturnType<typeof setInterval> | undefined
   private exitArmed = false
+  private exitArmedAt = 0
+  private localCommandActive = false
 
   constructor(private readonly options: InstallerTuiOptions = {}) {
     this.terminal = options.terminal ?? new ProcessTerminal()
@@ -129,15 +134,21 @@ export class InstallerTui {
     this.ui.addChild(this.inputSlot)
     this.ui.setFocus(this.editor)
     this.removeInputListener = this.ui.addInputListener(data => {
+      if (this.localCommandActive && matchesKey(data, Key.escape)) {
+        this.closeLocalCommand()
+        this.requestRender()
+        return { consume: true }
+      }
       if (matchesKey(data, Key.ctrl('c'))) {
         if (this.pendingQuestion?.mode === 'secret') {
           this.clearExitWarning()
           this.cancelPending(new SecretInputCancelledError())
-        } else if (this.exitArmed) {
+        } else if (this.exitArmed && Date.now() - this.exitArmedAt < (this.options.exitWindowMs ?? Infinity)) {
           this.options.onExit?.()
         } else {
           this.exitArmed = true
-          this.interruptNotice.setText(this.theme.provenance('Activity stopped. Press Ctrl+C again to exit the installer.'))
+          this.exitArmedAt = Date.now()
+          this.interruptNotice.setText(this.theme.provenance(this.options.interruptHint ?? 'Activity stopped. Press Ctrl+C again to exit the installer.'))
           this.requestRender()
           const interrupt = this.cancellationHandler ?? this.options.onInterrupt
           if (interrupt !== undefined) {
@@ -155,6 +166,14 @@ export class InstallerTui {
         return { consume: true }
       }
       this.clearExitWarning()
+      if (this.options.onLocalCommand !== undefined && this.pendingQuestion?.mode !== 'secret' &&
+        data.startsWith('/') && !this.localCommandActive && (this.choiceInput !== undefined || this.externalWaitLabel !== undefined)) {
+        this.localCommandActive = true
+        this.editor.setText('')
+        this.inputSlot.addChild(this.editor)
+        this.ui.setFocus(this.editor)
+        this.requestRender()
+      }
       return undefined
     })
   }
@@ -261,6 +280,7 @@ export class InstallerTui {
         if (!active) return
         active = false
         if (this.externalWaitLabel !== label) return
+        this.closeLocalCommand()
         this.inputSlot.removeChild(label)
         this.externalWaitLabel = undefined
         this.inputSlot.addChild(this.editor)
@@ -384,9 +404,9 @@ export class InstallerTui {
   }
 
   private appendBanner(): void {
-    const title = this.theme.bold(this.theme.truth('MACHTIANI INSTALLER'))
+    const title = this.theme.bold(this.theme.truth(this.options.title?.toLocaleUpperCase('en-US') ?? 'MACHTIANI INSTALLER'))
     this.transcript.addChild(new Text(title, 1, 0))
-    this.transcript.addChild(new Text(this.theme.dim('A guided setup for Dear Machine'), 1, 0))
+    this.transcript.addChild(new Text(this.theme.dim(this.options.title === undefined ? 'A guided setup for Dear Machine' : 'Use /help for local controls'), 1, 0))
   }
 
   private addRole(role: string, message: string): void {
@@ -401,9 +421,15 @@ export class InstallerTui {
 
   private async submit(value: string, secret: boolean): Promise<void> {
     const text = secret ? value : value.trim()
+    if (!secret && this.localCommandActive && !text.startsWith('/')) {
+      this.closeLocalCommand()
+      this.requestRender()
+      return
+    }
     if (text === '') return
     const pending = this.pendingQuestion
-    if (pending?.mode === 'choice') return
+    const local = !secret && text.startsWith('/') && this.options.onLocalCommand !== undefined
+    if (pending?.mode === 'choice' && !local) return
     if (pending !== undefined && (pending.mode === 'secret') !== secret) return
     if (secret) {
       if (pending === undefined) return
@@ -416,6 +442,11 @@ export class InstallerTui {
     this.editor.addToHistory(text)
     this.editor.setText('')
     this.addUser(text)
+    if (local) {
+      this.closeLocalCommand()
+      try { await this.options.onLocalCommand?.(text) } catch { this.addAssistant('Local command failed. Use /help or dearmachine status for recovery.') }
+      return
+    }
     if (pending !== undefined) {
       this.removePendingAbortListener(pending)
       this.pendingQuestion = undefined
@@ -423,6 +454,16 @@ export class InstallerTui {
       return
     }
     await this.options.onSubmit?.(text)
+  }
+
+  private closeLocalCommand(): void {
+    if (!this.localCommandActive) return
+    this.localCommandActive = false
+    this.editor.setText('')
+    this.inputSlot.removeChild(this.editor)
+    if (this.choiceInput !== undefined) this.ui.setFocus(this.choiceInput)
+    else if (this.externalWaitLabel !== undefined) this.ui.setFocus(null)
+    else { this.inputSlot.addChild(this.editor); this.ui.setFocus(this.editor) }
   }
 
   private deactivateSecretInput(): void {
@@ -438,6 +479,7 @@ export class InstallerTui {
   }
 
   private deactivateChoiceInput(): void {
+    this.closeLocalCommand()
     const input = this.choiceInput
     if (input !== undefined) this.inputSlot.removeChild(input)
     this.choiceInput = undefined

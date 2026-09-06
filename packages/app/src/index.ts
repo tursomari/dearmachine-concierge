@@ -14,6 +14,8 @@ import type { InstallationOutcome } from '@dearmachine/machtiani-installer-dsh-a
 import { CredentialBridge, credentialSocketPath } from './credential-bridge.ts'
 import { acquireInstallerLock } from './lock.ts'
 import { runInstallerModelWizard } from './model-wizard.ts'
+import { ConciergeShell, conciergeInterruptHint } from './concierge-shell.ts'
+import { SocketDaemonControl } from './concierge-control.ts'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
@@ -224,24 +226,24 @@ export function renderAgentEvent(tui: AgentEventTui, tools: Map<string, AgentToo
 export function installerTurnMessage(event: Extract<InstallerAgentEvent, { type: 'turn-end' }>): string | undefined {
   if (event.outcome === 'completed') return undefined
   if (event.outcome === 'error' && event.failureCode === 'TIMEOUT') {
-    return 'The installer model provider timed out after several attempts. Type “try again” to retry in this window, or press Ctrl+C to exit.'
+    return 'The installer model provider timed out after several attempts. Type “try again” to retry in this window, or use /help for local controls.'
   }
   if (event.outcome === 'error' && event.failureCode === 'RATE_LIMIT') {
-    return 'The installer model provider is temporarily rate-limited. Wait a moment, then type “try again”, or press Ctrl+C to exit.'
+    return 'The installer model provider is temporarily rate-limited. Wait a moment, then type “try again”, or use /help for local controls.'
   }
   if (event.outcome === 'error' && (event.failureCode === 'SERVER' || event.failureCode === 'TRANSPORT' || event.failureCode === 'EMPTY_RESPONSE')) {
-    return 'The installer model provider had a temporary connection problem. Type “try again” to retry in this window, or press Ctrl+C to exit.'
+    return 'The installer model provider had a temporary connection problem. Type “try again” to retry in this window, or use /help for local controls.'
   }
   if (event.outcome === 'max-tokens') {
-    return 'The installer model reached its turn limit before finishing. Ask it to continue, or press Ctrl+C to exit.'
+    return 'The installer model reached its turn limit before finishing. Ask it to continue, or use /help for local controls.'
   }
   if (event.outcome === 'aborted') {
-    return 'The current installer turn was cancelled. You can continue in this window, or press Ctrl+C to exit.'
+    return 'The current installer turn was cancelled. You can continue in this window, or use /help for local controls.'
   }
   if (event.outcome === 'blocked') {
-    return 'The installer needs more information before it can continue. Reply with the requested detail, or press Ctrl+C to exit.'
+    return 'The installer needs more information before it can continue. Reply with the requested detail, or use /help for local controls.'
   }
-  return 'The installer model could not complete this turn. Type “try again” to retry in this window, or press Ctrl+C to exit.'
+  return 'The installer model could not complete this turn. Type “try again” to retry in this window, or use /help for local controls.'
 }
 
 /** Runs one DSH agent that conducts the published installation contract. */
@@ -259,10 +261,20 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   let setup: InstallerModelSetup | undefined
   let wizard: Promise<InstallerModelSelection> | undefined
   const tools = new Map<string, AgentToolActivityState>()
+  let shell!: ConciergeShell
   const tui = new InstallerTui({
-    onSubmit: async text => { await agent?.prompt(text) },
+    onLocalCommand: text => shell.submit(text),
+    exitWindowMs: 2_000, interruptHint: conciergeInterruptHint,
+    onSubmit: text => shell.submit(text),
     onInterrupt: async () => { await agent?.interrupt() },
-    onExit: requestExit,
+    onExit: () => { void shell.submit('/quit') },
+  })
+  shell = new ConciergeShell({
+    control: new SocketDaemonControl(join(paths.stateDirectory, 'supervisor.sock')),
+    say: text => tui.addAssistant(text),
+    converse: async text => { await agent?.prompt(text) },
+    ensureIndependent: async () => {}, unsubscribe: async () => {},
+    close: async () => { requestExit() },
   })
   const credentials = new CredentialFileAdapter({ home })
   const socketPath = credentialSocketPath(paths.stateDirectory)
@@ -272,10 +284,10 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const outcomeWait = new AbortController()
   try {
     tui.start()
-    const consent = await tui.choose(messages.welcome, [
+    const consent = await Promise.race([tui.choose(messages.welcome, [
       { value: 'continue', label: 'Continue', description: 'Begin guided installation' },
       { value: 'not-now', label: 'Not now', description: 'Exit without changing anything' },
-    ], 'continue')
+    ], 'continue'), exitRequested.then(() => 'not-now')])
     if (consent !== 'continue') {
       tui.addAssistant(messages.notNow)
       return
@@ -320,6 +332,10 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     ])
     if (completion.kind === 'agent-exit') throw new Error(`The installation assistant exited unexpectedly (${completion.exitCode ?? 'unknown'}).`)
     if (completion.kind === 'outcome') tui.addAssistant(renderInstallationOutcome(completion.outcome))
+  } catch {
+    tui.setProgress(undefined)
+    tui.addAssistant('The installation assistant could not continue. Use /help for local controls and recovery commands, or /quit to close this interface.')
+    await exitRequested
   } finally {
     outcomeWait.abort()
     await agent?.shutdown().catch(() => {})

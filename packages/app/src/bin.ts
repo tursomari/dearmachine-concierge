@@ -1,18 +1,33 @@
 #!/usr/bin/env node
-import { runInstaller, runMockInstaller } from './index.ts'
+import { entryHelp, parseInvocation } from './concierge-entry.ts'
+import { executeDaemonCommand } from './concierge-shell.ts'
+import { join } from 'node:path'
+import { SocketDaemonControl } from './concierge-control.ts'
 
-export type InstallerInvocation = { mode: 'mock' } | { mode: 'install'; sourceRoot: string }
-
-export function parseArguments(args: readonly string[]): InstallerInvocation {
-  if (args.length === 1 && args[0] === '--mock') return { mode: 'mock' }
-  if (args.length === 3 && args[0] === '--install' && args[1] === '--source-root' && args[2] !== '') {
-    return { mode: 'install', sourceRoot: args[2]! }
-  }
-  throw new Error('Usage: machtiani-installer --install --source-root /absolute/path/to/machtiani\n       machtiani-installer --mock')
-}
+export { parseInvocation as parseArguments } from './concierge-entry.ts'
+export type { InstallerInvocation } from './concierge-entry.ts'
 
 async function main(): Promise<void> {
-  const invocation = parseArguments(process.argv.slice(2))
+  const invocation = parseInvocation(process.argv.slice(2))
+  if (invocation.mode === 'help' || (invocation.mode === 'concierge' && (!process.stdin.isTTY || !process.stdout.isTTY))) {
+    process.stdout.write(entryHelp)
+    return
+  }
+  if (invocation.mode === 'control') {
+    const home = process.env.HOME
+    if (!home) throw new Error('HOME is required to locate the concierge control endpoint.')
+    const control = new SocketDaemonControl(join(process.env.XDG_STATE_HOME || join(home, '.local', 'state'), 'machtiani-installer', 'supervisor.sock'))
+    const result = await executeDaemonCommand(control, invocation.command)
+    ;(result.code === 0 ? process.stdout : process.stderr).write(result.message + '\n')
+    process.exitCode = result.code
+    return
+  }
+  if (invocation.mode === 'concierge') {
+    const { launchConcierge } = await import('./concierge.ts')
+    await launchConcierge(invocation.sourceRoot)
+    return
+  }
+  const { runInstaller, runMockInstaller } = await import('./index.ts')
   await (invocation.mode === 'mock' ? runMockInstaller() : runInstaller(invocation.sourceRoot))
 }
 

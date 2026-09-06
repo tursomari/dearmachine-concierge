@@ -1,0 +1,80 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { InstallerTui } from '../src/index.ts'
+import { HeadlessTerminal } from './headless-terminal.ts'
+const opened: { tui: InstallerTui; terminal: HeadlessTerminal }[] = []
+afterEach(async () => {
+  vi.useRealTimers()
+  await Promise.all(opened.splice(0).map(async ({ tui, terminal }) => { await tui.dispose(); await terminal.dispose() }))
+})
+async function fixture() {
+  const terminal = new HeadlessTerminal()
+  const local = vi.fn().mockResolvedValue(undefined)
+  const exit = vi.fn()
+  const submit = vi.fn()
+  const tui = new InstallerTui({ terminal, color: false, title: 'Dear Machine Concierge', onLocalCommand: local, onExit: exit, onSubmit: submit, exitWindowMs: 2_000 })
+  opened.push({ tui, terminal })
+  tui.start()
+  await terminal.waitForFrame()
+  return { tui, terminal, local, exit, submit }
+}
+describe('concierge terminal commands', () => {
+  it('routes slash input before an ordinary question without resolving it', async () => {
+    const { tui, terminal, local, submit } = await fixture()
+    const answer = tui.ask({ message: 'Question' })
+    terminal.send('/help')
+    terminal.send('\r')
+    await vi.waitFor(() => expect(local).toHaveBeenCalledWith('/help'))
+    terminal.send('answer')
+    terminal.send('\r')
+    await expect(answer).resolves.toBe('answer')
+    expect(submit).not.toHaveBeenCalled()
+  })
+  it('makes help available during the provider choice without accepting or dismissing it', async () => {
+    const { tui, terminal, local } = await fixture()
+    const answer = tui.choose('Provider', [{ value: 'fixture', label: 'Fixture' }])
+    terminal.send('/help')
+    terminal.send('\r')
+    await vi.waitFor(() => expect(local).toHaveBeenCalledWith('/help'))
+    terminal.send('\r')
+    await expect(answer).resolves.toBe('fixture')
+  })
+  it('makes help available while browser sign-in is pending', async () => {
+    const { tui, terminal, local, submit } = await fixture()
+    const wait = tui.beginExternalWait('Sign in')
+    terminal.send('/help')
+    terminal.send('\r')
+    await vi.waitFor(() => expect(local).toHaveBeenCalledWith('/help'))
+    expect(submit).not.toHaveBeenCalled()
+    wait.close()
+  })
+  it('restores the provider menu when a local command is cancelled', async () => {
+    const { tui, terminal, local } = await fixture()
+    const answer = tui.choose('Provider', [{ value: 'fixture', label: 'Fixture' }])
+    void answer.catch(() => {})
+    terminal.send('/')
+    terminal.send('\x1b')
+    terminal.send('\r')
+    await expect(answer).resolves.toBe('fixture')
+    expect(local).not.toHaveBeenCalled()
+  })
+  it('never interprets masked input as a slash command', async () => {
+    const { tui, terminal, local } = await fixture()
+    const secret = tui.captureSecret()
+    terminal.send('/up')
+    terminal.send('\r')
+    await expect(secret).resolves.toBe('/up')
+    expect(local).not.toHaveBeenCalled()
+  })
+  it('expires the second-interrupt window at two seconds', async () => {
+    const { terminal, exit } = await fixture()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(0)
+    terminal.send('\x03')
+    vi.setSystemTime(2_000)
+    terminal.send('\x03')
+    expect(exit).not.toHaveBeenCalled()
+    vi.setSystemTime(2_100)
+    terminal.send('\x03')
+    expect(exit).toHaveBeenCalledOnce()
+  })
+})

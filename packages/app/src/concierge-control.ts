@@ -148,3 +148,11 @@ export function nativeBootstrap(environment: NodeJS.ProcessEnv = process.env): P
 export function defaultConciergeControl(environment: NodeJS.ProcessEnv = process.env, progress?: (text: string) => void): DaemonControl {
   return new BootstrapDaemonControl(new SocketDaemonControl(resolveSupervisorSocket(environment)), () => nativeBootstrap(environment), 20_000, progress)
 }
+
+/** Explicit choices use the native consent store and runtime probes. No provider. */
+export function nativeSupervisionChoice(kind: 'systemd' | 'persistence', choice: 'on' | 'off' | 'status', environment = process.env): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(environment.DEARMACHINE_NATIVE_BIN || 'dearmachine', [kind, choice], { env: environment, timeout: 10_000, maxBuffer: 65_536 },
+      (error, stdout) => { if (error) reject(new Error('Native supervision choice unconfirmed.')); else resolve(stdout.trim()) })
+  })
+}

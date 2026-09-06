@@ -15,7 +15,7 @@ import { CredentialBridge, credentialSocketPath } from './credential-bridge.ts'
 import { acquireInstallerLock } from './lock.ts'
 import { runInstallerModelWizard } from './model-wizard.ts'
 import { ConciergeShell, conciergeInterruptHint } from './concierge-shell.ts'
-import { defaultConciergeControl } from './concierge-control.ts'
+import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-control.ts'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
@@ -270,6 +270,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     onExit: () => { void shell.submit('/quit') },
   })
   shell = new ConciergeShell({
+    chooseSupervision: nativeSupervisionChoice,
     control: defaultConciergeControl(),
     say: text => tui.addAssistant(text),
     converse: async text => { await agent?.prompt(text) },

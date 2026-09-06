@@ -1,5 +1,5 @@
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
-import { defaultConciergeControl, type DaemonControl } from './concierge-control.ts'
+import { nativeSupervisionChoice, defaultConciergeControl, type DaemonControl } from './concierge-control.ts'
 import { inspectInstallation, runConciergeEntry, type InstallationDiagnosis } from './concierge-entry.ts'
 import { ConciergeShell, formatDaemonStatus, conciergeInterruptHint } from './concierge-shell.ts'
 
@@ -16,6 +16,7 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
     onExit: () => { void shell.submit('/quit') },
   })
   shell = new ConciergeShell({
+    chooseSupervision: nativeSupervisionChoice,
     control, say: text => tui.addAssistant(text),
     // This entry never spawns or attaches to a daemon or subscribes to logs.
     ensureIndependent: async () => {}, unsubscribe: async () => {},

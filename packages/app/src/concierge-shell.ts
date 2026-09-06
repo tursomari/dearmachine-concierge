@@ -24,7 +24,13 @@ dearmachine down — Stop Dear Machine.
 dearmachine restart — Restart Dear Machine.
 Native command availability depends on the installed CLI version.
 If persistence is enabled, login or reboot may start Dear Machine again.
-This shell does not configure systemd or reboot persistence.`
+/systemd — Ask about using systemd; /systemd on|off|status records an explicit choice or probes availability.
+/persistence — Ask separately about reboot startup including lingering; /persistence on|off|status.
+dearmachine systemd on|off|status — Choose service use only; never silently switch a resident owner.
+dearmachine persistence on — Explicitly approve reboot startup AND loginctl enable-linger.
+dearmachine persistence off — Disable service startup; retain account-wide lingering.
+Inspect: systemctl --user status dearmachine-concierge.service; systemctl --user is-enabled dearmachine-concierge.service; loginctl show-user --property=Linger.
+Disable account-wide lingering only if other services do not need it: loginctl disable-linger.`
 
 export function formatDaemonStatus(status: DaemonStatus): string {
   return `Installation: ${status.installation}. Supervisor: ${status.supervisor}. Daemon: ${status.daemon}. Persistence: ${status.persistence}.` +
@@ -71,6 +77,7 @@ export class ConciergeShell {
     unsubscribe(): Promise<void>
     close(): Promise<void>
     converse?(text: string): Promise<void>
+    chooseSupervision?(kind: 'systemd' | 'persistence', choice: 'on' | 'off' | 'status'): Promise<string>
   }) {}
 
   async submit(input: string): Promise<void> {
@@ -78,6 +85,25 @@ export class ConciergeShell {
     const text = input.trim()
     if (text === '') return
     if (text === '/help') { this.ports.say(localHelp); return }
+    if (text === '/systemd' || text === '/persistence') {
+      this.ports.say(text === '/systemd'
+        ? 'Use the systemd user manager for Dear Machine? This configures a service but does not enable reboot persistence. Answer /systemd on or /systemd off; inspect availability with /systemd status.'
+        : 'Enable Dear Machine after reboot, including account-wide loginctl enable-linger so the user manager survives logout? This is separate from service use. Answer /persistence on or /persistence off; inspect /persistence status.')
+      return
+    }
+    const consent = /^\/(systemd|persistence) (on|off|status)$/u.exec(text)
+    if (consent !== null) {
+      const operation = this.operations.then(async () => {
+        if (this.closed) return
+        try {
+          if (!this.ports.chooseSupervision) throw new Error('unavailable')
+          this.ports.say(await this.ports.chooseSupervision(consent[1] as 'systemd' | 'persistence', consent[2] as 'on' | 'off' | 'status'))
+        } catch { this.ports.say('Supervision choice was not confirmed. Inspect dearmachine systemd status and dearmachine persistence status. No lifecycle change is implied. Use /help.') }
+      })
+      this.operations = operation.catch(() => {})
+      await operation
+      return
+    }
     if (['/up', '/down', '/restart', '/status', '/quit', '/detach'].includes(text)) {
       const operation = this.operations.then(async () => {
         if (this.closed) return

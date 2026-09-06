@@ -20,3 +20,16 @@ tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani --self-test
 
 Omit `--self-test` only when the live OpenRouter and AgentMail credentials are
 available in the approved local locations.
+
+When the QSE source is an isolated worktree without its own credential files,
+point the runner at the approved host files explicitly:
+
+```console
+AGENTMAIL_SECRETS_PATH=/absolute/path/to/agentmail.env \
+OPENROUTER_KEY_PATH=/absolute/path/to/openrouter.key \
+  tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani
+```
+
+Both overrides must be absolute. The credential sources remain host-side,
+must be owned regular non-symlink files with mode `0600`, and are copied only
+into the private transaction and disposable container.

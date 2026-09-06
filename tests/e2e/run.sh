@@ -73,6 +73,17 @@ test "$dependency_copy_line" -lt "$dependency_install_line" && \
 grep -F -- '--network-concurrency=1' "$dockerfile" >/dev/null || \
   fail 'QSE Dockerfile must bound pnpm download concurrency for memory safety'
 
+qse_agentmail_secrets_path() {
+  qse_agentmail_root=$1
+  qse_agentmail_path=${AGENTMAIL_SECRETS_PATH:-$qse_agentmail_root/.secrets}
+  case "$qse_agentmail_path" in
+    /*) printf '%s\n' "$qse_agentmail_path" ;;
+    *) return 1 ;;
+  esac
+}
+agentmail_secrets_path=$(qse_agentmail_secrets_path "$umbrella_root") || \
+  fail 'AGENTMAIL_SECRETS_PATH must be absolute'
+
 lock_file=${TMPDIR:-/var/tmp}/machtiani-installer-qse-$(id -u).lock
 umask 077
 if test ! -e "$lock_file" && test ! -L "$lock_file"; then
@@ -212,6 +223,13 @@ test -z "$forbidden" || fail "source context contains forbidden state: $forbidde
 test -x "$context_dir/machtiani-installer/tests/e2e/container-run.sh" || fail 'source context lacks the executable QSE entry point'
 
 if test "$self_test" = true; then
+  test "$(AGENTMAIL_SECRETS_PATH=/private/agentmail.env qse_agentmail_secrets_path /source)" = /private/agentmail.env || \
+    fail 'AgentMail credential path override is not honored'
+  test "$(unset AGENTMAIL_SECRETS_PATH; qse_agentmail_secrets_path /source)" = /source/.secrets || \
+    fail 'AgentMail credential path default is not umbrella-local'
+  if AGENTMAIL_SECRETS_PATH=relative/path qse_agentmail_secrets_path /source >/dev/null 2>&1; then
+    fail 'AgentMail credential path accepted a relative override'
+  fi
   (unset TXN_RUNTIME_ROOT TXN_JOURNAL; txn_self_test)
   run_complete=true
   exit 0
@@ -233,7 +251,7 @@ docker run --rm --entrypoint /bin/sh "$image_name" -eu -c '
 ' || fail 'IXE image contains forbidden host or credential state'
 
 printf '==> Loading approved credentials into the private host transaction...\n'
-secrets_load "$umbrella_root/.secrets"
+secrets_load "$agentmail_secrets_path"
 secrets_get AGENTMAIL_API_KEY agentmail_api_key
 openrouter_path=${OPENROUTER_KEY_PATH:-$HOME/.secrets/openrouter/work-api-key.txt}
 python3 - "$openrouter_path" <<'PY'

@@ -38,3 +38,19 @@ starts a supervisor nor falls back to signalling a PID.
 user manager and explicit consent. Persistence needs its own explicit consent.
 Capability probing, service creation, switching ownership, saved consent, and
 lingering are deferred. No systemd commands run in this increment.
+
+## Entry routing
+
+The TypeScript entry seam checks both input and output TTYs before detection.
+Existing `.dearmachine` or `.machtiani` directories prevent automatic fresh
+installation. File or symlink substitution, unreadable metadata, conflicting
+control reports, and an unavailable endpoint produce recovery guidance. Directory
+presence alone cannot prove a healthy installation. A compatible control owner
+must validate native state; this client does not parse credentials or infer
+installation from whether a daemon process happens to be running.
+
+An observed installed-but-stopped daemon opens management without starting it.
+Only absent state routes to the existing installer with its consent and model
+wizard. After setup returns, detection runs again before a management handoff;
+declining setup is not treated as success. The actual native bare `dearmachine`
+entry and its explicit rescue dispatch remain deferred to the Go checkout.

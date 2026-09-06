@@ -1,13 +1,10 @@
-import { join } from 'node:path'
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
-import { SocketDaemonControl, type DaemonControl } from './concierge-control.ts'
+import { SocketDaemonControl, resolveSupervisorSocket, type DaemonControl } from './concierge-control.ts'
 import { inspectInstallation, runConciergeEntry, type InstallationDiagnosis } from './concierge-entry.ts'
 import { ConciergeShell, formatDaemonStatus, conciergeInterruptHint } from './concierge-shell.ts'
 
 export function defaultConciergeControl(environment: NodeJS.ProcessEnv = process.env): DaemonControl {
-  const home = environment.HOME
-  if (!home) throw new Error('HOME is required to locate the concierge control endpoint.')
-  return new SocketDaemonControl(join(environment.XDG_STATE_HOME || join(home, '.local', 'state'), 'machtiani-installer', 'supervisor.sock'))
+  return new SocketDaemonControl(resolveSupervisorSocket(environment))
 }
 
 export async function runLocalConcierge(control: DaemonControl, diagnosis: InstallationDiagnosis): Promise<void> {

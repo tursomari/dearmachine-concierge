@@ -270,7 +270,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     onExit: () => { void shell.submit('/quit') },
   })
   shell = new ConciergeShell({
-    control: new SocketDaemonControl(join(paths.stateDirectory, 'supervisor.sock')),
+    control: new SocketDaemonControl(),
     say: text => tui.addAssistant(text),
     converse: async text => { await agent?.prompt(text) },
     ensureIndependent: async () => {}, unsubscribe: async () => {},

@@ -6,6 +6,8 @@ export const localHelp = `Local commands (no model or provider required):
 /help — Show this help.
 /up — Start Dear Machine and confirm it is running; never install or enable persistence.
 /down — Stop Dear Machine and cancel pending automatic restarts.
+/restart — Restart Dear Machine and confirm it is running.
+/status — Inspect current state without changing it.
 /quit — Close the interface, leaving the daemon in its current state.
 /detach — Release the attached log stream and close the interface, leaving Dear Machine up.
 Both exit commands first establish independent ownership if attached; failed handoff keeps this interface open.
@@ -72,11 +74,11 @@ export class ConciergeShell {
     const text = input.trim()
     if (text === '') return
     if (text === '/help') { this.ports.say(localHelp); return }
-    if (['/up', '/down', '/quit', '/detach'].includes(text)) {
+    if (['/up', '/down', '/restart', '/status', '/quit', '/detach'].includes(text)) {
       const operation = this.operations.then(async () => {
         if (this.closed) return
-        if (text === '/up' || text === '/down') {
-          const result = await executeDaemonCommand(this.ports.control, text === '/up' ? 'up' : 'down')
+        if (text === '/up' || text === '/down' || text === '/restart' || text === '/status') {
+          const result = await executeDaemonCommand(this.ports.control, text.slice(1) as DaemonCommand)
           this.ports.say(result.message)
           return
         }

@@ -1,5 +1,5 @@
 import { createConnection } from 'node:net'
-import { isAbsolute } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 export type DaemonCommand = 'status' | 'up' | 'down' | 'restart'
 export type InstallationState = 'absent' | 'installed' | 'partial' | 'unreadable'
@@ -29,9 +29,21 @@ function isStatus(value: unknown): value is DaemonStatus {
     (state.lastExit === undefined || typeof state.lastExit === 'string')
 }
 
+/** Native Linux contract: HOME is required; never fall back to XDG or passwd. */
+export function resolveSupervisorSocket(environment: NodeJS.ProcessEnv = process.env): string {
+  const override = environment.DEARMACHINE_SUPERVISOR_SOCKET
+  if (override) {
+    if (!isAbsolute(override)) throw new Error('The supervisor control socket path must be absolute.')
+    return override
+  }
+  const home = environment.HOME
+  if (!home || !isAbsolute(home)) throw new Error('An absolute HOME is required to locate the concierge control endpoint.')
+  return join(home, '.dearmachine', 'run', 'supervisor.sock')
+}
+
 /** Client half of the proposed supervisor-lite v1 contract. No native process is launched here. */
 export class SocketDaemonControl implements DaemonControl {
-  constructor(private readonly socketPath: string, private readonly timeoutMs = 5_000) {
+  constructor(private readonly socketPath: string = resolveSupervisorSocket(), private readonly timeoutMs = 5_000) {
     if (!isAbsolute(socketPath)) throw new Error('The supervisor control socket path must be absolute.')
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('The control timeout must be positive.')
   }

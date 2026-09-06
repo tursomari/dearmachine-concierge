@@ -65,21 +65,32 @@ source discovery is deferred. Existing `--install --source-root ...` and `--mock
 entry points remain available. Bare non-TTY invocation and `--help` print help
 without loading the TUI, DSH, model wizard, or provider modules.
 
-`machtiani-installer status|up|down|restart` and `/up`, `/down` use the same
+`machtiani-installer status|up|down|restart` and `/up`, `/down`, `/restart`, `/status` use the same
 control dispatcher. Exit code 0 means a successful observation or confirmed
 operation (including an already-running/already-stopped no-op); 1 means invalid
 arguments, missing prerequisites, failed status, or unconfirmed operation. Status
 also returns 1 for failed/unreachable supervision, unknown daemon state, or
 partial/unreadable installation. A stopped daemon alone is not an error.
 
-The proposed endpoint is `$XDG_STATE_HOME/machtiani-installer/supervisor.sock`,
-with `$HOME/.local/state` as the state-root fallback. These are installer-side
-integration paths, not a claim about the native CLI's current socket location.
-Without a compatible server, lifecycle requests fail with native CLI recovery
-guidance. They never launch an unsupervised replacement or control the existing
-native instance by a guessed PID.
+Increment 2 aligns all TS control clients with the native endpoint contract:
+`<dearmachine-state-dir>/run/supervisor.sock`. The default is
+`$HOME/.dearmachine/run/supervisor.sock`, regardless of `XDG_STATE_HOME`.
+On Linux the native `os.UserHomeDir` dependency requires nonempty HOME and has
+no passwd/XDG fallback; the shared default resolver requires an absolute HOME.
+TS follows the same rule. Go exports `supervisor.DefaultSocketPath` alongside
+`SocketPath` for explicit state roots. Version 1 framing is unchanged.
 
-`/help`, `/up`, `/down`, `/quit`, and `/detach` are intercepted locally, including
+TS accepts an absolute `DEARMACHINE_SUPERVISOR_SOCKET` override or an explicit
+`SocketDaemonControl` constructor path for tests and non-default state roots.
+The old `$XDG_STATE_HOME/machtiani-installer/supervisor.sock` location is usable
+only by explicitly supplying that path; XDG still controls installer data.
+This override does not redirect native state: it must point to the socket of
+an owner configured for the intended state root. An absent owner must still be
+bootstrapped with native `dearmachine up`; the TS client does not spawn owners.
+Without an available owner, commands report unknown state and native recovery
+guidance. They never launch an unsupervised replacement or signal a guessed PID.
+
+`/help`, `/up`, `/down`, `/restart`, `/status`, `/quit`, and `/detach` are intercepted locally, including
 while a model choice or external sign-in is pending. Press Escape to return from
 partially typed slash input to the pending menu. Masked credential input is never
 interpreted as a command. Unknown slash commands and trailing arguments stay

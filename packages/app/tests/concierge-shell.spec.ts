@@ -116,3 +116,15 @@ describe('local slash commands', () => {
     expect(ports.close).toHaveBeenCalledOnce()
   })
 })
+
+it.each(['restart', 'status'] as const)('handles /%s locally through the control dispatcher', async command => {
+  const request = vi.fn().mockResolvedValue({ installation: 'installed', supervisor: 'running', daemon: 'running', persistence: 'unknown' })
+  const say = vi.fn()
+  const converse = vi.fn()
+  const shell = new ConciergeShell({ control: { request }, say, converse, ensureIndependent: async () => {}, unsubscribe: async () => {}, close: async () => {} })
+  await shell.submit(`/${command}`)
+  expect(request.mock.calls.map(call => call[0])).toEqual(command === 'status' ? ['status'] : ['status', 'restart'])
+  expect(say).toHaveBeenCalledWith(expect.stringContaining('Daemon: running'))
+  expect(converse).not.toHaveBeenCalled()
+  expect(localHelp).toContain(`/${command}`)
+})

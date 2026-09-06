@@ -3,7 +3,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SocketDaemonControl, selectSupervision, type DaemonStatus } from '../src/concierge-control.ts'
+import { SocketDaemonControl, resolveSupervisorSocket, selectSupervision, type DaemonStatus } from '../src/concierge-control.ts'
 
 const stopped: DaemonStatus = {
   installation: 'installed', supervisor: 'stopped', daemon: 'stopped', persistence: 'disabled',
@@ -90,5 +90,23 @@ describe('systemd consent seam', () => {
     expect(selectSupervision({ usableUserManager, consent: { useSystemd, enablePersistence } })).toEqual({
       owner, enablePersistence: owner === 'systemd' && enablePersistence,
     })
+  })
+})
+
+
+describe('native endpoint resolution', () => {
+  it('uses the native HOME layout and ignores XDG state', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'concierge-home-'))
+    roots.push(home)
+    expect(resolveSupervisorSocket({ HOME: home, XDG_STATE_HOME: join(home, 'xdg') })).toBe(join(home, '.dearmachine', 'run', 'supervisor.sock'))
+  })
+  it('allows an explicit socket override, including the legacy XDG endpoint', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'concierge-home-'))
+    roots.push(home)
+    const socket = join(home, 'state', 'machtiani-installer', 'supervisor.sock')
+    expect(resolveSupervisorSocket({ DEARMACHINE_SUPERVISOR_SOCKET: socket })).toBe(socket)
+  })
+  it.each([{}, { HOME: '' }, { HOME: 'relative' }, { HOME: '', XDG_STATE_HOME: '/unused' }, { HOME: '/unused', DEARMACHINE_SUPERVISOR_SOCKET: 'relative' }])('rejects unresolved or relative endpoints (%#)', env => {
+    expect(() => resolveSupervisorSocket(env)).toThrow()
   })
 })

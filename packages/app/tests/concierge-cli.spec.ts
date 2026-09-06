@@ -11,11 +11,11 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 async function fixture(withServer = false) {
   const root = await mkdtemp(join(tmpdir(), 'concierge-cli-'))
   cleanups.push(() => rm(root, { recursive: true, force: true }))
-  const env = { ...process.env, HOME: root, XDG_STATE_HOME: join(root, 'state'), XDG_DATA_HOME: join(root, 'data'), TERM: 'xterm-256color' }
+  const env = { ...process.env, HOME: root, DEARMACHINE_SUPERVISOR_SOCKET: '', XDG_STATE_HOME: join(root, 'state'), XDG_DATA_HOME: join(root, 'data'), TERM: 'xterm-256color' }
   const commands: string[] = []
   if (withServer) {
     await mkdir(join(root, '.dearmachine'))
-    await mkdir(join(root, 'state', 'machtiani-installer'), { recursive: true })
+    await mkdir(join(root, '.dearmachine', 'run'), { recursive: true })
     let running = false
     const server: Server = createServer(socket => {
       let request = ''
@@ -31,7 +31,7 @@ async function fixture(withServer = false) {
         } }) + '\n')
       })
     })
-    await new Promise<void>(resolve => server.listen(join(root, 'state', 'machtiani-installer', 'supervisor.sock'), resolve))
+    await new Promise<void>(resolve => server.listen(join(root, '.dearmachine', 'run', 'supervisor.sock'), resolve))
     cleanups.push(() => new Promise<void>(resolve => server.close(() => resolve())))
   }
   return { root, env, commands }

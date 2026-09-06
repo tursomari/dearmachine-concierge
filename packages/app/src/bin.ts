@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { entryHelp, parseInvocation } from './concierge-entry.ts'
 import { executeDaemonCommand } from './concierge-shell.ts'
-import { join } from 'node:path'
 import { SocketDaemonControl } from './concierge-control.ts'
 
 export { parseInvocation as parseArguments } from './concierge-entry.ts'
@@ -14,9 +13,7 @@ async function main(): Promise<void> {
     return
   }
   if (invocation.mode === 'control') {
-    const home = process.env.HOME
-    if (!home) throw new Error('HOME is required to locate the concierge control endpoint.')
-    const control = new SocketDaemonControl(join(process.env.XDG_STATE_HOME || join(home, '.local', 'state'), 'machtiani-installer', 'supervisor.sock'))
+    const control = new SocketDaemonControl()
     const result = await executeDaemonCommand(control, invocation.command)
     ;(result.code === 0 ? process.stdout : process.stderr).write(result.message + '\n')
     process.exitCode = result.code

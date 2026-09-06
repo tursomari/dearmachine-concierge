@@ -55,13 +55,6 @@ RUN --mount=type=cache,id=machtiani-installer-qse-pnpm-v11,target=/root/.local/s
     nix develop path:/workspace/machtiani/machtiani-installer -c \
       pnpm --dir /workspace/machtiani/machtiani-installer install --frozen-lockfile \
         --store-dir=/root/.local/share/pnpm/store --network-concurrency=1 --child-concurrency=1
-RUN set -eu; \
-    install -d /opt/machtiani-installer-dependencies; \
-    cd /workspace/machtiani/machtiani-installer; \
-    cp --parents flake.nix flake.lock package.json pnpm-lock.yaml pnpm-workspace.yaml \
-      packages/*/package.json /opt/machtiani-installer-dependencies; \
-    cp -R --parents patches /opt/machtiani-installer-dependencies; \
-    nix build --no-link path:/opt/machtiani-installer-dependencies#build-dependencies
 
 # Exercise the full installer semantic, snapshot, and PTY suite in the same
 # sparse source-only image used by the live product gate.

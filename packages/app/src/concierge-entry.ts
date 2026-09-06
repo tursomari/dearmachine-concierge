@@ -46,7 +46,7 @@ const recoveryGuidance = 'Existing installation state needs diagnosis. Run dearm
 export async function inspectInstallation(
   home: string,
   control: DaemonControl,
-  inspect = lstat,
+  inspect: (path: string) => Promise<{ isDirectory(): boolean; isSymbolicLink(): boolean }> = lstat,
 ): Promise<InstallationDiagnosis> {
   let existing = false
   for (const directory of ['.dearmachine', '.machtiani']) {

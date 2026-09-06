@@ -77,6 +77,10 @@ grep -F -- 'id=machtiani-installer-qse-pnpm-v11,target=/root/.local/share/pnpm/s
   fail 'QSE Dockerfile must persist the pnpm content-addressable store'
 grep -F -- '--store-dir=/root/.local/share/pnpm/store' "$dockerfile" >/dev/null || \
   fail 'QSE dependency install must use the persistent pnpm store'
+grep -F -- 'pnpm config set network-concurrency 1' "$installer_flake" >/dev/null || \
+  fail 'Nix dependency fetch must serialize large provider-runtime downloads'
+grep -F -- 'pnpm config set child-concurrency 1' "$installer_flake" >/dev/null || \
+  fail 'Nix dependency fetch must bound child process concurrency'
 grep -F -- 'src = packageSource;' "$installer_flake" >/dev/null || \
   fail 'installer package source must exclude development artifacts before the Nix build'
 grep -F -- 'packageSource = pkgs.lib.cleanSourceWith {' "$installer_flake" >/dev/null || \

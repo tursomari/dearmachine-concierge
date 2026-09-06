@@ -61,7 +61,10 @@
             src = dependencySource;
             fetcherVersion = 4;
             hash = "sha256-I6b7w/un7cfyWUuQb6uhh50iguqPIQuI2jYJiY47NSs=";
-            prePnpmInstall = "pnpm config set network-concurrency 4";
+            prePnpmInstall = ''
+              pnpm config set network-concurrency 1
+              pnpm config set child-concurrency 1
+            '';
             pnpmInstallFlags = [ "--no-force" ];
           };
         in {

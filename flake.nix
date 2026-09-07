@@ -97,6 +97,8 @@
               ''}
               makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-installer" \
                 --add-flags "$runtime/packages/app/dist/bin.mjs"
+              makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/dearmachine" \
+                --add-flags "$runtime/packages/app/dist/bin.mjs"
               makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-model-host" \
                 --add-flags "$runtime/packages/model-host/dist/bin.mjs"
               makeWrapper ${pkgs.nodejs_24}/bin/node "$out/bin/machtiani-installer-backend" \
@@ -110,6 +112,8 @@
                 "$claude_runtime" --version >/dev/null
                 wrapProgram "$out/bin/machtiani-installer" \
                   --set MACHTIANI_CLAUDE_EXECUTABLE "$claude_runtime"
+                wrapProgram "$out/bin/dearmachine" \
+                  --set MACHTIANI_CLAUDE_EXECUTABLE "$claude_runtime"
                 wrapProgram "$out/bin/machtiani-model-host" \
                   --set MACHTIANI_CLAUDE_EXECUTABLE "$claude_runtime"
               ''}
@@ -119,6 +123,7 @@
               dshSource = dsh-src;
               dshRevision = "76fda729799fe9b3848dbe2c211d4b231032b81e";
             };
+            meta.mainProgram = "dearmachine";
           };
         });
 

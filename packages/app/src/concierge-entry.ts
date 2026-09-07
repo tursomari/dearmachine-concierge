@@ -2,19 +2,18 @@ import { lstat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import type { DaemonCommand, DaemonControl, DaemonStatus, InstallationState } from './concierge-control.ts'
 
-export const entryHelp = `Usage: machtiani-installer [--concierge [--source-root /absolute/path/to/machtiani]]
-       machtiani-installer --install --source-root /absolute/path/to/machtiani
-       machtiani-installer --mock
-       machtiani-installer status|up|down|restart
-       machtiani-installer --help
+export const entryHelp = `Usage: dearmachine [--source-root /absolute/path/to/machtiani]
+       dearmachine status|up|down|restart
+       dearmachine --help
 
-Bare interactive invocation opens the local concierge. Fresh installation
-requires --source-root or DEARMACHINE_SOURCE_ROOT (an absolute umbrella checkout).
+Bare interactive invocation detects whether Dear Machine is installed. It opens
+guided installation when absent and the local concierge when installed. Fresh
+installation requires --source-root or DEARMACHINE_SOURCE_ROOT (an absolute
+umbrella checkout).
 Without a TTY, bare invocation prints this help.
 Concierge controls require a compatible supervisor endpoint; see /help.
-Native rescue commands: dearmachine --help, dearmachine status,
-dearmachine up, dearmachine down, dearmachine restart.
 Native init, setup-agents, and inbox remain commands of dearmachine.
+machtiani-installer remains available as a compatibility alias.
 `
 
 export type InstallerInvocation =
@@ -35,6 +34,10 @@ export function parseInvocation(args: readonly string[], environment: NodeJS.Pro
     if (args[0] === '--help') return { mode: 'help' }
     if (args[0] === '--mock') return { mode: 'mock' }
     if (['status', 'up', 'down', 'restart'].includes(args[0]!)) return { mode: 'control', command: args[0] as DaemonCommand }
+  }
+  if (args.length === 2 && args[0] === '--source-root' && args[1] !== '') {
+    if (!isAbsolute(args[1]!)) throw new Error('--source-root must be absolute.')
+    return { mode: 'concierge', sourceRoot: args[1]! }
   }
   if (args.length === 3 && ['--install', '--concierge'].includes(args[0]!) && args[1] === '--source-root' && args[2] !== '') {
     if (!isAbsolute(args[2]!)) throw new Error('--source-root must be absolute.')

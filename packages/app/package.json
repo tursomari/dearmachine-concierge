@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
+    "dearmachine": "dist/bin.mjs",
     "machtiani-installer": "dist/bin.mjs",
     "machtiani-installer-credential": "dist/credential-bin.mjs",
     "machtiani-installer-product-headless": "dist/headless-bin.mjs"

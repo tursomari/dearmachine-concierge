@@ -53,7 +53,7 @@ export async function launchConcierge(sourceRoot?: string): Promise<void> {
     inspect: () => inspectInstallation(home, control),
     install: async () => {
       if (sourceRoot === undefined) {
-        await runLocalConcierge(control, { installation: 'absent', guidance: 'To begin guided installation, run machtiani-installer --concierge --source-root /absolute/path/to/machtiani. Use /help for local controls.' })
+        await runLocalConcierge(control, { installation: 'absent', guidance: 'To begin guided installation, run dearmachine --source-root /absolute/path/to/machtiani. Use /help for local controls.' })
         return
       }
       const { runInstaller } = await import('./index.ts')

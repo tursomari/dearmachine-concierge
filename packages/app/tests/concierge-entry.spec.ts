@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { inspectInstallation, parseInvocation, runConciergeEntry, type InstallerInvocation } from '../src/concierge-entry.ts'
+import { entryHelp, inspectInstallation, parseInvocation, runConciergeEntry, type InstallerInvocation } from '../src/concierge-entry.ts'
 import type { DaemonControl, DaemonStatus } from '../src/concierge-control.ts'
 
 const stopped: DaemonStatus = { installation: 'installed', supervisor: 'stopped', daemon: 'stopped', persistence: 'disabled' }
@@ -92,9 +92,15 @@ describe('provider-free entry routing', () => {
 })
 
 describe('installer invocation split', () => {
+  it('presents dearmachine as the unified public entry point', () => {
+    expect(entryHelp).toMatch(/^Usage: dearmachine/m)
+    expect(entryHelp).toContain('machtiani-installer remains available as a compatibility alias.')
+  })
+
   const cases: [readonly string[], InstallerInvocation][] = [
     [[], { mode: 'concierge' }], [['--concierge'], { mode: 'concierge' }],
     [['--help'], { mode: 'help' }], [['--mock'], { mode: 'mock' }],
+    [['--source-root', '/fixture'], { mode: 'concierge', sourceRoot: '/fixture' }],
     [['--install', '--source-root', '/fixture'], { mode: 'install', sourceRoot: '/fixture' }],
     [['--concierge', '--source-root', '/fixture'], { mode: 'concierge', sourceRoot: '/fixture' }],
     ...(['status', 'up', 'down', 'restart'] as const).map(command => [[command], { mode: 'control', command }] as [string[], InstallerInvocation]),
@@ -102,7 +108,7 @@ describe('installer invocation split', () => {
   it.each(cases)('parses %j without loading an installer agent', (args, expected) => {
     expect(parseInvocation(args)).toEqual(expected)
   })
-  it.each([['--wat'], ['up', '--create'], ['--install'], ['--concierge', '--source-root', ''], ['--help', 'up']])('rejects unsupported arguments %j', (...args) => {
+  it.each([['--wat'], ['up', '--create'], ['--install'], ['--source-root', ''], ['--concierge', '--source-root', ''], ['--help', 'up']])('rejects unsupported arguments %j', (...args) => {
     expect(() => parseInvocation(args)).toThrow('Usage:')
   })
 })

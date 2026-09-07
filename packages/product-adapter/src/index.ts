@@ -439,7 +439,7 @@ export class NativeProductInstaller {
     }
 
     if (!atLeast(journal.stage, 'dearmachine-installed')) {
-      await run('Install Dear Machine', ['nix', 'profile', 'install', `path:${dearMachine}#dearmachine`], dearMachine)
+      await run('Install Dear Machine', ['nix', 'run', `path:${dearMachine}#install`], dearMachine)
       await run('Verify installed commands', ['sh', '-c', 'command -v machtiani dearmachine agent-manager >/dev/null'])
       await advance('dearmachine-installed')
     }

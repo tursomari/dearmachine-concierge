@@ -123,6 +123,9 @@ describe('native product installer', () => {
     expect(test.runner.requests.find(request => request.label === 'Verify Machtiani model roles')?.command).toEqual([
       'machtiani', 'verify', '--json',
     ])
+    expect(test.runner.requests.find(request => request.label === 'Install Dear Machine')?.command).toEqual([
+      'nix', 'run', `path:${join(test.sourceRoot, 'dearmachine')}#install`,
+    ])
     expect(test.runner.requests.find(request => request.label === 'Verify Machtiani model roles')?.environment.MACHTIANI_CONFIG).toBe(
       join(test.home, '.machtiani', 'config.toml'),
     )

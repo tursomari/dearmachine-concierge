@@ -196,6 +196,12 @@ export class InstallerTui {
     this.addRole('You', message)
   }
 
+  /** Literal, subdued shell text: never Markdown, output, or terminal controls. */
+  addCommand(command: string): void {
+    this.transcript.addChild(new Text(this.theme.dim(displayText(command)), 2, 0))
+    this.requestRender()
+  }
+
   addReasoning(message: string): void {
     this.transcript.addChild(new Spacer(1))
     this.transcript.addChild(new Text(this.theme.italic(this.theme.dim('Reasoning')), 0, 0))

@@ -21,6 +21,7 @@ describe('installer source root', () => {
   it('keeps a safe tool purpose visible after the agent tool settles', () => {
     const rows: string[] = []
     const tui = {
+      addCommand: (command: string) => { rows.push(`command:${command}`) },
       addAssistant: () => {},
       addReasoning: () => {},
       beginTool: (name: string, detail: string) => {
@@ -42,6 +43,8 @@ describe('installer source root', () => {
       'start:read:docs/installation/01-environment.md',
       'failure:read:docs/installation/01-environment.md — Failed',
     ])
+    renderAgentEvent(tui, tools, { type: 'tool-start', id: 'visible', name: 'bash', detail: 'Inspect status', command: 'dearmachine status' })
+    expect(rows.at(-1)).toBe('command:dearmachine status')
   })
 
   it('gives one agent only dynamic documentation, model, and credential-helper context', () => {
@@ -61,6 +64,8 @@ describe('installer source root', () => {
     expect(prompt).toContain('/private/credential-helper.mjs')
     expect(prompt).toContain('"email"')
     expect(prompt).toContain('"backend-provider"')
+    expect(prompt).toContain('"backendPreparation"')
+    expect(prompt).toContain('prepare-forge-2.13.21')
     expect(prompt).not.toContain('llm "<selected provider>"')
     expect(prompt).toContain('"provider": "openai-codex"')
     expect(prompt).toContain('"model": "gpt-5.6-luna"')

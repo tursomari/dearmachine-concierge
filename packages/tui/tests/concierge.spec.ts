@@ -18,6 +18,20 @@ async function fixture() {
   return { tui, terminal, local, exit, submit }
 }
 describe('concierge terminal commands', () => {
+  it('invites conversation and renders command details as subdued literal text', async () => {
+    const terminal = new HeadlessTerminal()
+    const tui = new InstallerTui({ terminal, title: 'Dear Machine Concierge', environment: { TERM: 'xterm' } })
+    opened.push({ tui, terminal })
+    tui.start()
+    tui.addCommand('printf "**literal**"\n\x1b[31mdearmachine status')
+    await terminal.waitForFrame()
+    const screen = await terminal.snapshot()
+    expect(screen).toContain('Ask a question or tell me what you need')
+    expect(screen).toContain('**literal**')
+    expect(screen).toContain('␛[31mdearmachine status')
+    expect(screen).toContain('dim')
+    expect(screen).not.toContain('fg=red')
+  })
   it('routes slash input before an ordinary question without resolving it', async () => {
     const { tui, terminal, local, submit } = await fixture()
     const answer = tui.ask({ message: 'Question' })

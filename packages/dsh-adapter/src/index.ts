@@ -152,7 +152,7 @@ export interface DshTaskResult {
 
 export type InstallerAgentEvent =
   | { type: 'assistant'; text: string; reasoning: string }
-  | { type: 'tool-start'; id: string; name: string; detail: string }
+  | { type: 'tool-start'; id: string; name: string; detail: string; command?: string }
   | { type: 'tool-end'; id: string; failed: boolean }
   | {
       type: 'turn-end'
@@ -163,6 +163,7 @@ export type InstallerAgentEvent =
 export type InstallerAgentStatus = 'running' | 'idle'
 
 export interface DshAgentSessionOptions {
+  showCommands?: boolean
   mode?: 'installer' | 'management'
   dshHome: string
   workspace: string
@@ -238,8 +239,21 @@ function toolCallDetail(name: string, encodedArguments: unknown): string {
   return publicToolDetail(candidate) ?? 'Working'
 }
 
+function displayCommand(encodedArguments: unknown): string | undefined {
+  if (typeof encodedArguments !== 'string') return undefined
+  let command: unknown
+  try { command = record(JSON.parse(encodedArguments))?.command } catch { return undefined }
+  if (typeof command !== 'string') return undefined
+  // Credentials are collected out of band. Suppress a whole command if a tool
+  // nevertheless embeds a recognizable value; never print shell output here.
+  const sensitive = secretShapedDetail.test(command) ||
+    /(?:api[_-]?key|password|secret|token)["']?\s*(?:=|:|\s)\s*[^\s]+/iu.test(command) ||
+    /https?:\/\/[^\s/]+@|BEGIN [A-Z ]*PRIVATE KEY|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\./u.test(command)
+  return sensitive ? '[Command hidden: may contain a credential]' : command
+}
+
 /** Normalize the pinned SDK event vocabulary before it reaches product code. */
-export function normalizeDshSessionEvent(value: unknown): InstallerAgentEvent | undefined {
+export function normalizeDshSessionEvent(value: unknown, options: { showCommands?: boolean } = {}): InstallerAgentEvent | undefined {
   const event = record(value)
   const data = record(event?.data)
   if (event?.type === 'assistant/message') {
@@ -251,7 +265,9 @@ export function normalizeDshSessionEvent(value: unknown): InstallerAgentEvent | 
     }
   }
   if (event?.type === 'tool/call' && typeof data?.callId === 'string' && typeof data.name === 'string') {
-    return { type: 'tool-start', id: data.callId, name: data.name, detail: toolCallDetail(data.name, data.arguments) }
+    const command = options.showCommands && data.name === 'bash' ? displayCommand(data.arguments) : undefined
+    return { type: 'tool-start', id: data.callId, name: data.name, detail: toolCallDetail(data.name, data.arguments),
+      ...(command === undefined ? {} : { command }) }
   }
   if (event?.type === 'tool/result') {
     const message = record(data?.message)
@@ -433,7 +449,7 @@ export class DshAgentSession {
         this.options.onStatus?.(params.status)
       }
       if (message?.method === 'session.event' && params?.sessionId === this.sessionId) {
-        const event = normalizeDshSessionEvent(params.event)
+        const event = normalizeDshSessionEvent(params.event, this.options)
         if (event !== undefined) this.options.onEvent?.(event)
       }
     }

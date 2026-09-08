@@ -1,5 +1,6 @@
 import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join } from 'node:path'
 import { InstallerTui, assertInteractiveTerminal } from '@dearmachine/machtiani-installer-tui'
 import { messages, runFirstThreeStages, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
@@ -18,6 +19,7 @@ import { ConciergeShell, conciergeInterruptHint } from './concierge-shell.ts'
 import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-control.ts'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { resolveSourceReference, saveSourceReference, type SourceReference } from './source-reference.ts'
+import { installationConsent } from './installation-consent.ts'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
 
@@ -144,6 +146,7 @@ export function installerAgentPrompt(
       email: [process.execPath, credentialHelper, 'email', '<selected transport>'],
       backendProvider: [process.execPath, credentialHelper, 'backend-provider', '<selected backend provider>'],
     },
+    backendPreparation: [process.execPath, join(dirname(createRequire(import.meta.url).resolve('@dearmachine/machtiani-installer-backends')), 'bin.mjs'), 'prepare-forge-2.13.21'],
   }
   return `<runtime_context_json>\n${JSON.stringify(runtimeContext, undefined, 2)}\n</runtime_context_json>\n\nThe launcher steps are complete. Begin with Stage 1 now.`
 }
@@ -189,6 +192,7 @@ function renderInstallationOutcome(outcome: InstallationOutcome): string {
 export const installationProgressLabel = 'Machtiani installation in progress'
 
 interface AgentEventTui {
+  addCommand?(command: string): void
   addAssistant(message: string): void
   addReasoning(message: string): void
   beginTool(name: string, detail: string): ReturnType<InstallerTui['beginTool']>
@@ -207,6 +211,7 @@ export function renderAgentEvent(tui: AgentEventTui, tools: Map<string, AgentToo
       break
     case 'tool-start':
       tools.set(event.id, { activity: tui.beginTool(event.name, event.detail), detail: event.detail })
+      if (event.command !== undefined) tui.addCommand?.(event.command)
       break
     case 'tool-end': {
       const tool = tools.get(event.id)
@@ -287,14 +292,9 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const outcomeWait = new AbortController()
   try {
     tui.start()
-    const consent = await Promise.race([tui.choose(messages.welcome, [
-      { value: 'continue', label: 'Continue', description: 'Begin guided installation' },
-      { value: 'not-now', label: 'Not now', description: 'Exit without changing anything' },
-    ], 'continue'), exitRequested.then(() => 'not-now')])
-    if (consent !== 'continue') {
-      tui.addAssistant(messages.notNow)
-      return
-    }
+    const consent = await installationConsent(tui, exitRequested)
+    if (consent === undefined) return
+    const { showCommands } = consent
     tui.setProgress('Loading installer model choices')
     const credentialPath = join(home, '.config', 'dearmachine', 'backends.env')
     const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
@@ -318,6 +318,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     })
     agent = new DshAgentSession({
+      showCommands,
       dshHome,
       workspace: source,
       selection,

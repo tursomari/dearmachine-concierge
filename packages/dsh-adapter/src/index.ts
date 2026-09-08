@@ -99,7 +99,7 @@ function profilePatch(selection: InstallerModelSelection, mode: DshMode = 'insta
   disabled: true
 - id: session-telemetry-otel
   disabled: true
-  - id: sdk-app-startup
+- id: sdk-app-startup
   config:
     profile: machtiani-installer
 - insert:

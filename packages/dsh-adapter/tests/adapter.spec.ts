@@ -57,6 +57,8 @@ describe('pinned DSH compatibility boundary', () => {
     expect(patch).toContain('id: machtiani-installer-tools')
     expect(patch).toContain('id: goal\n  disabled: true')
     expect(patch).toContain('timeoutMs: 3600000')
+    expect(patch).toContain('\n- id: sdk-app-startup\n')
+    expect(patch).not.toContain('\n  - id: sdk-app-startup\n')
     expect(storedSettings).toContain(`reasoningEffort: "${INSTALLER_REASONING_EFFORT}"`)
     expect(profile).toContain('@deepseek-ai/dsh-sdk-app')
     expect(profile).not.toContain('@deepseek-ai/dsh-headless')

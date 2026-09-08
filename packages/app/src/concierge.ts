@@ -48,22 +48,22 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
 export async function launchConcierge(sourceRoot?: string): Promise<void> {
   const home = process.env.HOME
   if (!home) throw new Error('HOME is required to locate installation state.')
-  const sourceReference = sourceRoot === undefined
+  const control = defaultConciergeControl()
+  const managementReference = async () => sourceRoot === undefined
     ? await loadSourceReference(home).catch(() => undefined)
     : await resolveSourceReference(sourceRoot)
-  const control = defaultConciergeControl()
   await runConciergeEntry({
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     inspect: () => inspectInstallation(home, control),
     install: async () => {
       if (sourceRoot === undefined) {
-        await runLocalConcierge(control, { installation: 'absent', guidance: 'To begin guided installation, run dearmachine --source-root /absolute/path/to/machtiani. Use /help for local controls.' }, sourceReference)
+        await runLocalConcierge(control, { installation: 'absent', guidance: 'To begin guided installation, run dearmachine --source-root /absolute/path/to/machtiani. Use /help for local controls.' })
         return
       }
       const { runInstaller } = await import('./index.ts')
       await runInstaller(sourceRoot)
     },
-    manage: diagnosis => runLocalConcierge(control, diagnosis, sourceReference),
+    manage: async diagnosis => runLocalConcierge(control, diagnosis, await managementReference()),
     write: text => { process.stdout.write(text) },
   })
 }

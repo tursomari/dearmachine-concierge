@@ -8,6 +8,7 @@ import {
   DSH_NPM_VERSION,
   DSH_INTERRUPT_METHOD,
   DSH_SOURCE_REVISION,
+  DshAgentSession,
   InstallerModelSetup,
   DshTaskExecutionError,
   INSTALLER_MODEL,
@@ -275,6 +276,15 @@ describe('pinned DSH compatibility boundary', () => {
       stderr: `diagnostic containing ${credential}`,
     })
   })
+
+  it('exposes session stderr only through the private diagnostic accessor', () => {
+    const session = new DshAgentSession({
+      dshHome: '/tmp/dsh-home', workspace: '/tmp/workspace',
+      modelProfilePath: '/tmp/model-profile.json', outcomePath: '/tmp/outcome.json',
+    })
+    expect(session.privateDiagnostic()).toEqual({ stderr: '' })
+    expect(JSON.stringify(session)).not.toContain('stderr')
+  })
 })
 
 it('uses the shared model host without installer mutation tools in management mode', async () => {
@@ -306,7 +316,6 @@ it('keeps one-shot task profiles free of installer and concierge role policy', a
 })
 
 it.each([false, true])('bounds management shutdown when the provider protocol stops responding or fails (%s)', async fails => {
- const { DshAgentSession } = await import('../src/index.ts')
  const root=await mkdtemp(join(tmpdir(), 'concierge-shutdown-'))
  const session=new DshAgentSession({dshHome:root,workspace:root,modelProfilePath:join(root,'profile.json'),outcomePath:join(root,'unused.json'),mode:'management'})
  let stopped!:()=>void

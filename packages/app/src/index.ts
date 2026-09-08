@@ -49,6 +49,29 @@ function checkpointStore(path: string): CheckpointPort {
   }
 }
 
+function redactInstallerDiagnostic(value: string): string {
+  return value
+    .replace(/\bBearer\s+[^\s"']+/giu, 'Bearer [REDACTED]')
+    .replace(/\bsk-[A-Za-z0-9_-]+/gu, '[REDACTED]')
+}
+
+export async function retainInstallerAgentDiagnostic(
+  path: string,
+  error: unknown,
+  diagnostic: { stderr: string },
+): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  const temporary = `${path}.${process.pid}.tmp`
+  const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+  await writeFile(temporary, `${JSON.stringify({
+    version: 1,
+    recordedAt: new Date().toISOString(),
+    error: redactInstallerDiagnostic(errorMessage),
+    stderr: redactInstallerDiagnostic(diagnostic.stderr),
+  }, undefined, 2)}\n`, { mode: 0o600 })
+  await rename(temporary, path)
+}
+
 async function validatedSourceRoot(sourceRoot: string): Promise<string> {
   if (!isAbsolute(sourceRoot)) throw new Error('--source-root must be an absolute path to the Machtiani umbrella checkout')
   const resolved = await realpath(sourceRoot)
@@ -260,6 +283,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const bridge = new CredentialBridge({ socketPath, tui, credentials })
   const credentialHelper = fileURLToPath(new URL('./credential-bin.mjs', import.meta.url))
   const outcomePath = join(paths.stateDirectory, 'installation-outcome.json')
+  const diagnosticPath = join(paths.stateDirectory, 'installation-assistant-diagnostic.json')
   const outcomeWait = new AbortController()
   try {
     tui.start()
@@ -315,9 +339,11 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     ])
     if (completion.kind === 'agent-exit') throw new Error(`The installation assistant exited unexpectedly (${completion.exitCode ?? 'unknown'}).`)
     if (completion.kind === 'outcome') tui.addAssistant(renderInstallationOutcome(completion.outcome))
-  } catch {
+  } catch (error) {
+    const retained = await retainInstallerAgentDiagnostic(diagnosticPath, error, agent?.privateDiagnostic() ?? { stderr: '' })
+      .then(() => true, () => false)
     tui.setProgress(undefined)
-    tui.addAssistant('The installation assistant could not continue. Use /help for local controls and recovery commands, or /quit to close this interface.')
+    tui.addAssistant(`The installation assistant could not continue.${retained ? ` A private diagnostic was saved to ${diagnosticPath}.` : ''} Use /help for local controls and recovery commands, or /quit to close this interface.`)
     await exitRequested
   } finally {
     outcomeWait.abort()

@@ -174,6 +174,8 @@ export interface DshAgentSessionOptions {
   outcomePath: string
 }
 
+export interface DshAgentSessionDiagnostic { stderr: string }
+
 export class DshTaskExecutionError extends Error {
   readonly #diagnostic: Readonly<DshTaskResult>
 
@@ -292,7 +294,7 @@ export class DshAgentSession {
   readonly sessionId = randomUUID()
   private child: ChildProcessWithoutNullStreams | undefined
   private buffer = ''
-  private stderr = ''
+  #stderr = ''
   private requestId = 0
   private readonly pending = new Map<number, PendingRequest>()
   private exit: Promise<number | null> | undefined
@@ -319,7 +321,7 @@ export class DshAgentSession {
     })
     this.child = child
     child.stdout.setEncoding('utf8').on('data', chunk => { this.consume(String(chunk)) })
-    child.stderr.setEncoding('utf8').on('data', chunk => { this.stderr = `${this.stderr}${String(chunk)}`.slice(-1_048_576) })
+    child.stderr.setEncoding('utf8').on('data', chunk => { this.#stderr = `${this.#stderr}${String(chunk)}`.slice(-1_048_576) })
     this.exit = new Promise(resolve => {
       child.once('close', code => {
         this.closed = true
@@ -358,6 +360,11 @@ export class DshAgentSession {
   async whenExited(): Promise<number | null> {
     if (this.exit === undefined) throw new Error('the DSH installer session is not started')
     return await this.exit
+  }
+
+  /** Process output retained for private troubleshooting, never for presentation. */
+  privateDiagnostic(): Readonly<DshAgentSessionDiagnostic> {
+    return { stderr: this.#stderr }
   }
 
   async shutdown(): Promise<void> {

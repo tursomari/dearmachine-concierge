@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -8,6 +8,7 @@ import {
   installerAgentPrompt,
   installerTurnMessage,
   renderAgentEvent,
+  retainInstallerAgentDiagnostic,
   type AgentToolActivityState,
   validatedSourceRoot,
 } from '../src/index.ts'
@@ -77,6 +78,20 @@ describe('installer source root', () => {
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'RATE_LIMIT' })).toContain('rate-limited')
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'SERVER' })).toContain('temporary connection problem')
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'PI_AI_ERROR' })).toContain('could not complete this turn')
+  })
+
+  it('retains a private redacted diagnostic when the installer agent cannot start', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-agent-diagnostic-'))
+    const path = join(root, 'state', 'installation-assistant-diagnostic.json')
+    await retainInstallerAgentDiagnostic(path, new Error('startup failed with sk-private-token'), {
+      stderr: 'Authorization: Bearer private-bearer-token',
+    })
+    const diagnostic = await readFile(path, 'utf8')
+    expect(diagnostic).toContain('startup failed with [REDACTED]')
+    expect(diagnostic).toContain('Authorization: Bearer [REDACTED]')
+    expect(diagnostic).not.toContain('private-token')
+    expect(diagnostic).not.toContain('private-bearer-token')
+    expect((await stat(path)).mode & 0o077).toBe(0)
   })
 
   it('requires an absolute umbrella checkout containing both product components', async () => {

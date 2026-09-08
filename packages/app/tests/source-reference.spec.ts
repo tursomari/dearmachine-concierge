@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { loadSourceReference, resolveSourceReference, saveSourceReference } from '../src/source-reference.ts'
@@ -23,6 +23,35 @@ async function sourceFixture() {
 }
 
 describe('versioned source reference', () => {
+  it('reads a loose branch revision without requiring a Git executable', async () => {
+    const sourceRoot = await mkdtemp(join(tmpdir(), 'machtiani-source-metadata-'))
+    const revision = '0123456789abcdef0123456789abcdef01234567'
+    await mkdir(join(sourceRoot, 'docs'), { recursive: true })
+    await mkdir(join(sourceRoot, '.git', 'refs', 'heads'), { recursive: true })
+    await writeFile(join(sourceRoot, 'docs', 'README.md'), '# Documentation\n')
+    await writeFile(join(sourceRoot, '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    await writeFile(join(sourceRoot, '.git', 'refs', 'heads', 'main'), `${revision}\n`)
+
+    await expect(resolveSourceReference(sourceRoot)).resolves.toMatchObject({ umbrellaRevision: revision })
+  })
+
+  it('reads packed refs and linked-worktree metadata without invoking Git', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-source-worktree-'))
+    const sourceRoot = join(root, 'checkout')
+    const common = join(root, 'repository.git')
+    const gitDirectory = join(common, 'worktrees', 'checkout')
+    const revision = 'abcdef0123456789abcdef0123456789abcdef01'
+    await mkdir(join(sourceRoot, 'docs'), { recursive: true })
+    await mkdir(gitDirectory, { recursive: true })
+    await writeFile(join(sourceRoot, 'docs', 'README.md'), '# Documentation\n')
+    await writeFile(join(sourceRoot, '.git'), `gitdir: ${relative(sourceRoot, gitDirectory)}\n`)
+    await writeFile(join(gitDirectory, 'commondir'), '../..\n')
+    await writeFile(join(gitDirectory, 'HEAD'), 'ref: refs/heads/main\n')
+    await writeFile(join(common, 'packed-refs'), `# pack-refs with: peeled fully-peeled\n${revision} refs/heads/main\n`)
+
+    await expect(resolveSourceReference(sourceRoot)).resolves.toMatchObject({ umbrellaRevision: revision })
+  })
+
   it('records and reloads the canonical documentation path and umbrella revision privately', async () => {
     const sourceRoot = await sourceFixture()
     const home = await mkdtemp(join(tmpdir(), 'machtiani-reference-home-'))

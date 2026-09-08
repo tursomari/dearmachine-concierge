@@ -1,9 +1,5 @@
-import { execFile } from 'node:child_process'
 import { chmod, lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
-import { promisify } from 'node:util'
-
-const exec = promisify(execFile)
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 export interface SourceReference {
   version: 1
@@ -16,15 +12,69 @@ export function sourceReferencePath(home: string): string {
   return join(home, '.config', 'dearmachine', 'source-reference.json')
 }
 
+async function optionalText(path: string): Promise<string | undefined> {
+  try { return await readFile(path, 'utf8') } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
+
+async function repositoryDirectories(sourceRoot: string): Promise<{ git: string; common: string }> {
+  const dotGit = join(sourceRoot, '.git')
+  const metadata = await lstat(dotGit)
+  let git: string
+  if (metadata.isDirectory()) git = await realpath(dotGit)
+  else {
+    if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error('the umbrella Git metadata is invalid')
+    const match = /^gitdir: ([^\r\n]+)\r?\n?$/u.exec(await readFile(dotGit, 'utf8'))
+    if (match?.[1] === undefined) throw new Error('the umbrella Git directory reference is invalid')
+    git = await realpath(resolve(dirname(dotGit), match[1]))
+  }
+  const commonReference = (await optionalText(join(git, 'commondir')))?.trim()
+  const common = commonReference === undefined ? git : await realpath(resolve(git, commonReference))
+  return { git, common }
+}
+
+function validRevision(value: string): boolean {
+  return /^[0-9a-f]{40,64}$/u.test(value)
+}
+
+function validReference(value: string): boolean {
+  return value.startsWith('refs/') && !value.includes('\\') &&
+    value.split('/').every(component => component !== '' && component !== '.' && component !== '..')
+}
+
+async function resolveRepositoryRevision(sourceRoot: string): Promise<string> {
+  const directories = await repositoryDirectories(sourceRoot)
+  const head = (await readFile(join(directories.git, 'HEAD'), 'utf8')).trim()
+  if (validRevision(head)) return head
+  const symbolic = /^ref: (refs\/[^\r\n]+)$/u.exec(head)?.[1]
+  if (symbolic === undefined || !validReference(symbolic)) throw new Error('the umbrella Git HEAD is invalid')
+  for (const directory of new Set([directories.git, directories.common])) {
+    const loose = (await optionalText(join(directory, ...symbolic.split('/'))))?.trim()
+    if (loose !== undefined) {
+      if (!validRevision(loose)) throw new Error('the umbrella source revision is invalid')
+      return loose
+    }
+  }
+  for (const directory of new Set([directories.git, directories.common])) {
+    const packed = await optionalText(join(directory, 'packed-refs'))
+    if (packed === undefined) continue
+    for (const line of packed.split(/\r?\n/gu)) {
+      const match = /^([0-9a-f]{40,64}) ([^\s]+)$/u.exec(line)
+      if (match?.[2] === symbolic && match[1] !== undefined) return match[1]
+    }
+  }
+  throw new Error('the umbrella source revision could not be resolved from Git metadata')
+}
+
 export async function resolveSourceReference(sourceRoot: string): Promise<SourceReference> {
   if (!isAbsolute(sourceRoot)) throw new Error('the source reference root must be absolute')
   const root = await realpath(sourceRoot)
   const documentationEntryPoint = join(root, 'docs', 'README.md')
   const metadata = await lstat(documentationEntryPoint)
   if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error('the canonical documentation entry point must be a regular file')
-  const { stdout } = await exec('git', ['-C', root, 'rev-parse', '--verify', 'HEAD'], { encoding: 'utf8' })
-  const umbrellaRevision = stdout.trim()
-  if (!/^[0-9a-f]{40,64}$/u.test(umbrellaRevision)) throw new Error('the umbrella source revision is invalid')
+  const umbrellaRevision = await resolveRepositoryRevision(root)
   return { version: 1, sourceRoot: root, documentationEntryPoint, umbrellaRevision }
 }
 

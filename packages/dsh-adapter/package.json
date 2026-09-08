@@ -13,6 +13,14 @@
     "./installer-tools": {
       "types": "./dist/installer-tools.d.mts",
       "default": "./dist/installer-tools.mjs"
+    },
+    "./installer-system-prompt": {
+      "types": "./dist/installer-system-prompt.d.mts",
+      "default": "./dist/installer-system-prompt.mjs"
+    },
+    "./management-system-prompt": {
+      "types": "./dist/management-system-prompt.d.mts",
+      "default": "./dist/management-system-prompt.mjs"
     }
   },
   "files": ["dist", "src"],

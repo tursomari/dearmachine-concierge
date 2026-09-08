@@ -280,7 +280,18 @@ it('uses the shared model host without installer mutation tools in management mo
  await prepareIsolatedDshHome(root, undefined, 'management')
  const patch=await readFile(join(root,'profiles','machtiani-installer','cordis.patch.yml'),'utf8')
  expect(patch).toContain('machtiani-model-host')
+ expect(patch).toContain('management-system-prompt')
  expect(patch).not.toContain('machtiani-installer-tools')
+ expect(patch).not.toContain('installer-system-prompt')
+})
+
+it('loads the installer system prompt before installer-only mutation tools', async () => {
+ const root=await mkdtemp(join(tmpdir(), 'installer-dsh-prompt-'))
+ await prepareIsolatedDshHome(root)
+ const patch=await readFile(join(root,'profiles','machtiani-installer','cordis.patch.yml'),'utf8')
+ expect(patch).toContain('installer-system-prompt')
+ expect(patch.indexOf('installer-system-prompt')).toBeLessThan(patch.indexOf('machtiani-installer-tools'))
+ expect(patch).not.toContain('management-system-prompt')
 })
 
 it.each([false, true])('bounds management shutdown when the provider protocol stops responding or fails (%s)', async fails => {

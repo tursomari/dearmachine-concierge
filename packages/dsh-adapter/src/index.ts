@@ -56,6 +56,11 @@ function installerToolsPlugin(): string {
   return require.resolve('@dearmachine/machtiani-installer-dsh-adapter/installer-tools')
 }
 
+function roleSystemPromptPlugin(mode: 'installer' | 'management'): string {
+  const require = createRequire(import.meta.url)
+  return require.resolve(`@dearmachine/machtiani-installer-dsh-adapter/${mode === 'installer' ? 'installer' : 'management'}-system-prompt`)
+}
+
 function profilePatch(selection: InstallerModelSelection, mode: 'installer' | 'management' = 'installer'): string {
   return `- id: agent-default-model
   config:
@@ -92,12 +97,14 @@ function profilePatch(selection: InstallerModelSelection, mode: 'installer' | 'm
   disabled: true
 - id: session-telemetry-otel
   disabled: true
-- id: sdk-app-startup
+  - id: sdk-app-startup
   config:
     profile: machtiani-installer
 - insert:
     - id: machtiani-model-host
       name: ${JSON.stringify(modelHostPlugin())}
+    - id: machtiani-role-system-prompt
+      name: ${JSON.stringify(roleSystemPromptPlugin(mode))}
 ${mode === 'management' ? '' : `    - id: machtiani-installer-tools
       name: ${JSON.stringify(installerToolsPlugin())}
 `}`

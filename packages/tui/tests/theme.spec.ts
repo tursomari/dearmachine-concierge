@@ -4,9 +4,9 @@ import { createInstallerTheme, resolveInstallerMotion } from '../src/theme.ts'
 describe('installer theme', () => {
   it('uses Machtiani semantic roles with the terminal palette by default', () => {
     const theme = createInstallerTheme({ environment: { TERM: 'xterm-256color' } })
-    expect(theme.truth('truth')).toBe('\x1b[36mtruth\x1b[39m')
+    expect(theme.truth('truth')).toBe('\x1b[95mtruth\x1b[39m')
     expect(theme.goodness('goodness')).toBe('\x1b[32mgoodness\x1b[39m')
-    expect(theme.beauty('beauty')).toBe('\x1b[35mbeauty\x1b[39m')
+    expect(theme.beauty('beauty')).toBe('\x1b[95mbeauty\x1b[39m')
     expect(theme.provenance('provenance')).toBe('\x1b[33mprovenance\x1b[39m')
     expect(theme.rupture('rupture')).toBe('\x1b[31mrupture\x1b[39m')
   })

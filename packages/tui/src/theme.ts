@@ -39,7 +39,7 @@ export function resolveInstallerMotion(environment: NodeJS.ProcessEnv): Installe
 }
 
 const terminalPalette = {
-  truth: '36', goodness: '32', beauty: '35', provenance: '33', rupture: '31',
+  truth: '95', goodness: '32', beauty: '95', provenance: '33', rupture: '31',
 } as const
 
 const darkPalette = {
@@ -81,8 +81,8 @@ export function markdownTheme(theme: InstallerTheme): MarkdownTheme {
     heading: theme.truth,
     link: theme.beauty,
     linkUrl: theme.dim,
-    code: theme.provenance,
-    codeBlock: theme.provenance,
+    code: theme.truth,
+    codeBlock: theme.truth,
     codeBlockBorder: theme.dim,
     quote: theme.dim,
     quoteBorder: theme.truth,

@@ -406,7 +406,7 @@ export class InstallerTui {
   private appendBanner(): void {
     const title = this.theme.bold(this.theme.truth(this.options.title?.toLocaleUpperCase('en-US') ?? 'MACHTIANI INSTALLER'))
     this.transcript.addChild(new Text(title, 1, 0))
-    this.transcript.addChild(new Text(this.theme.dim(this.options.title === undefined ? 'A guided setup for Dear Machine' : 'Use /help for local controls'), 1, 0))
+    this.transcript.addChild(new Text(this.theme.dim(this.options.title === undefined ? 'A guided setup for Dear Machine' : 'Ask a question or tell me what you need'), 1, 0))
   }
 
   private addRole(role: string, message: string): void {

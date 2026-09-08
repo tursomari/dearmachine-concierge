@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, join } from 'node:path'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
+export { loadDistribution, type ProductDistribution, type InstallationMethod } from './distribution.ts'
 
 export interface CommandRequest {
   label: string

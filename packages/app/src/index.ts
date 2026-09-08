@@ -20,6 +20,8 @@ import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-co
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { resolveSourceReference, saveSourceReference, type SourceReference } from './source-reference.ts'
 import { installationConsent } from './installation-consent.ts'
+import { chooseInstallationMethod } from './installation-method.ts'
+import { loadDistribution, type InstallationMethod, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
 
@@ -133,8 +135,10 @@ export function installerAgentPrompt(
   selection: InstallerModelSelection,
   modelProfilePath: string,
   sourceReference: SourceReference,
+  installation: { method: InstallationMethod; distribution?: ProductDistribution } = { method: 'nix' },
 ): string {
   const runtimeContext = {
+    installation,
     documentation: sourceReference,
     sharedModelSelection: {
       provider: selection.provider,
@@ -292,9 +296,20 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const outcomeWait = new AbortController()
   try {
     tui.start()
-    const consent = await installationConsent(tui, exitRequested)
-    if (consent === undefined) return
-    const { showCommands } = consent
+    const distribution = await loadDistribution(process.env)
+    if (distribution !== undefined && distribution.sourceRoot !== source) throw new Error('the distribution does not match the installer source root')
+    let showCommands = false
+    let method: InstallationMethod
+    while (true) {
+      const consent = await installationConsent(tui, exitRequested)
+      if (consent === undefined) return
+      const choice = await chooseInstallationMethod(tui, distribution !== undefined, exitRequested)
+      if (choice === undefined) return
+      if (choice === 'back') continue
+      method = choice
+      showCommands = consent.showCommands
+      break
+    }
     tui.setProgress('Loading installer model choices')
     const credentialPath = join(home, '.config', 'dearmachine', 'backends.env')
     const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
@@ -327,12 +342,15 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       environment: {
         MACHTIANI_INSTALLER_CONTRACT: join(source, 'INSTALL.md'),
         MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath,
+        MACHTIANI_INSTALL_METHOD: method,
       },
       onEvent: event => { renderAgentEvent(tui, tools, event) },
       onStatus: status => { tui.setProgress(status === 'running' ? installationProgressLabel : undefined) },
     })
     await agent.start()
-    await agent.prompt(installerAgentPrompt(credentialHelper, selection, modelProfilePath, sourceReference))
+    await agent.prompt(installerAgentPrompt(credentialHelper, selection, modelProfilePath, sourceReference, {
+      method, ...(distribution === undefined ? {} : { distribution }),
+    }))
     const completion = await Promise.race([
       exitRequested.then(() => ({ kind: 'exit' as const })),
       agent.whenExited().then(exitCode => ({ kind: 'agent-exit' as const, exitCode })),

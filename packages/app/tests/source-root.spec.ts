@@ -75,6 +75,22 @@ describe('installer source root', () => {
     expect(prompt).toContain('"umbrellaRevision": "0123456789abcdef0123456789abcdef01234567"')
     expect(prompt).toContain('Begin with Stage 1 now')
     expect(prompt).not.toContain('API_KEY=')
+    expect(prompt).toContain('"method": "nix"')
+  })
+
+  it('passes the chosen acquisition method and exact prebuilt paths as runtime data', () => {
+    const distribution = {
+      manifestPath: '/release/distribution.json', sourceRoot: '/release/source',
+      binaries: { dearmachine: '/release/bin/dearmachine', machtiani: '/release/bin/machtiani',
+        modelHost: '/release/bin/machtiani-model-host', agentManager: '/release/bin/agent-manager' },
+    }
+    const prompt = installerAgentPrompt('/private/helper.mjs', { provider: 'openrouter', model: 'test-model' }, '/private/profile.json', {
+      version: 1, sourceRoot: distribution.sourceRoot,
+      documentationEntryPoint: '/release/source/docs/README.md', umbrellaRevision: 'a'.repeat(40),
+    }, { method: 'standard', distribution })
+    const context = JSON.parse(prompt.split('<runtime_context_json>')[1]!.split('</runtime_context_json>')[0]!)
+    expect(context.installation).toEqual({ method: 'standard', distribution })
+    expect(context.sharedModelSelection.model).toBe('test-model')
   })
 
   it('turns safe DSH failure codes into actionable installer messages', () => {

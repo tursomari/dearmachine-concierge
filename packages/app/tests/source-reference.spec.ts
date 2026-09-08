@@ -23,6 +23,23 @@ async function sourceFixture() {
 }
 
 describe('versioned source reference', () => {
+  it('uses versioned release metadata in a source-only distribution without Git', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-source-release-'))
+    await mkdir(join(root, 'docs'))
+    await writeFile(join(root, 'docs', 'README.md'), '# Documentation\n')
+    const revision = '0123456789abcdef0123456789abcdef01234567'
+    await writeFile(join(root, 'bootstrap-source-revisions.json'), JSON.stringify({ '.': revision }))
+    await expect(resolveSourceReference(root)).resolves.toMatchObject({ umbrellaRevision: revision })
+  })
+
+  it('does not mask broken Git metadata with a release revision', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-source-broken-'))
+    await mkdir(join(root, 'docs'))
+    await mkdir(join(root, '.git'))
+    await writeFile(join(root, 'docs', 'README.md'), '# Documentation\n')
+    await writeFile(join(root, 'bootstrap-source-revisions.json'), JSON.stringify({ '.': 'a'.repeat(40) }))
+    await expect(resolveSourceReference(root)).rejects.toThrow()
+  })
   it('reads a loose branch revision without requiring a Git executable', async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), 'machtiani-source-metadata-'))
     const revision = '0123456789abcdef0123456789abcdef01234567'

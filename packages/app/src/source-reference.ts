@@ -45,6 +45,17 @@ function validReference(value: string): boolean {
 }
 
 async function resolveRepositoryRevision(sourceRoot: string): Promise<string> {
+  // Release archives deliberately contain no Git administration or history.
+  // Only a missing .git permits the explicit, package-generated provenance file.
+  try { await lstat(join(sourceRoot, '.git')) } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    const path = join(sourceRoot, 'bootstrap-source-revisions.json')
+    const metadata = await lstat(path)
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 16_384) throw new Error('invalid release revision metadata')
+    const revision = (JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>)['.']
+    if (typeof revision !== 'string' || !validRevision(revision)) throw new Error('invalid release source revision')
+    return revision
+  }
   const directories = await repositoryDirectories(sourceRoot)
   const head = (await readFile(join(directories.git, 'HEAD'), 'utf8')).trim()
   if (validRevision(head)) return head

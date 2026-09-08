@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { ManagementConversation, managementInstructions, type ManagementAgent } from '../src/concierge-agent.ts'
+import { ManagementConversation, managementAgentPrompt, type ManagementAgent } from '../src/concierge-agent.ts'
 import { ConciergeShell } from '../src/concierge-shell.ts'
 
 describe('management conversation layering', () => {
- it('opens the agent only for natural language and supplies management instructions once', async () => {
+ it('opens the agent only for natural language and leaves role policy to the system prompt', async () => {
   const agent={start:vi.fn(async()=>{}),prompt:vi.fn(async(_text:string)=>{}),interrupt:vi.fn(async()=>{}),shutdown:vi.fn(async()=>{})}
   const open=vi.fn(async()=>agent)
   const conversation=new ManagementConversation(open)
@@ -14,8 +14,7 @@ describe('management conversation layering', () => {
   await shell.submit('What is running?')
   await shell.submit('Stop Dear Machine')
   expect(open).toHaveBeenCalledTimes(1);expect(agent.start).toHaveBeenCalledTimes(1)
-  expect(agent.prompt.mock.calls[0]![0]).toContain(managementInstructions)
-  expect(agent.prompt.mock.calls[0]![0]).toContain('What is running?')
+  expect(agent.prompt.mock.calls[0]![0]).toBe('What is running?')
   expect(agent.prompt.mock.calls[1]![0]).toBe('Stop Dear Machine')
   await shell.submit('/quit')
   expect(agent.shutdown).toHaveBeenCalledTimes(1)
@@ -32,8 +31,24 @@ describe('management conversation layering', () => {
   void other.submit('Explain status')
   await other.submit('/help');await other.submit('/status');await other.submit('/quit')
  })
- it('makes read-only questions, separate consent, evidence and credentials explicit in the prompt', () => {
-  for(const fragment of ['read-only','clarify','dearmachine up','dearmachine down','dearmachine restart','dearmachine status','systemd on','persistence on','loginctl enable-linger','wait','credentials','observed','/help']) expect(managementInstructions).toContain(fragment)
+ it('adds the versioned documentation reference as runtime data rather than role instructions', () => {
+  const prompt=managementAgentPrompt('What inbox do I email?',{
+   version:1,sourceRoot:'/source/machtiani',documentationEntryPoint:'/source/machtiani/docs/README.md',umbrellaRevision:'0123456789abcdef0123456789abcdef01234567',
+  })
+  expect(prompt).toContain('<runtime_context_json>')
+  expect(prompt).toContain('/source/machtiani/docs/README.md')
+  expect(prompt).toContain('What inbox do I email?')
+  expect(prompt).not.toContain('dearmachine status')
+ })
+ it('supplies documentation runtime context only on the first turn', async () => {
+  const agent={start:vi.fn(async()=>{}),prompt:vi.fn(async(_text:string)=>{}),interrupt:vi.fn(async()=>{}),shutdown:vi.fn(async()=>{})}
+  const reference={version:1 as const,sourceRoot:'/source/machtiani',documentationEntryPoint:'/source/machtiani/docs/README.md',umbrellaRevision:'0123456789abcdef0123456789abcdef01234567'}
+  const conversation=new ManagementConversation(async()=>agent,reference)
+  await conversation.submit('First question')
+  await conversation.submit('Second question')
+  expect(agent.prompt.mock.calls[0]![0]).toContain('<runtime_context_json>')
+  expect(agent.prompt.mock.calls[1]![0]).toBe('Second question')
+  await conversation.close()
  })
  it('shuts down an agent that finishes opening after the interface closes', async () => {
   let resolve!: (agent: ManagementAgent)=>void

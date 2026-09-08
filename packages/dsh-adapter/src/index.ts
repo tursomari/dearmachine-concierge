@@ -61,7 +61,9 @@ function roleSystemPromptPlugin(mode: 'installer' | 'management'): string {
   return require.resolve(`@dearmachine/machtiani-installer-dsh-adapter/${mode === 'installer' ? 'installer' : 'management'}-system-prompt`)
 }
 
-function profilePatch(selection: InstallerModelSelection, mode: 'installer' | 'management' = 'installer'): string {
+type DshMode = 'installer' | 'management' | 'task'
+
+function profilePatch(selection: InstallerModelSelection, mode: DshMode = 'installer'): string {
   return `- id: agent-default-model
   config:
     provider: ${JSON.stringify(MODEL_HOST_PROVIDER)}
@@ -103,11 +105,11 @@ function profilePatch(selection: InstallerModelSelection, mode: 'installer' | 'm
 - insert:
     - id: machtiani-model-host
       name: ${JSON.stringify(modelHostPlugin())}
-    - id: machtiani-role-system-prompt
+${mode === 'task' ? '' : `    - id: machtiani-role-system-prompt
       name: ${JSON.stringify(roleSystemPromptPlugin(mode))}
-${mode === 'management' ? '' : `    - id: machtiani-installer-tools
+`}${mode === 'installer' ? `    - id: machtiani-installer-tools
       name: ${JSON.stringify(installerToolsPlugin())}
-`}`
+` : ''}`
 }
 
 function settings(selection: InstallerModelSelection): string {
@@ -120,7 +122,7 @@ ${selection.reasoningEffort === undefined ? '' : `  reasoningEffort: ${JSON.stri
 export async function prepareIsolatedDshHome(
   dshHome: string,
   selection: InstallerModelSelection = DEFAULT_INSTALLER_MODEL_SELECTION,
-  mode: 'installer' | 'management' = 'installer',
+  mode: DshMode = 'installer',
 ): Promise<void> {
   const profile = join(dshHome, 'profiles', 'machtiani-installer')
   await mkdir(profile, { recursive: true, mode: 0o700 })
@@ -432,7 +434,7 @@ export class DshAgentSession {
 
 /** The sole process-facing compatibility seam for the pinned DSH runtime. */
 export async function runDshTask(options: DshTaskOptions): Promise<DshTaskResult> {
-  await prepareIsolatedDshHome(options.dshHome, options.selection)
+  await prepareIsolatedDshHome(options.dshHome, options.selection, 'task')
   return await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [dshBin(), '--profile', 'machtiani-installer', options.task], {
       cwd: options.workspace,

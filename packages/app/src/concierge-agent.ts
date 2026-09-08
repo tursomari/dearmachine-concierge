@@ -1,12 +1,10 @@
 import type { InstallerAgentEvent } from '@dearmachine/machtiani-installer-dsh-adapter'
+import type { SourceReference } from './source-reference.ts'
 
-export const managementInstructions = `You are the Dear Machine management concierge, using the existing shared model host and DSH session.
-Invoke the native commands below through "\${DEARMACHINE_NATIVE_BIN:-dearmachine}" followed by the listed arguments, preserving the launching executable without echoing environment values.
-Manage an existing installation; do not repeat installation, provision products, edit configuration files, or collect credentials. Never read or echo credential files or environment values. Shared authentication is handled privately by the model host. If setup or authentication needs repair, explain the installer/rescue path.
-A status question is read-only: use dearmachine status. A clear lifecycle request authorizes exactly that operation: dearmachine up --bootstrap (or dearmachine up), dearmachine down, dearmachine restart. Execute through the native CLI, never raw signals, process spawning, service scripts, or a replacement daemon. A shell exit code or acknowledgement is not enough: report the observed daemon/supervisor state. After timeout or uncertain outcome, inspect dearmachine status before retrying. Do not claim a successful mutation without evidence. For ambiguous requests, clarify and wait for the human's answer.
-Service use and reboot persistence require two SEPARATE explicit choices. First inspect dearmachine systemd status. Explain that dearmachine systemd on configures service use only, ask for approval and wait. Declining means dearmachine systemd off, subject to native ownership checks. Never infer consent from opening the interface, asking a status question, or asking to start once.
-Only after systemd use is approved, ask separately whether Dear Machine should start after reboot AND authorize account-wide loginctl enable-linger so its user manager survives logout. Explain both effects and wait for explicit approval before dearmachine persistence on. A prior yes to systemd is NOT approval for persistence. Use dearmachine persistence off to disable service startup, retaining account-wide lingering for other services. Use dearmachine persistence status to report actual configuration and partial failures. Never invoke systemctl or loginctl directly or bypass the native consent store. Never migrate a resident supervisor automatically.
-The provider-free slash shell is always available: /help, /up, /down, /restart, /status, /systemd, /persistence, /quit, /detach. Native fallback commands remain available without a provider. Leaving or interrupting the interface never requests daemon stop. If the provider fails, direct the user to /help. Keep answers concise, and ask one consent question at a time.`
+export function managementAgentPrompt(text: string, sourceReference?: SourceReference): string {
+  if (sourceReference === undefined) return text
+  return `<runtime_context_json>\n${JSON.stringify({ documentation: sourceReference }, undefined, 2)}\n</runtime_context_json>\n\nHuman message:\n${text}`
+}
 
 export interface ManagementAgent {
   start(): Promise<void>
@@ -20,10 +18,10 @@ export class ManagementConversation {
   private opening: Promise<ManagementAgent> | undefined
   private agent: ManagementAgent | undefined
   private closed = false
-  private instructed = false
+  private contextSent = false
   private generation = 0
   private turns: Promise<void> = Promise.resolve()
-  constructor(private readonly open: () => Promise<ManagementAgent>) {}
+  constructor(private readonly open: () => Promise<ManagementAgent>, private readonly sourceReference?: SourceReference) {}
   submit(text: string): Promise<void> {
     // Begin opening synchronously, so close can also account for a pending opener.
     if (this.closed) return Promise.resolve()
@@ -43,9 +41,8 @@ export class ManagementConversation {
     const turn = this.turns.then(async () => {
       const agent = await opening
       if (this.closed || generation !== this.generation) return
-      const prompt = this.instructed ? text : `${managementInstructions}\n\nHuman message:\n${text}`
-      await agent.prompt(prompt)
-      this.instructed = true
+      await agent.prompt(this.contextSent ? text : managementAgentPrompt(text, this.sourceReference))
+      this.contextSent = true
     })
     this.turns = turn.catch(() => {})
     return turn
@@ -61,7 +58,7 @@ export class ManagementConversation {
 export async function openManagementAgent(ports: {
   event(event: InstallerAgentEvent): void
   status(status: 'running' | 'idle'): void
-}): Promise<ManagementAgent> {
+}, sourceReference?: SourceReference): Promise<ManagementAgent> {
   const [{ DshAgentSession }, { loadModelHostProfile }, { mkdir, mkdtemp, rm }, { join }] = await Promise.all([
     import('@dearmachine/machtiani-installer-dsh-adapter'), import('@dearmachine/machtiani-model-host'),
     import('node:fs/promises'), import('node:path'),
@@ -74,8 +71,8 @@ export async function openManagementAgent(ports: {
   const state = join(process.env.XDG_STATE_HOME || join(home, '.local', 'state'), 'machtiani-installer')
   await mkdir(state, { recursive: true, mode: 0o700 })
   const dshHome = await mkdtemp(join(state, 'concierge-'))
-  const workspace = join(dshHome, 'workspace')
-  await mkdir(workspace, { mode: 0o700 })
+  const workspace = sourceReference?.sourceRoot ?? join(dshHome, 'workspace')
+  if (sourceReference === undefined) await mkdir(workspace, { mode: 0o700 })
   const session = new DshAgentSession({
     dshHome, workspace, modelProfilePath, outcomePath: join(dshHome, 'unused-outcome.json'),
     mode: 'management',

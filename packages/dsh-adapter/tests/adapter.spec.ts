@@ -294,6 +294,15 @@ it('loads the installer system prompt before installer-only mutation tools', asy
  expect(patch).not.toContain('management-system-prompt')
 })
 
+it('keeps one-shot task profiles free of installer and concierge role policy', async () => {
+ const root=await mkdtemp(join(tmpdir(), 'task-dsh-prompt-'))
+ await prepareIsolatedDshHome(root, undefined, 'task')
+ const patch=await readFile(join(root,'profiles','machtiani-installer','cordis.patch.yml'),'utf8')
+ expect(patch).toContain('machtiani-model-host')
+ expect(patch).not.toContain('system-prompt')
+ expect(patch).not.toContain('machtiani-installer-tools')
+})
+
 it.each([false, true])('bounds management shutdown when the provider protocol stops responding or fails (%s)', async fails => {
  const { DshAgentSession } = await import('../src/index.ts')
  const root=await mkdtemp(join(tmpdir(), 'concierge-shutdown-'))

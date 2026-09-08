@@ -43,34 +43,31 @@ describe('installer source root', () => {
     ])
   })
 
-  it('gives one agent the contract and transcript-free credential bridge commands', () => {
+  it('gives one agent only dynamic documentation, model, and credential-helper context', () => {
     const prompt = installerAgentPrompt(
-      'INSTALLATION CONTRACT',
       '/private/credential-helper.mjs',
       { provider: 'openai-codex', model: 'gpt-5.6-luna', reasoningEffort: 'high' },
       '/home/test/.config/machtiani/model-profile.json',
+      {
+        version: 1,
+        sourceRoot: '/source/machtiani',
+        documentationEntryPoint: '/source/machtiani/docs/README.md',
+        umbrellaRevision: '0123456789abcdef0123456789abcdef01234567',
+      },
     )
-    expect(prompt).toContain('INSTALLATION CONTRACT')
-    expect(prompt).toContain('Do not use ask_user_question')
+    expect(prompt).not.toContain('INSTALLATION CONTRACT')
+    expect(prompt).not.toContain('ask_user_question')
     expect(prompt).toContain('/private/credential-helper.mjs')
-    expect(prompt).toContain('email "<selected transport>"')
-    expect(prompt).toContain('backend-provider "<selected backend provider>"')
+    expect(prompt).toContain('"email"')
+    expect(prompt).toContain('"backend-provider"')
     expect(prompt).not.toContain('llm "<selected provider>"')
-    expect(prompt).toContain('helper itself presents the canonical message and immediately opens')
-    expect(prompt).not.toContain('present its canonical credential message and then call')
-    expect(prompt).toContain('"provider":"openai-codex"')
-    expect(prompt).toContain('"model":"gpt-5.6-luna"')
-    expect(prompt).toContain('"reasoningEffort":"high"')
-    expect(prompt).toContain('"profile":"/home/test/.config/machtiani/model-profile.json"')
-    expect(prompt).toContain('absolute path returned by command -v machtiani-model-host')
-    expect(prompt).toContain('If it reports cancellation, do not continue the credential step')
-    expect(prompt).toContain('Never inspect, stat, source, parse, measure')
-    expect(prompt).toContain('Canonical messages must be presented exactly')
-    expect(prompt).toContain('system reminders')
-    expect(prompt).toContain('set -o pipefail')
-    expect(prompt).toContain('dearmachine up --create --resume')
-    expect(prompt).toContain('background option')
-    expect(prompt).toContain('call finish_installation')
+    expect(prompt).toContain('"provider": "openai-codex"')
+    expect(prompt).toContain('"model": "gpt-5.6-luna"')
+    expect(prompt).toContain('"reasoningEffort": "high"')
+    expect(prompt).toContain('"profile": "/home/test/.config/machtiani/model-profile.json"')
+    expect(prompt).toContain('"documentationEntryPoint": "/source/machtiani/docs/README.md"')
+    expect(prompt).toContain('"umbrellaRevision": "0123456789abcdef0123456789abcdef01234567"')
+    expect(prompt).toContain('Begin with Stage 1 now')
     expect(prompt).not.toContain('API_KEY=')
   })
 

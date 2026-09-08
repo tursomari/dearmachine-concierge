@@ -3,10 +3,11 @@ import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { nativeSupervisionChoice, defaultConciergeControl, type DaemonControl } from './concierge-control.ts'
 import { inspectInstallation, runConciergeEntry, type InstallationDiagnosis } from './concierge-entry.ts'
 import { ConciergeShell, formatDaemonStatus, conciergeInterruptHint } from './concierge-shell.ts'
+import { loadSourceReference, resolveSourceReference, type SourceReference } from './source-reference.ts'
 
 export { defaultConciergeControl } from './concierge-control.ts'
 
-export async function runLocalConcierge(control: DaemonControl, diagnosis: InstallationDiagnosis): Promise<void> {
+export async function runLocalConcierge(control: DaemonControl, diagnosis: InstallationDiagnosis, sourceReference?: SourceReference): Promise<void> {
   let requestExit!: () => void
   const exited = new Promise<void>(resolve => { requestExit = resolve })
   let shell!: ConciergeShell
@@ -19,7 +20,7 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
       }
     },
     status: status => tui.setProgress(status === 'running' ? 'Thinking' : undefined),
-  }))
+  }, sourceReference), sourceReference)
   const tui = new InstallerTui({
     title: 'Dear Machine Concierge', exitWindowMs: 2_000, interruptHint: conciergeInterruptHint,
     onSubmit: text => shell.submit(text),
@@ -47,19 +48,22 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
 export async function launchConcierge(sourceRoot?: string): Promise<void> {
   const home = process.env.HOME
   if (!home) throw new Error('HOME is required to locate installation state.')
+  const sourceReference = sourceRoot === undefined
+    ? await loadSourceReference(home).catch(() => undefined)
+    : await resolveSourceReference(sourceRoot)
   const control = defaultConciergeControl()
   await runConciergeEntry({
     interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     inspect: () => inspectInstallation(home, control),
     install: async () => {
       if (sourceRoot === undefined) {
-        await runLocalConcierge(control, { installation: 'absent', guidance: 'To begin guided installation, run dearmachine --source-root /absolute/path/to/machtiani. Use /help for local controls.' })
+        await runLocalConcierge(control, { installation: 'absent', guidance: 'To begin guided installation, run dearmachine --source-root /absolute/path/to/machtiani. Use /help for local controls.' }, sourceReference)
         return
       }
       const { runInstaller } = await import('./index.ts')
       await runInstaller(sourceRoot)
     },
-    manage: diagnosis => runLocalConcierge(control, diagnosis),
+    manage: diagnosis => runLocalConcierge(control, diagnosis, sourceReference),
     write: text => { process.stdout.write(text) },
   })
 }

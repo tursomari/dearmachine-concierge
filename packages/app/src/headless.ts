@@ -6,6 +6,7 @@ import { InstallerModelSetup } from '@dearmachine/machtiani-installer-dsh-adapte
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { acquireInstallerLock } from './lock.ts'
 import { defaultInstallerPaths, validatedSourceRoot } from './index.ts'
+import { resolveSourceReference, saveSourceReference } from './source-reference.ts'
 
 const selectionKeys = ['authorizedSender', 'backend', 'detectedBackends', 'model', 'provider', 'transport'] as const
 const backendKeys = ['executable', 'id', 'name', 'status', 'summary'] as const
@@ -109,6 +110,7 @@ export async function runHeadlessProductInstallation(sourceRoot: string, selecti
   const selection = await loadHeadlessSelection(selectionFile)
   const lock = await acquireInstallerLock(join(paths.stateDirectory, 'installer.lock'))
   try {
+    await saveSourceReference(home, await resolveSourceReference(source))
     const modelProfilePath = await saveHeadlessModelProfile(home, paths.stateDirectory, selection, reasoningEffort)
     const installerOptions = {
       home,

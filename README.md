@@ -68,7 +68,13 @@ Run the guided configuration against an umbrella checkout with:
 nix run '.#' -- --install --source-root /absolute/path/to/machtiani
 ```
 
-The launch-time wizard first asks which AI service and model should conduct the
+After installation consent, choose whether to see shell commands as they run.
+The default keeps the existing progress and tool summaries. Opting in adds
+literal shell commands in subdued grey; recognizable credential-bearing
+commands are withheld. Tool output is not added to this display. Escape from
+this choice returns to installation consent.
+
+The model wizard asks which AI service and model should conduct the
 installation. It offers API-key access plus policy-approved subscription
 sign-ins through pinned official runtimes, and asks only for reasoning levels
 the selected runtime reports. That one private profile powers both the
@@ -97,9 +103,9 @@ then runs isolated backend health probes, installs and starts Machtiani and
 Dear Machine, asks for one live test email, follows that message through the
 selected backend, and reports success only after the reply is sent.
 
-The installer shares Machtiani's semantic terminal palette: Truth identifies
-structure and live state, Goodness marks success, Beauty highlights links,
-Provenance identifies code and secondary detail, and Rupture marks failures.
+The default terminal palette uses bright magenta for headings, choices, links,
+and code, with subdued tool summaries and red failures. The named semantic
+theme profiles remain available:
 `MACHTIANI_THEME` accepts `terminal`, `machtiani-dark`, `machtiani-light`, or
 `none`. The explicit dark and light profiles use their muted truecolor palettes
 when the terminal advertises truecolor and otherwise fall back to the standard
@@ -108,6 +114,13 @@ terminal palette. `NO_COLOR` removes hue while retaining useful emphasis;
 `MACHTIANI_MOTION` accepts `full`, `reduced`, or `none`; reduced motion uses a
 static progress mark, while none and `TERM=dumb` retain the status text without
 animation.
+
+After installation, `dearmachine` opens the concierge and invites questions
+and requests in ordinary language. It displays inspection and operation tool
+activity. `/help` provides local controls; `/quit` closes the conversation
+without stopping Dear Machine. A confirmed start or restart uses the native
+supervisor to run the daemon in the background. Login and reboot persistence
+remain separate settings.
 
 Run the live DSH recursion smoke test only with a disposable or explicitly
 authorized OpenRouter credential already present in the environment:

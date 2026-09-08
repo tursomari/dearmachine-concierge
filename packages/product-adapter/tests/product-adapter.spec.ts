@@ -21,7 +21,7 @@ class RecordingRunner implements CommandRunner {
         stderr: '',
       }
     }
-    if (request.command[0] === 'dearmachine' && request.command[1] === 'status') {
+    if ((request.command[0] === 'dearmachine' || request.command[0]?.endsWith('/dearmachine')) && request.command[1] === 'status') {
       return { code: 0, stdout: 'DearMachine is running (PID 42).\npair-id\tsender@example.test\tinbox@example.test\tagentmail\n', stderr: '' }
     }
     if (request.label === 'Verify selected backend') return { code: 0, stdout: 'result=ok\n', stderr: '' }
@@ -66,6 +66,21 @@ const selection = {
 }
 
 describe('native product installer', () => {
+  it('configures supplied products without Nix and retains the exact model host path', async () => {
+    const test = await fixture()
+    const distribution = {
+      manifestPath: join(test.sourceRoot, 'distribution.json'), sourceRoot: test.sourceRoot,
+      binaries: { dearmachine: '/release/bin/dearmachine', machtiani: '/release/bin/machtiani',
+        modelHost: '/release/bin/machtiani-model-host', agentManager: '/release/bin/agent-manager' },
+    }
+    const installer = new NativeProductInstaller({ ...test, distribution })
+    expect(await installer.install(selection)).toEqual({ inboxAddress: 'inbox@example.test' })
+    expect(test.runner.requests.some(request => request.command[0] === 'nix')).toBe(false)
+    expect(test.runner.requests.some(request => request.command.includes('status') && request.command[0] === 'git')).toBe(false)
+    expect(test.runner.requests.find(request => request.label === 'Verify Machtiani model roles')?.command[0]).toBe(distribution.binaries.machtiani)
+    expect(await readFile(join(test.home, '.machtiani/config.toml'), 'utf8')).toContain('command = "/release/bin/machtiani-model-host"')
+    await expect(new NativeProductInstaller(test).install(selection)).rejects.toThrow('installation method')
+  })
   it('verifies only live email activity appended after its private baseline', async () => {
     const test = await fixture()
     const logDirectory = join(test.home, '.dearmachine', 'log')

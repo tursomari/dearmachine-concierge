@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, readlink, rename, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, join } from 'node:path'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
 export { loadDistribution, type ProductDistribution, type InstallationMethod } from './distribution.ts'
+import type { ProductDistribution } from './distribution.ts'
 
 export interface CommandRequest {
   label: string
@@ -172,6 +173,8 @@ async function requireMachtianiConfig(path: string, profilePath: string, modelHo
 }
 
 export interface ProductInstallerOptions {
+  /** Validated prebuilt release; omission retains the existing Nix route. */
+  distribution?: ProductDistribution
   home: string
   sourceRoot: string
   workspace: string
@@ -217,6 +220,23 @@ interface ProductJournal {
   selection: JournalSelection
   sourceStatusHash: string
   inboxAddress?: string
+  distributionManifest?: string
+}
+
+async function snapshotFingerprint(root: string): Promise<string> {
+  const hash = createHash('sha256')
+  const visit = async (relative: string): Promise<void> => {
+    const path = join(root, relative)
+    const metadata = await lstat(path)
+    hash.update(JSON.stringify([relative, metadata.mode]))
+    if (metadata.isSymbolicLink()) hash.update(JSON.stringify(await readlink(path)))
+    else if (metadata.isDirectory()) {
+      for (const name of (await readdir(path)).sort()) await visit(join(relative, name))
+    } else if (metadata.isFile()) hash.update(await readFile(path))
+    else throw new Error('the release source contains an unsupported file')
+  }
+  await visit('')
+  return hash.digest('hex')
 }
 
 const stages: readonly ProductStage[] = [
@@ -337,6 +357,8 @@ export class NativeProductInstaller {
   }
 
   async install(selection: ReadyInstallationSelection): Promise<InstalledProducts> {
+    const distribution = this.options.distribution
+    if (distribution !== undefined && distribution.sourceRoot !== this.options.sourceRoot) throw new Error('the distribution source root does not match')
     if (selection.backend.status !== 'ready') throw new Error(`${selection.backend.name} must pass its readiness check before product installation.`)
     const existingInboxId = this.options.existingInboxId
     if (existingInboxId !== undefined && (existingInboxId.trim() === '' || /[\r\n\0]/u.test(existingInboxId))) {
@@ -363,11 +385,17 @@ export class NativeProductInstaller {
     const dearMachine = join(this.options.sourceRoot, 'dearmachine')
     const installer = join(this.options.sourceRoot, 'machtiani-installer')
     const machtianiConfigPath = join(this.options.home, '.machtiani', 'config.toml')
-    const modelHostCommand = join(this.options.home, '.nix-profile', 'bin', 'machtiani-model-host')
+    const modelHostCommand = distribution?.binaries.modelHost ?? join(this.options.home, '.nix-profile', 'bin', 'machtiani-model-host')
     const deviceConfig = join(this.options.home, '.dearmachine', 'config', 'dearmachine.toml')
     const entryPoint = join(this.options.home, '.dearmachine', 'entrypoint', 'main')
     environment.MACHTIANI_CONFIG = machtianiConfigPath
     const run = async (label: string, command: readonly string[], cwd = this.options.workspace, stdin?: string, timeoutMs?: number | null): Promise<CommandResult> => {
+      if (distribution !== undefined) {
+        const commands: Record<string, string> = { dearmachine: distribution.binaries.dearmachine, machtiani: distribution.binaries.machtiani,
+          'agent-manager': distribution.binaries.agentManager }
+        const executable = commands[command[0] ?? '']
+        if (executable !== undefined) command = [executable, ...command.slice(1)]
+      }
       const request: CommandRequest = { label, command, cwd, environment, ...(timeoutMs === undefined ? {} : { timeoutMs }) }
       if (stdin !== undefined) request.stdin = stdin
       try {
@@ -399,12 +427,16 @@ export class NativeProductInstaller {
       if (await directoryHasEntries(join(this.options.home, '.machtiani'))) {
         throw new Error('An existing Machtiani configuration was found. The installer will not replace it automatically.')
       }
-      const sourceStatus = (await run('Source checkout preflight', ['git', '-C', this.options.sourceRoot, 'status', '--porcelain=v2', '--untracked-files=all', '--ignore-submodules=none'])).stdout
+      const sourceStatus = distribution === undefined
+        ? (await run('Source checkout preflight', ['git', '-C', this.options.sourceRoot, 'status', '--porcelain=v2', '--untracked-files=all', '--ignore-submodules=none'])).stdout
+        : await snapshotFingerprint(this.options.sourceRoot)
       journal = { version: 1, stage: 'started', selection: selected, sourceStatusHash: statusHash(sourceStatus) }
+      if (distribution !== undefined) journal.distributionManifest = distribution.manifestPath
       await saveJournal(this.options.journalPath, journal)
     } else if (JSON.stringify(journal.selection) !== JSON.stringify(selected)) {
       throw new Error('The saved product installation belongs to different provider, model, transport, sender, or backend choices.')
     }
+    if (journal.distributionManifest !== distribution?.manifestPath) throw new Error('the saved installation method or distribution differs; automatic migration is not allowed')
 
     const advance = async (stage: ProductStage, inboxAddress?: string): Promise<void> => {
       journal = { ...journal!, stage }
@@ -413,12 +445,13 @@ export class NativeProductInstaller {
     }
 
     if (!atLeast(journal.stage, 'machtiani-installed')) {
-      await run('Install Machtiani', ['nix', 'run', `path:${harness}#install`, '--', '--no-interactive'], harness)
+      if (distribution === undefined) await run('Install Machtiani', ['nix', 'run', `path:${harness}#install`, '--', '--no-interactive'], harness)
+      else await run('Verify supplied Machtiani', ['machtiani', '--version'])
       await advance('machtiani-installed')
     }
 
     if (!atLeast(journal.stage, 'model-host-installed')) {
-      await run('Install shared model host', ['nix', 'profile', 'install', `path:${installer}`], installer)
+      if (distribution === undefined) await run('Install shared model host', ['nix', 'profile', 'install', `path:${installer}`], installer)
       await run('Verify shared model host', ['sh', '-c', 'test -x "$1"', 'verify-model-host', modelHostCommand])
       await advance('model-host-installed')
     }
@@ -440,8 +473,13 @@ export class NativeProductInstaller {
     }
 
     if (!atLeast(journal.stage, 'dearmachine-installed')) {
-      await run('Install Dear Machine', ['nix', 'run', `path:${dearMachine}#install`], dearMachine)
-      await run('Verify installed commands', ['sh', '-c', 'command -v machtiani dearmachine agent-manager >/dev/null'])
+      if (distribution === undefined) {
+        await run('Install Dear Machine', ['nix', 'run', `path:${dearMachine}#install`], dearMachine)
+        await run('Verify installed commands', ['sh', '-c', 'command -v machtiani dearmachine agent-manager >/dev/null'])
+      } else {
+        await run('Verify supplied Dear Machine', ['dearmachine', '--help'])
+        await run('Verify supplied Agent Manager', ['agent-manager', '--help'])
+      }
       await advance('dearmachine-installed')
     }
 
@@ -483,7 +521,9 @@ export class NativeProductInstaller {
     const inboxAddress = parseInbox(status.stdout, selection.authorizedSender, transport.id)
     const backendCheck = await run('Verify selected backend', ['agent-manager', 'backend', 'health', selection.backend.id], entryPoint)
     if (!/(?:^|\n)result=ok(?:\n|$)/u.test(backendCheck.stdout)) throw new Error('The installed selected backend did not pass its functional health check.')
-    const sourceAfter = (await run('Verify source checkout', ['git', '-C', this.options.sourceRoot, 'status', '--porcelain=v2', '--untracked-files=all', '--ignore-submodules=none'])).stdout
+    const sourceAfter = distribution === undefined
+      ? (await run('Verify source checkout', ['git', '-C', this.options.sourceRoot, 'status', '--porcelain=v2', '--untracked-files=all', '--ignore-submodules=none'])).stdout
+      : await snapshotFingerprint(this.options.sourceRoot)
     if (statusHash(sourceAfter) !== journal.sourceStatusHash) throw new Error('Product installation changed the source checkout; the installer stopped before verification could complete.')
     await advance('verified', inboxAddress)
     return { inboxAddress }

@@ -1,6 +1,6 @@
 import { lstat, readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
-import { NativeProductInstaller, type InstalledProducts } from '@dearmachine/machtiani-installer-products'
+import { loadDistribution, NativeProductInstaller, type InstalledProducts } from '@dearmachine/machtiani-installer-products'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
 import { InstallerModelSetup } from '@dearmachine/machtiani-installer-dsh-adapter'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
@@ -104,6 +104,10 @@ export async function saveHeadlessModelProfile(
 
 export async function runHeadlessProductInstallation(sourceRoot: string, selectionFile: string, existingInboxId?: string, reasoningEffort?: string): Promise<InstalledProducts> {
   const source = await validatedSourceRoot(sourceRoot)
+  const method = process.env.MACHTIANI_INSTALL_METHOD
+  if (method !== undefined && method !== 'standard' && method !== 'nix') throw new Error('invalid installation method')
+  const distribution = method === 'nix' ? undefined : await loadDistribution(process.env)
+  if (method === 'standard' && distribution === undefined) throw new Error('standard installation requires a complete prebuilt distribution')
   const home = process.env.HOME
   if (home === undefined || home === '') throw new Error('HOME is required for headless product installation.')
   const paths = defaultInstallerPaths()
@@ -113,6 +117,7 @@ export async function runHeadlessProductInstallation(sourceRoot: string, selecti
     await saveSourceReference(home, await resolveSourceReference(source))
     const modelProfilePath = await saveHeadlessModelProfile(home, paths.stateDirectory, selection, reasoningEffort)
     const installerOptions = {
+      ...(distribution === undefined ? {} : { distribution }),
       home,
       sourceRoot: source,
       workspace: paths.workspace,

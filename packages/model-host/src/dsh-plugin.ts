@@ -48,7 +48,7 @@ function failure(error: unknown): LlmError {
 }
 
 class MachtianiModelHostAdapter extends LlmAdapter {
-  constructor(private readonly profilePath: string) { super() }
+  constructor(private readonly profilePath: string, private readonly caller: string) { super() }
 
   override providerInfo() { return { id: MODEL_HOST_PROVIDER, name: 'Machtiani model host' } }
 
@@ -88,7 +88,7 @@ class MachtianiModelHostAdapter extends LlmAdapter {
     try {
       const host = await ModelHost.open(this.profilePath)
       for await (const event of host.generate({
-        caller: 'installer',
+        caller: this.caller,
         sessionId: String(options.sessionId ?? 'installer'),
         messages: dshMessages(options.messages),
         ...(options.system === undefined ? {} : { system: options.system }),
@@ -124,5 +124,7 @@ export const inject = ['llm']
 export function apply(ctx: Context): void {
   const profilePath = process.env.MACHTIANI_MODEL_PROFILE
   if (profilePath === undefined || profilePath === '') throw new Error('MACHTIANI_MODEL_PROFILE is required')
-  ctx.llm.registerAdapter([MODEL_HOST_PROVIDER], new MachtianiModelHostAdapter(profilePath))
+  const mode = process.env.MACHTIANI_AGENT_MODE
+  const caller = mode === 'management' ? 'concierge' : mode === 'task' ? 'task' : 'installer'
+  ctx.llm.registerAdapter([MODEL_HOST_PROVIDER], new MachtianiModelHostAdapter(profilePath, caller))
 }

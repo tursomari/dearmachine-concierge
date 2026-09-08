@@ -2,7 +2,8 @@ import { ManagementConversation, openManagementAgent } from './concierge-agent.t
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { nativeSupervisionChoice, defaultConciergeControl, type DaemonControl } from './concierge-control.ts'
 import { inspectInstallation, runConciergeEntry, type InstallationDiagnosis } from './concierge-entry.ts'
-import { ConciergeShell, formatDaemonStatus, conciergeInterruptHint } from './concierge-shell.ts'
+import { ConciergeShell, formatDaemonStatus, conciergeInterruptHint, conciergeWelcome } from './concierge-shell.ts'
+import { renderAgentEvent, type AgentToolActivityState } from './index.ts'
 import { loadSourceReference, resolveSourceReference, type SourceReference } from './source-reference.ts'
 
 export { defaultConciergeControl } from './concierge-control.ts'
@@ -11,9 +12,10 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
   let requestExit!: () => void
   const exited = new Promise<void>(resolve => { requestExit = resolve })
   let shell!: ConciergeShell
+  const tools = new Map<string, AgentToolActivityState>()
   const conversation = new ManagementConversation(() => openManagementAgent({
     event: event => {
-      if (event.type === 'assistant' && event.text.trim()) tui.addAssistant(event.text)
+      if (event.type !== 'turn-end') renderAgentEvent(tui, tools, event.type === 'assistant' ? { ...event, reasoning: '' } : event)
       if (event.type === 'turn-end' && event.outcome !== 'completed') {
         tui.setProgress(undefined)
         tui.addAssistant('The management assistant could not complete that turn. Use /help for local controls; inspect dearmachine status for any unconfirmed operation.')
@@ -38,9 +40,9 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
   })
   try {
     tui.start()
+    tui.addAssistant(conciergeWelcome)
     tui.addAssistant(diagnosis.status === undefined ? `Installation: ${diagnosis.installation}.` : formatDaemonStatus(diagnosis.status))
     if (diagnosis.guidance !== undefined) tui.addAssistant(diagnosis.guidance)
-    tui.addAssistant('Use /help for local commands. Opening and leaving this interface does not change daemon state.')
     await exited
   } finally { try { await conversation.close() } finally { await tui.dispose() } }
 }

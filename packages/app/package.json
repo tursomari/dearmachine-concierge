@@ -21,7 +21,6 @@
     "@dearmachine/machtiani-installer-environment": "workspace:*",
     "@dearmachine/machtiani-installer-products": "workspace:*",
     "@dearmachine/machtiani-installer-tui": "workspace:*",
-    "@dearmachine/machtiani-installer-workflow": "workspace:*",
     "@dearmachine/machtiani-installer-workflow": "workspace:*"
   }
 }

@@ -338,7 +338,10 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       waitForInstallationOutcome(outcomePath, outcomeWait.signal).then(outcome => ({ kind: 'outcome' as const, outcome })),
     ])
     if (completion.kind === 'agent-exit') throw new Error(`The installation assistant exited unexpectedly (${completion.exitCode ?? 'unknown'}).`)
-    if (completion.kind === 'outcome') tui.addAssistant(renderInstallationOutcome(completion.outcome))
+    if (completion.kind === 'outcome') {
+      tui.setProgress(undefined)
+      tui.addAssistant(renderInstallationOutcome(completion.outcome))
+    }
   } catch (error) {
     const retained = await retainInstallerAgentDiagnostic(diagnosticPath, error, agent?.privateDiagnostic() ?? { stderr: '' })
       .then(() => true, () => false)
@@ -347,6 +350,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     await exitRequested
   } finally {
     outcomeWait.abort()
+    tui.setProgress(undefined)
     await agent?.shutdown().catch(() => {})
     await tui.dispose()
     await wizard?.catch(() => {})

@@ -2,6 +2,9 @@ import { EndpointAbsentError, type DaemonCommand, type DaemonControl, type Daemo
 
 export const conciergeInterruptHint = 'Use /quit to leave. Press Ctrl+C again within 2 seconds to exit the interface only. A committed operation is not undone; inspect dearmachine status.'
 
+export const conciergeWelcome = 'Tell me what you need in plain language—for example, “What inbox is configured?”, “Check Dear Machine”, or “Stop Dear Machine”.\n\nUse /quit to leave this conversation; it does not stop Dear Machine. Use /help for local controls.'
+export const backgroundExitHint = 'Dear Machine is running in the background under its supervisor. You can use /quit to leave this conversation and keep it running. Reboot startup is a separate persistence setting.'
+
 export const localHelp = `Local commands (no model or provider required):
 /help — Show this help.
 /up — Start Dear Machine and confirm it is running; never install or enable persistence.
@@ -113,6 +116,7 @@ export class ConciergeShell {
         if (text === '/up' || text === '/down' || text === '/restart' || text === '/status') {
           const result = await executeDaemonCommand(this.ports.control, text.slice(1) as DaemonCommand, this.ports.say)
           this.ports.say(result.message)
+          if (result.code === 0 && (text === '/up' || text === '/restart')) this.ports.say(backgroundExitHint)
           return
         }
         try {

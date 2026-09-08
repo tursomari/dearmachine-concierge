@@ -4,6 +4,15 @@ import type { DaemonStatus } from '../src/concierge-control.ts'
 
 const running: DaemonStatus = { installation: 'installed', supervisor: 'running', daemon: 'running', persistence: 'disabled' }
 const stopped: DaemonStatus = { ...running, supervisor: 'stopped', daemon: 'stopped' }
+
+it('explains safe interface exit after a confirmed local start', async () => {
+  const control = { request: vi.fn().mockResolvedValueOnce(stopped).mockResolvedValue(running) }
+  const say = vi.fn()
+  const shell = new ConciergeShell({ control, say, ensureIndependent: async () => {}, unsubscribe: async () => {}, close: async () => {} })
+  await shell.submit('/up')
+  expect(say.mock.calls.flat().join(' ')).toContain('/quit')
+  expect(say.mock.calls.flat().join(' ')).toContain('background')
+})
 function fixture(status = running) {
   const control = { request: vi.fn().mockResolvedValue(status) }
   const ports = { control, say: vi.fn(), ensureIndependent: vi.fn().mockResolvedValue(undefined), unsubscribe: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), converse: vi.fn().mockRejectedValue(new Error('provider offline')) }

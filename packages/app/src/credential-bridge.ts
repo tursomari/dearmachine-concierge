@@ -13,7 +13,7 @@ interface CredentialRequest {
 
 export interface CredentialBridgeOptions {
   socketPath: string
-  tui: InstallerTui
+  tui: Pick<InstallerTui, 'askSecret'>
   credentials: CredentialFileAdapter
 }
 
@@ -57,6 +57,8 @@ function reply(socket: Socket, value: object): void {
 export class CredentialBridge {
   private server: Server | undefined
   private active = false
+  private bound = false
+  private readonly sockets = new Set<Socket>()
 
   constructor(private readonly options: CredentialBridgeOptions) {}
 
@@ -78,6 +80,7 @@ export class CredentialBridge {
         resolve()
       })
     })
+    this.bound = true
     await chmod(this.options.socketPath, 0o600)
   }
 
@@ -85,8 +88,11 @@ export class CredentialBridge {
     const server = this.server
     this.server = undefined
     if (server !== undefined) {
+      for (const socket of this.sockets) socket.destroy()
       await new Promise<void>(resolve => { server.close(() => { resolve() }) })
     }
+    if (!this.bound) return
+    this.bound = false
     try {
       const metadata = await lstat(this.options.socketPath)
       if (metadata.isSocket()) await unlink(this.options.socketPath)
@@ -96,6 +102,9 @@ export class CredentialBridge {
   }
 
   private accept(socket: Socket): void {
+    this.sockets.add(socket)
+    socket.once('close', () => { this.sockets.delete(socket) })
+    socket.on('error', () => { socket.destroy() })
     socket.setEncoding('utf8')
     let input = ''
     socket.on('data', chunk => {
@@ -117,14 +126,19 @@ export class CredentialBridge {
       return
     }
     this.active = true
+    const cancellation = new AbortController()
+    socket.once('close', () => { cancellation.abort() })
     let value = ''
     try {
       const credential = request(JSON.parse(line))
-      if (await this.options.credentials.prepare(credential.kind, credential.selection) === 'ready') {
+      const readiness = await this.options.credentials.prepare(credential.kind, credential.selection)
+      if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return
+      if (readiness === 'ready') {
         reply(socket, { ok: true, status: 'already-present' })
         return
       }
-      value = await this.options.tui.askSecret(credentialPrompt(credential))
+      value = await this.options.tui.askSecret(credentialPrompt(credential), cancellation.signal)
+      if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return
       await this.options.credentials.save(credential.kind, value)
       value = ''
       reply(socket, { ok: true, status: 'saved' })

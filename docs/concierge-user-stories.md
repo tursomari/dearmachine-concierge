@@ -55,6 +55,11 @@ Acceptance criteria:
   the proposed persistence change and waits for explicit consent. Silence,
   opening the interface, and consent to start once do not authorize persistence.
 - Provider errors leave local help and deterministic controls usable.
+- An explicit request to add or configure another backend can use the same
+  masked credential helper after reopening the concierge. No key enters chat,
+  prompts, or tool receipts. Existing backends and the shared model selection
+  remain unchanged unless the user explicitly requests otherwise. The bridge
+  is lazy and closes with the conversation; local controls do not depend on it.
 
 Test-driven coverage: Vitest workflow and tool contract tests with a fake
 agent and daemon adapter. Headless conversations verify result reporting,

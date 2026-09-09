@@ -82,6 +82,13 @@ Increment 3 adds bootstrap/race/deadline, separate consent, lazy management agen
 and failed-provider fallback coverage. Mock systemctl/loginctl runners never
 configure a real service. See [increment 3](docs/concierge-increment-3.md).
 
+`packages/app/tests/concierge-credentials.spec.ts` exercises a reopened
+management session with the real private socket and credential helper process:
+lazy setup, masked-entry delegation, owner-only storage, preserving independent
+provider entries, reuse after reopening, and cleanup after provider startup
+failure. The agent and key are fixtures, not live credentials. Shared bridge
+tests cover cancellation and shutdown while a secure field is pending.
+
 All gates must be launched with disposable HOME, XDG state/config/data/runtime
 directories and DEARMACHINE_SUPERVISOR_SOCKET. Individual fixtures further isolate
 state. With existing pnpm dependencies and a disposable HOME,

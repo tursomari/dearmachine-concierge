@@ -1,6 +1,5 @@
 import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join } from 'node:path'
 import { InstallerTui, assertInteractiveTerminal } from '@dearmachine/machtiani-installer-tui'
 import { messages, runFirstThreeStages, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
@@ -13,6 +12,7 @@ import {
 } from '@dearmachine/machtiani-installer-dsh-adapter'
 import type { InstallationOutcome } from '@dearmachine/machtiani-installer-dsh-adapter/installer-tools'
 import { CredentialBridge, credentialSocketPath } from './credential-bridge.ts'
+import { credentialRuntimeContext } from './credential-context.ts'
 import { acquireInstallerLock } from './lock.ts'
 import { runInstallerModelWizard } from './model-wizard.ts'
 import { ConciergeShell, conciergeInterruptHint } from './concierge-shell.ts'
@@ -146,11 +146,7 @@ export function installerAgentPrompt(
       ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
       profile: modelProfilePath,
     },
-    credentialHelper: {
-      email: [process.execPath, credentialHelper, 'email', '<selected transport>'],
-      backendProvider: [process.execPath, credentialHelper, 'backend-provider', '<selected backend provider>'],
-    },
-    backendPreparation: [process.execPath, join(dirname(createRequire(import.meta.url).resolve('@dearmachine/machtiani-installer-backends')), 'bin.mjs'), 'prepare-forge-2.13.21'],
+    ...credentialRuntimeContext(credentialHelper),
   }
   return `<runtime_context_json>\n${JSON.stringify(runtimeContext, undefined, 2)}\n</runtime_context_json>\n\nThe launcher steps are complete. Begin with Stage 1 now.`
 }

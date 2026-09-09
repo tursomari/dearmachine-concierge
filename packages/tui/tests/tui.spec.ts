@@ -233,6 +233,23 @@ describe('Machtiani Installer TUI', () => {
     expect(await harness.terminal.snapshot({ includeScrollback: true })).not.toContain(secret)
   })
 
+  it('withdraws a helper-owned secure field when its connection is cancelled', async () => {
+    const harness = await open()
+    opened.push(harness)
+    const controller = new AbortController()
+    const secret = 'withdrawn-private-value'
+    const answer = harness.tui.askSecret('Provider key', controller.signal)
+    harness.terminal.send(secret)
+    controller.abort()
+    await expect(answer).rejects.toThrow()
+    const ordinary = harness.tui.ask({ message: 'What next?' })
+    harness.terminal.send('Keep the existing backend')
+    harness.terminal.send('\r')
+    await expect(ordinary).resolves.toBe('Keep the existing backend')
+    await harness.terminal.waitForFrame()
+    expect(await harness.terminal.snapshot({ includeScrollback: true })).not.toContain(secret)
+  })
+
   it('renders tool progress and settles it without leaving terminal progress active', async () => {
     const harness = await open()
     opened.push(harness)

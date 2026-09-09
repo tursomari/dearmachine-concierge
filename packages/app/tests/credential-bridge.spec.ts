@@ -20,6 +20,31 @@ function invoke(socketPath: string, request: object): Promise<string> {
 }
 
 describe('credential interaction bridge', () => {
+  it('cancels pending masked input and closes clients without saving during shutdown', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cb-'))
+    const socketPath = join(root, 'credential.sock')
+    let opened!: () => void
+    const ready = new Promise<void>(resolve => { opened = resolve })
+    let aborted = false
+    let saved = false
+    const bridge = new CredentialBridge({
+      socketPath,
+      tui: { askSecret: async (_message, signal) => new Promise<string>((_resolve, reject) => {
+        signal?.addEventListener('abort', () => { aborted = true; reject(new SecretInputCancelledError()) }, { once: true })
+        opened()
+      }) },
+      credentials: { prepare: async () => 'pending', save: async () => { saved = true } } as unknown as CredentialFileAdapter,
+    })
+    await bridge.start()
+    const result = invoke(socketPath, { kind: 'backend-provider', selection: 'openrouter' }).catch(() => '')
+    await ready
+    await bridge.close()
+    await result
+    expect(aborted).toBe(true)
+    expect(saved).toBe(false)
+    await expect(stat(socketPath)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('opens beneath an isolated XDG state path without exceeding Unix socket limits', async () => {
     const root = await mkdtemp(join(tmpdir(), 'tmp.'))
     const stateDirectory = join(root, '.local', 'state', 'machtiani-installer')

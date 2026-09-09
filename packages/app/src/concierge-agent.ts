@@ -1,12 +1,23 @@
 import type { InstallerAgentEvent } from '@dearmachine/machtiani-installer-dsh-adapter'
 import type { SourceReference } from './source-reference.ts'
+import { credentialRuntimeContext, type CredentialRuntimeContext } from './credential-context.ts'
+import { CredentialBridge, credentialSocketPath } from './credential-bridge.ts'
+import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credentials'
+import type { InstallerTui } from '@dearmachine/machtiani-installer-tui'
+import { loadDistribution, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 
-export function managementAgentPrompt(text: string, sourceReference?: SourceReference): string {
-  if (sourceReference === undefined) return text
-  return `<runtime_context_json>\n${JSON.stringify({ documentation: sourceReference }, undefined, 2)}\n</runtime_context_json>\n\nHuman message:\n${text}`
+interface ManagementRuntimeContext extends CredentialRuntimeContext {
+  sharedModelSelection?: { provider: string; model: string; reasoningEffort?: string; profile: string }
+  installation?: { method: 'standard'; distribution: ProductDistribution }
+}
+
+export function managementAgentPrompt(text: string, sourceReference?: SourceReference, credentials?: ManagementRuntimeContext): string {
+  if (sourceReference === undefined && credentials === undefined) return text
+  return `<runtime_context_json>\n${JSON.stringify({ documentation: sourceReference, ...credentials }, undefined, 2)}\n</runtime_context_json>\n\nHuman message:\n${text}`
 }
 
 export interface ManagementAgent {
+  runtimeContext?: ManagementRuntimeContext
   start(): Promise<void>
   prompt(text: string): Promise<void>
   interrupt(): Promise<void>
@@ -41,7 +52,7 @@ export class ManagementConversation {
     const turn = this.turns.then(async () => {
       const agent = await opening
       if (this.closed || generation !== this.generation) return
-      await agent.prompt(this.contextSent ? text : managementAgentPrompt(text, this.sourceReference))
+      await agent.prompt(this.contextSent ? text : managementAgentPrompt(text, this.sourceReference, agent.runtimeContext))
       this.contextSent = true
     })
     this.turns = turn.catch(() => {})
@@ -54,10 +65,11 @@ export class ManagementConversation {
   }
 }
 
-/** Called only after natural-language input. No model wizard or secret collection. */
+/** Called only after natural-language input. Reuses the profile; no model wizard. */
 export async function openManagementAgent(ports: {
   event(event: InstallerAgentEvent): void
   status(status: 'running' | 'idle'): void
+  askSecret: InstallerTui['askSecret']
 }, sourceReference?: SourceReference): Promise<ManagementAgent> {
   const [{ DshAgentSession }, { loadModelHostProfile }, { mkdir, mkdtemp, rm }, { join }] = await Promise.all([
     import('@dearmachine/machtiani-installer-dsh-adapter'), import('@dearmachine/machtiani-model-host'),
@@ -68,19 +80,40 @@ export async function openManagementAgent(ports: {
   const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
   // This validates profile metadata; the model host alone resolves referenced secrets.
   const profile = await loadModelHostProfile(modelProfilePath)
+  const distribution = await loadDistribution(process.env)
+  const credentialsContext = credentialRuntimeContext()
   const state = join(process.env.XDG_STATE_HOME || join(home, '.local', 'state'), 'machtiani-installer')
   await mkdir(state, { recursive: true, mode: 0o700 })
   const dshHome = await mkdtemp(join(state, 'concierge-'))
   const workspace = sourceReference?.sourceRoot ?? join(dshHome, 'workspace')
   if (sourceReference === undefined) await mkdir(workspace, { mode: 0o700 })
+  const socketPath = credentialSocketPath(state)
+  const bridge = new CredentialBridge({ socketPath, tui: ports, credentials: new CredentialFileAdapter({ home }) })
+  try { await bridge.start() } catch (error) {
+    await bridge.close().catch(() => {})
+    await rm(dshHome, { recursive: true, force: true })
+    throw error
+  }
   const session = new DshAgentSession({
     dshHome, workspace, modelProfilePath, outcomePath: join(dshHome, 'unused-outcome.json'),
     mode: 'management',
+    environment: { MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath },
     selection: { provider: profile.provider, model: profile.model, ...(profile.reasoningEffort === undefined ? {} : { reasoningEffort: profile.reasoningEffort }) },
     onEvent: ports.event, onStatus: ports.status,
   })
   return {
+    runtimeContext: {
+      ...credentialsContext,
+      sharedModelSelection: {
+        provider: profile.provider, model: profile.model, profile: modelProfilePath,
+        ...(profile.reasoningEffort === undefined ? {} : { reasoningEffort: profile.reasoningEffort }),
+      },
+      ...(distribution === undefined ? {} : { installation: { method: 'standard' as const, distribution } }),
+    },
     start: () => session.start(), prompt: text => session.prompt(text), interrupt: () => session.interrupt(),
-    shutdown: async () => { try { await session.shutdown() } finally { await rm(dshHome, { recursive: true, force: true }) } },
+    shutdown: async () => {
+      try { await session.shutdown() }
+      finally { try { await bridge.close() } finally { await rm(dshHome, { recursive: true, force: true }) } }
+    },
   }
 }

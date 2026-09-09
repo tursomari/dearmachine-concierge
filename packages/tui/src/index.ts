@@ -311,12 +311,12 @@ export class InstallerTui {
     })
   }
 
-  askSecret(message: string): Promise<string> {
+  askSecret(message: string, signal?: AbortSignal): Promise<string> {
     if (this.pendingQuestion !== undefined) {
       return Promise.reject(new Error('the installer supports exactly one active question'))
     }
     this.addAssistant(message)
-    return this.captureSecret()
+    return this.captureSecret(signal)
   }
 
   /** Switch to transcript-free masked input after the agent presented its prompt. */

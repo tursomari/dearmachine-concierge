@@ -13,7 +13,8 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
   const exited = new Promise<void>(resolve => { requestExit = resolve })
   let shell!: ConciergeShell
   const tools = new Map<string, AgentToolActivityState>()
-  const conversation = new ManagementConversation(() => openManagementAgent({
+  const conversation: ManagementConversation = new ManagementConversation(() => openManagementAgent({
+    askSecret: (message, signal) => tui.askSecret(message, signal),
     event: event => {
       if (event.type !== 'turn-end') renderAgentEvent(tui, tools, event.type === 'assistant' ? { ...event, reasoning: '' } : event)
       if (event.type === 'turn-end' && event.outcome !== 'completed') {

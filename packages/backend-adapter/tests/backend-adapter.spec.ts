@@ -1,10 +1,72 @@
-import { chmod, lstat, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { AgentManagerBackendAdapter, loadPrivateEnvironment, prepareForge21321, type ProcessResult } from '../src/index.ts'
 
 describe('backend adapter', () => {
+  it('registers an arbitrary Chat Completions provider, imports only its key, and preserves other providers', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'forge-custom-'))
+    await mkdir(join(home, '.forge'), { mode: 0o700 })
+    const configuration = join(home, '.forge', 'provider.json')
+    const existing = { id: 'existing', url: 'https://existing.invalid/chat/completions', auth_methods: ['api_key'] }
+    await writeFile(configuration, JSON.stringify([existing]), { mode: 0o600 })
+    const credential = join(home, 'backends.env')
+    await writeFile(credential, 'GATEWAY_API_KEY=custom-fixture\nOPENAI_API_KEY=preserve-fixture\n', { mode: 0o600 })
+    const run = async (command: readonly string[], _cwd: string, env: NodeJS.ProcessEnv): Promise<ProcessResult> => {
+      expect(env.OPENAI_API_KEY).toBeUndefined()
+      if (command.length === 1) {
+        expect(env.GATEWAY_API_KEY).toBe('custom-fixture')
+        const provider = JSON.parse(await readFile(configuration, 'utf8'))[1]
+        expect(provider).toMatchObject({ id: 'machtiani_regional_gateway', api_key_vars: 'GATEWAY_API_KEY', response_type: 'OpenAI', url: 'https://gateway.invalid/v1/chat/completions' })
+        await writeFile(join(home, '.forge', '.credentials.json'), JSON.stringify([{ id: 'machtiani_regional_gateway', type: 'api_key', api_key: 'custom-fixture' }]), { mode: 0o600 })
+      } else expect(env.GATEWAY_API_KEY).toBeUndefined()
+      const stdout = command.includes('--version') ? '2.13.21'
+        : command.includes('get') ? command.includes('provider') ? 'MachtianiRegionalGateway' : command.includes('model') ? 'some/model' : 'high'
+        : command.includes('--prompt') ? 'READY' : ''
+      return { code: 0, stdout, stderr: '' }
+    }
+    const result = await prepareForge21321({ home, providerEnvironmentPath: credential, provider: 'regional_gateway', model: 'some/model',
+      customProvider: { endpoint: 'https://gateway.invalid/v1/chat/completions', credentialVariable: 'GATEWAY_API_KEY' }, run })
+    expect(result.probe).toBe('passed')
+    expect(JSON.parse(await readFile(configuration, 'utf8'))[0]).toEqual(existing)
+    expect(await readFile(configuration, 'utf8')).not.toContain('custom-fixture')
+    await expect(lstat(join(home, '.env'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('does not claim high reasoning for a Forge custom provider when the pinned transport drops it', async () => {
+    let called = false
+    await expect(prepareForge21321({ home: '/unused', providerEnvironmentPath: '/unused', provider: 'gateway', model: 'model', reasoningEffort: 'high',
+      customProvider: { endpoint: 'https://gateway.invalid/chat/completions', credentialVariable: 'GATEWAY_API_KEY' },
+      run: async () => { called = true; return { code: 0, stdout: '', stderr: '' } } })).rejects.toThrow('does not forward reasoning effort')
+    expect(called).toBe(false)
+  })
+
+  it.each(['https://user:secret@gateway.invalid/chat/completions', 'https://gateway.invalid/chat/completions?key=secret', 'file:///tmp/provider', 'http://remote.invalid/chat/completions'])('rejects unsafe custom endpoints before running Forge: %s', async endpoint => {
+    const home = await mkdtemp(join(tmpdir(), 'forge-custom-url-'))
+    const credential = join(home, 'backends.env')
+    await writeFile(credential, 'GATEWAY_API_KEY=fixture\n', { mode: 0o600 })
+    let called = false
+    await expect(prepareForge21321({ home, providerEnvironmentPath: credential, provider: 'gateway', model: 'model',
+      customProvider: { endpoint, credentialVariable: 'GATEWAY_API_KEY' }, run: async () => { called = true; return { code: 0, stdout: '2.13.21', stderr: '' } } })).rejects.toThrow('endpoint')
+    expect(called).toBe(false)
+  })
+
+  it('refuses to replace an existing custom provider definition', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'forge-custom-preserve-'))
+    await mkdir(join(home, '.forge'))
+    const path = join(home, '.forge', 'provider.json')
+    const original = '[{"id":"machtiani_gateway","url":"https://existing.invalid/chat/completions","auth_methods":[]}]\n'
+    await writeFile(path, original, { mode: 0o600 })
+    const credential = join(home, 'backends.env')
+    await writeFile(credential, 'GATEWAY_API_KEY=fixture\n', { mode: 0o600 })
+    await expect(prepareForge21321({ home, providerEnvironmentPath: credential, provider: 'gateway', model: 'model',
+      customProvider: { endpoint: 'https://new.invalid/chat/completions', credentialVariable: 'GATEWAY_API_KEY' },
+      run: async () => ({ code: 0, stdout: '2.13.21', stderr: '' }) })).rejects.toThrow('different Forge custom provider')
+    expect(await readFile(path, 'utf8')).toBe(original)
+    await expect(lstat(join(home, '.env'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('discovers only supported executable names', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-backend-discovery-'))
     for (const command of ['codex', 'omp']) {

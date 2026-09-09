@@ -95,6 +95,41 @@ state. With existing pnpm dependencies and a disposable HOME,
 `pnpm --config.verify-deps-before-run=false ...` skips pnpm's store relocation
 check without reinstalling dependencies.
 
+### Forge custom-provider wire gate
+
+After building the backend package, `tests/forge-custom-provider.mjs` exercises
+the real pinned Forge 2.13.21 executable against a loopback Chat Completions
+server. It verifies exact endpoint, authentication, model, preserved provider
+definitions, private-store migration, cleanup, and a fresh process reusing the
+credential without an environment key. It uses only a fake key and creates and
+removes its own temporary homes. Closed stdin matters: Forge otherwise waits
+for piped input even for some CLI commands.
+
+Run it in a fresh container with a cached image, no network, and read-only
+mounts of the build outputs and fixture binary. This is a component integration
+test, not the mount-free natural-language IXE. Example (substitute existing
+paths; no builds or pulls are performed by this command):
+
+```bash
+docker run --rm --network none --entrypoint /nix/store/EXISTING-NODE/bin/node \
+  -e PATH=/usr/local/bin:/usr/bin:/bin:/nix/store/EXISTING-GIT/bin \
+  -v /nix/store:/nix/store:ro \
+  -v /absolute/cached/forge-2.13.21:/usr/local/bin/forge:ro \
+  -v "$PWD/packages/backend-adapter/dist:/helper:ro" \
+  -v "$PWD/packages/credential-adapter/dist:/credentials:ro" \
+  -v "$PWD/tests/forge-custom-provider.mjs:/test.mjs:ro" \
+  machtiani-ixe-standard:local /test.mjs
+```
+
+The pinned Forge transport drops explicit reasoning effort for arbitrary
+custom provider IDs, despite accepting its configuration setting. The adapter
+therefore rejects a requested level before mutation and requires a human choice
+about provider defaults; do not weaken this assertion or silently run an
+approved high-reasoning external test at a provider default. The loopback gate
+uses provider defaults deliberately. Named-provider reasoning tests remain in
+the maintained backend adapter suite. This gate is not a credentialed DeepInfra
+availability test or a full installer experience pass.
+
 This gate runs the actual native foreground launcher and supervisor with a
 disposable HOME, socket, registry, and dummy daemon. It exercises fresh-install
 consent, all lifecycle slash commands, terminal restoration, and two-press

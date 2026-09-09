@@ -10,13 +10,16 @@ function value(name: string): string {
 
 async function main(): Promise<void> {
   if (process.argv[2] !== 'prepare-forge-2.13.21') {
-    throw new Error('Usage: machtiani-installer-backend prepare-forge-2.13.21 --home PATH --environment-file PATH --provider ID --model ID [--reasoning-effort LEVEL]')
+    throw new Error('Usage: machtiani-installer-backend prepare-forge-2.13.21 --home PATH --environment-file PATH --provider ID --model ID [--reasoning-effort LEVEL] [--endpoint CHAT_COMPLETIONS_URL --credential-variable NAME]')
   }
   const receipt = await prepareForge21321({
     home: value('--home'),
     providerEnvironmentPath: value('--environment-file'),
     provider: value('--provider'),
     model: value('--model'),
+    ...(process.argv.includes('--endpoint') || process.argv.includes('--credential-variable') ? {
+      customProvider: { endpoint: value('--endpoint'), credentialVariable: value('--credential-variable') },
+    } : {}),
     ...(process.argv.includes('--reasoning-effort') ? { reasoningEffort: value('--reasoning-effort') } : {}),
   })
   process.stdout.write(`${JSON.stringify(receipt)}\n`)

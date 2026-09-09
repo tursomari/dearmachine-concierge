@@ -35,6 +35,8 @@ describe('role system prompts', () => {
     ])
     expect(sections.map(section => section.order)).toEqual([0, 10, 20])
     expect(sections[0]?.text).toContain('canonical documentation')
+    expect(sections[0]?.text).toContain('accepts provider labels beyond the built-in catalogue')
+    expect(sections[0]?.text).toContain('non-secret file/variable reference')
     expect(sections[0]?.text.toLocaleLowerCase('en-US')).toContain('ordinary configuration')
     expect(sections[1]?.text).toContain('one end-to-end Dear Machine installation')
     expect(sections[1]?.text).toContain('Do not narrate stage numbers')

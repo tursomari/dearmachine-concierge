@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { access, lstat, mkdtemp, readFile, realpath, rm, symlink, unlink } from 'node:fs/promises'
+import { access, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
@@ -139,9 +140,64 @@ export interface ForgePreparationOptions {
   provider: string
   model: string
   reasoningEffort?: string
+  customProvider?: { endpoint: string; credentialVariable: string }
   forgeCommand?: string
   timeoutMs?: number
   run?: (command: readonly string[], cwd: string, environment: NodeJS.ProcessEnv, timeoutMs: number) => Promise<ProcessResult>
+}
+
+function validateCustomProvider(options: ForgePreparationOptions): void {
+  const custom = options.customProvider
+  if (custom === undefined) return
+  let endpoint: URL
+  try { endpoint = new URL(custom.endpoint) } catch { throw new Error('Custom provider endpoint must be an absolute HTTP(S) URL.') }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)
+  if ((endpoint.protocol !== 'https:' && !(endpoint.protocol === 'http:' && loopback)) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || /[\s\u0000-\u001f]/u.test(custom.endpoint)) {
+    throw new Error('Custom provider endpoint requires HTTPS (HTTP only for loopback), without credentials, query parameters or fragments.')
+  }
+  if (!/^[a-z][a-z0-9_]{0,63}$/u.test(options.provider)) throw new Error('Custom provider ID must use lowercase letters, numbers and underscores.')
+  if (!/^[A-Z][A-Z0-9_]{0,120}_API_KEY$/u.test(custom.credentialVariable)) throw new Error('Custom provider credential variable must be an API-key reference.')
+  if (options.model.trim() === '' || /[\u0000-\u001f\u007f]/u.test(options.model)) throw new Error('Custom provider model must be a nonempty model ID.')
+  if (options.reasoningEffort !== undefined) {
+    throw new Error('Forge 2.13.21 does not forward reasoning effort for custom provider IDs. Ask the human whether to use provider-default reasoning or another backend; omit --reasoning-effort only after they approve provider defaults.')
+  }
+}
+
+/** Forge 2.13.21's provider.json supports independent, non-secret definitions. */
+async function registerCustomForgeProvider(options: ForgePreparationOptions): Promise<void> {
+  const custom = options.customProvider!
+  const directory = join(options.home, '.forge')
+  await mkdir(directory, { recursive: true, mode: 0o700 })
+  const metadata = await lstat(directory)
+  if (!metadata.isDirectory() || metadata.isSymbolicLink() || (process.getuid !== undefined && metadata.uid !== process.getuid())) {
+    throw new Error('Forge configuration directory must be a real directory owned by the current user.')
+  }
+  const path = join(directory, 'provider.json')
+  let providers: Record<string, unknown>[] = []
+  try {
+    const file = await lstat(path)
+    if (!file.isFile() || file.isSymbolicLink() || (process.getuid !== undefined && file.uid !== process.getuid())) throw new Error('unsafe file')
+    const parsed: unknown = JSON.parse(await readFile(path, 'utf8'))
+    if (!Array.isArray(parsed) || parsed.some(p => typeof p !== 'object' || p === null || Array.isArray(p) || typeof p.id !== 'string')) throw new Error('invalid providers')
+    providers = parsed
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Existing Forge provider configuration is unsafe or invalid; it was not replaced.')
+  }
+  const candidate = {
+    id: `machtiani_${options.provider}`, api_key_vars: custom.credentialVariable, url_param_vars: [],
+    response_type: 'OpenAI', auth_methods: ['api_key'], url: custom.endpoint,
+    models: [{ id: options.model, name: options.model, tools_supported: true, supports_parallel_tool_calls: true, input_modalities: ['text'] }],
+  }
+  const existing = providers.find(provider => provider.id === candidate.id)
+  if (existing !== undefined) {
+    if (JSON.stringify(existing) !== JSON.stringify(candidate)) throw new Error('A different Forge custom provider already uses this ID; preserve it and choose a distinct ID.')
+    return
+  }
+  const temporary = join(directory, `.provider-${randomUUID()}.json`)
+  try {
+    await writeFile(temporary, `${JSON.stringify([...providers, candidate], undefined, 2)}\n`, { mode: 0o600, flag: 'wx' })
+    await rename(temporary, path)
+  } finally { await unlink(temporary).catch(() => {}) }
 }
 
 async function assertPrivateForgeCredentialStore(path: string): Promise<void> {
@@ -173,16 +229,24 @@ function forgeConfigMatches(result: ProcessResult, label: 'Provider' | 'Model', 
  * explicitly selected by the human.
  */
 export async function prepareForge21321(options: ForgePreparationOptions): Promise<ForgePreparationReceipt> {
+  validateCustomProvider(options)
   const providerEnvironment = await loadPrivateEnvironment(options.providerEnvironmentPath)
+  const selectedEnvironment = options.customProvider === undefined ? providerEnvironment : {
+    [options.customProvider.credentialVariable]: providerEnvironment[options.customProvider.credentialVariable],
+  }
+  if (options.customProvider !== undefined && !selectedEnvironment[options.customProvider.credentialVariable]) {
+    throw new Error('The custom provider credential reference is missing; use the secure credential helper first.')
+  }
   const command = options.forgeCommand ?? 'forge'
   const execute = options.run ?? runBounded
-  const environment = { ...backendBaseEnvironment(undefined), HOME: options.home, FORGE_TERM: 'false' }
+  const environment = { ...backendBaseEnvironment(undefined), HOME: options.home, FORGE_TERM: 'false',
+    ...(options.customProvider === undefined ? {} : { FORGE_CONFIG: join(options.home, '.forge') }) }
   const versionResult = await execute([command, '--version'], options.home, environment, 30_000)
   const version = /(?:^|\s)(2\.13\.21)(?:\s|$)/u.exec(`${versionResult.stdout}\n${versionResult.stderr}`)?.[1]
   if (versionResult.code !== 0 || version !== '2.13.21') {
     throw new Error('The installed Forge version is not the verified 2.13.21 compatibility target; inspect its current authentication flow instead.')
   }
-  if (!['openrouter', 'deepseek', 'openai'].includes(options.provider)) {
+  if (options.customProvider === undefined && !['openrouter', 'deepseek', 'openai'].includes(options.provider)) {
     throw new Error(`Forge 2.13.21 migration does not support provider ${options.provider}.`)
   }
   const compatibilityPath = join(options.home, '.env')
@@ -192,17 +256,32 @@ export async function prepareForge21321(options: ForgePreparationOptions): Promi
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
-  const providerName = options.provider === 'openrouter' ? 'open_router' : options.provider
+  const providerName = options.customProvider !== undefined ? `machtiani_${options.provider}`
+    : options.provider === 'openrouter' ? 'open_router' : options.provider
   const probe = await mkdtemp(join(tmpdir(), 'machtiani-forge-prepare-'))
   let linked = false
   try {
-    await symlink(await realpath(options.providerEnvironmentPath), compatibilityPath)
+    let migrationPath = await realpath(options.providerEnvironmentPath)
+    if (options.customProvider !== undefined) {
+      await registerCustomForgeProvider(options)
+      migrationPath = join(probe, 'credential.env')
+      await writeFile(migrationPath, `${options.customProvider.credentialVariable}=${selectedEnvironment[options.customProvider.credentialVariable]}\n`, { mode: 0o600, flag: 'wx' })
+    }
+    await symlink(migrationPath, compatibilityPath)
     linked = true
     // Forge 2.13.21 imports a provider key from its environment only while
     // entering direct mode. A closed stdin may make that command exit non-zero
     // after the import, so the private store is the authoritative postcondition.
-    await execute([command], options.home, { ...environment, ...providerEnvironment }, 60_000)
+    await execute([command], options.home, { ...environment, ...selectedEnvironment }, 60_000)
     await assertPrivateForgeCredentialStore(join(options.home, '.forge', '.credentials.json'))
+    if (options.customProvider !== undefined) {
+      let imported = false
+      try {
+        const credentials: unknown = JSON.parse(await readFile(join(options.home, '.forge', '.credentials.json'), 'utf8'))
+        imported = Array.isArray(credentials) && credentials.some(value => value?.id === providerName)
+      } catch { /* Never include private-store contents or parser excerpts in errors. */ }
+      if (!imported) throw new Error('Forge did not import the selected custom provider credential.')
+    }
     await unlink(compatibilityPath)
     linked = false
 
@@ -242,7 +321,7 @@ export async function prepareForge21321(options: ForgePreparationOptions): Promi
     await rm(probe, { recursive: true, force: true })
   }
   return {
-    version: '2.13.21', provider: options.provider, model: options.model,
+    version: '2.13.21', provider: options.customProvider === undefined ? options.provider : providerName, model: options.model,
     ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
     credentialMigration: 'performed', probe: 'passed', compatibilitySurfaceCleanup: 'removed',
   }

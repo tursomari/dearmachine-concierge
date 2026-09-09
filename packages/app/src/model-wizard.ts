@@ -324,17 +324,11 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
   const providers = providerChoices(setup)
   let selectedProvider = preliminary?.provider
   while (true) {
-    let providerId: string
-    try {
-      providerId = await tui.choose(
+    const providerId = await tui.choose(
         'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
         providers,
         selectedProvider,
       )
-    } catch (error) {
-      if (error instanceof InstallerChoiceBackError) continue
-      throw error
-    }
     selectedProvider = providerId
     const chosenProvider = setup.providers().find(candidate => candidate.id === providerId)
     try {

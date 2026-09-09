@@ -19,8 +19,7 @@ import { ConciergeShell, conciergeInterruptHint } from './concierge-shell.ts'
 import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-control.ts'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { resolveSourceReference, saveSourceReference, type SourceReference } from './source-reference.ts'
-import { installationConsent } from './installation-consent.ts'
-import { chooseInstallationMethod } from './installation-method.ts'
+import { runInstallationWizard } from './installation-wizard.ts'
 import { loadDistribution, type InstallationMethod, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
@@ -298,34 +297,27 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     tui.start()
     const distribution = await loadDistribution(process.env)
     if (distribution !== undefined && distribution.sourceRoot !== source) throw new Error('the distribution does not match the installer source root')
-    let showCommands = false
-    let method: InstallationMethod
-    while (true) {
-      const consent = await installationConsent(tui, exitRequested)
-      if (consent === undefined) return
-      const choice = await chooseInstallationMethod(tui, distribution !== undefined, exitRequested)
-      if (choice === undefined) return
-      if (choice === 'back') continue
-      method = choice
-      showCommands = consent.showCommands
-      break
-    }
-    tui.setProgress('Loading installer model choices')
     const credentialPath = join(home, '.config', 'dearmachine', 'backends.env')
     const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
-    setup = await InstallerModelSetup.open(dshHome, process.env, { credentialPath, home })
-    tui.setProgress(undefined)
-    wizard = runInstallerModelWizard(tui, setup)
-    const configured = await Promise.race([
-      wizard.then(selection => ({ kind: 'selection' as const, selection })),
-      exitRequested.then(() => ({ kind: 'exit' as const })),
-    ])
-    if (configured.kind === 'exit') return
-    const selection = configured.selection
-    await saveModelHostProfile(modelProfilePath, setup.profileFor(selection))
+    const modelSetup = async (): Promise<InstallerModelSetup> => {
+      if (setup === undefined) {
+        tui.setProgress('Loading installer model choices')
+        setup = await InstallerModelSetup.open(dshHome, process.env, { credentialPath, home })
+        tui.setProgress(undefined)
+      }
+      return setup
+    }
+    const configured = await runInstallationWizard(tui, distribution !== undefined, exitRequested, async () => {
+      wizard = runInstallerModelWizard(tui, await modelSetup())
+      return await wizard
+    })
+    if (configured === undefined) return
+    const { selection, method, showCommands } = configured
+    const configuredSetup = await modelSetup()
+    await saveModelHostProfile(modelProfilePath, configuredSetup.profileFor(selection))
     const sourceReference = await resolveSourceReference(source)
     await saveSourceReference(home, sourceReference)
-    await setup.close()
+    await configuredSetup.close()
     setup = undefined
     tui.setProgress('Starting the installation assistant')
     await bridge.start()

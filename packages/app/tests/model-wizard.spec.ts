@@ -81,6 +81,13 @@ function fakeSetup(dshHome: string, authenticated = false): {
 }
 
 describe('installer model setup wizard', () => {
+  it('returns Escape from the provider menu to its parent wizard', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-parent-'))
+    const { setup } = fakeSetup(root)
+    const tui = new ScriptedTui([new InstallerChoiceBackError()])
+    await expect(runInstallerModelWizard(tui as never, setup)).rejects.toBeInstanceOf(InstallerChoiceBackError)
+    expect(tui.choices).toHaveLength(1)
+  })
   it('configures and verifies a remote custom provider without exposing its key', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-custom-remote-'))
     const verified: Array<{ selection: unknown; apiKey: string | undefined }> = []

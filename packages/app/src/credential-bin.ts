@@ -21,7 +21,7 @@ if ((kind !== 'backend-provider' && kind !== 'email') || selection === '' || soc
     if (newline < 0) return
     socket.end()
     try {
-      const response = JSON.parse(input.slice(0, newline)) as { ok?: boolean; status?: string; error?: string }
+      const response = JSON.parse(input.slice(0, newline)) as { ok?: boolean; status?: string; error?: string; reference?: unknown }
       if (response.ok === true && response.status === 'already-present') {
         process.stdout.write('Credential is already available.\n')
       } else if (response.ok === true && response.status === 'saved') {
@@ -31,6 +31,9 @@ if ((kind !== 'backend-provider' && kind !== 'email') || selection === '' || soc
       } else {
         process.stderr.write(`${response.error ?? 'Credential entry failed.'}\n`)
         process.exitCode = 1
+      }
+      if (response.ok === true && (response.status === 'saved' || response.status === 'already-present') && response.reference !== undefined) {
+        process.stdout.write(`Credential reference (not a value): ${JSON.stringify(response.reference)}\n`)
       }
     } catch {
       process.stderr.write('Credential entry returned an invalid response.\n')

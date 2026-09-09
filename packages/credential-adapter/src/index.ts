@@ -1,6 +1,6 @@
 import { constants } from 'node:fs'
 import { access, chmod, lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join, relative, sep } from 'node:path'
 
 export type CredentialKind = 'backend-provider' | 'email'
@@ -33,8 +33,15 @@ function normalized(value: string): string {
 
 export function resolveCredentialReference(kind: CredentialKind, selection: string, home: string): CredentialReference {
   if (kind === 'backend-provider') {
-    const variable = providerVariables[normalized(selection)]
-    if (variable === undefined) throw new Error(`Machtiani Installer does not yet know the credential variable for ${selection}.`)
+    const label = selection.trim().toLowerCase().replace(/ +/gu, ' ')
+    if (!/^[a-z0-9][a-z0-9 ._-]{0,159}$/u.test(label) || label.includes('..')) {
+      throw new Error('Backend provider label must be 1–160 printable letters, numbers, spaces, dots, hyphens or underscores.')
+    }
+    // Unknown providers get a stable application-owned namespace, not an
+    // arbitrary shell variable or a shared OpenAI slot. Hashing distinguishes
+    // labels whose punctuation would otherwise collapse to the same slug.
+    const variable = providerVariables[normalized(selection)] ??
+      `MACHTIANI_BACKEND_${label.replace(/[^a-z0-9]/gu, '_').slice(0,40).toUpperCase()}_${createHash('sha256').update(label).digest('hex').slice(0,16).toUpperCase()}_API_KEY`
     return {
       kind,
       destination: join(home, '.config', 'dearmachine', 'backends.env'),

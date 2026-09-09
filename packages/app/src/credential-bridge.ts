@@ -132,16 +132,17 @@ export class CredentialBridge {
     try {
       const credential = request(JSON.parse(line))
       const readiness = await this.options.credentials.prepare(credential.kind, credential.selection)
+      const reference = this.options.credentials.reference?.(credential.kind)
       if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return
       if (readiness === 'ready') {
-        reply(socket, { ok: true, status: 'already-present' })
+        reply(socket, { ok: true, status: 'already-present', reference })
         return
       }
       value = await this.options.tui.askSecret(credentialPrompt(credential), cancellation.signal)
       if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return
       await this.options.credentials.save(credential.kind, value)
       value = ''
-      reply(socket, { ok: true, status: 'saved' })
+      reply(socket, { ok: true, status: 'saved', reference })
     } catch (error) {
       value = ''
       if (error instanceof SecretInputCancelledError) reply(socket, { ok: true, status: 'cancelled' })

@@ -38,13 +38,26 @@ async function fixture() {
   return { root, key, askSecret, conversation }
 }
 function socketPath(): string { return mock.sessions.at(-1)!.options.environment!.MACHTIANI_INSTALLER_CREDENTIAL_SOCKET! }
-async function invoke(path: string) {
-  return promisify(execFile)(process.execPath, [resolve('packages/app/dist/credential-bin.mjs'), 'backend-provider', 'openrouter'], {
+async function invoke(path: string, provider = 'openrouter') {
+  return promisify(execFile)(process.execPath, [resolve('packages/app/dist/credential-bin.mjs'), 'backend-provider', provider], {
     env: { ...process.env, MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: path }, timeout: 3_000,
   })
 }
 
 describe('reopened concierge credentials', () => {
+  it('collects an unknown provider through the real helper and returns only its reusable reference', async () => {
+    const { key, askSecret, conversation } = await fixture()
+    try {
+      await conversation.submit('Configure Forge with my custom gateway.')
+      const result = await invoke(socketPath(), 'Regional Gateway')
+      expect(result.stdout).toContain('Credential saved securely')
+      expect(result.stdout).toContain('MACHTIANI_BACKEND_REGIONAL_GATEWAY_')
+      expect(result.stdout).toContain('backends.env')
+      expect(result.stdout + result.stderr).not.toContain(key)
+      expect((await invoke(socketPath(), 'regional gateway')).stdout).toContain('already available')
+      expect(askSecret).toHaveBeenCalledTimes(1)
+    } finally { await conversation.close() }
+  })
   it('lazily supplies a live private helper and saves only through masked input', async () => {
     const { root, key, askSecret, conversation } = await fixture()
     expect(mock.sessions).toHaveLength(0)

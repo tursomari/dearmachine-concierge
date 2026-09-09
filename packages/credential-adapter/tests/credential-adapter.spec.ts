@@ -5,6 +5,25 @@ import { describe, expect, it } from 'vitest'
 import { CredentialFileAdapter, resolveCredentialReference } from '../src/index.ts'
 
 describe('credential file adapter', () => {
+  it('allocates stable isolated references for arbitrary backend providers', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'credential-custom-'))
+    const first = resolveCredentialReference('backend-provider', 'DeepInfra', home)
+    expect(first.variable).toMatch(/^MACHTIANI_BACKEND_[A-Z0-9_]+_API_KEY$/u)
+    expect(resolveCredentialReference('backend-provider', 'deepinfra', home)).toEqual(first)
+    expect(resolveCredentialReference('backend-provider', 'Another gateway', home).variable).not.toBe(first.variable)
+    expect(resolveCredentialReference('backend-provider', 'a-b', home).variable)
+      .not.toBe(resolveCredentialReference('backend-provider', 'a_b', home).variable)
+    const adapter = new CredentialFileAdapter({ home })
+    await adapter.prepare('backend-provider', 'DeepInfra')
+    await adapter.save('backend-provider', 'custom-test-key')
+    expect(await new CredentialFileAdapter({ home }).prepare('backend-provider', 'deepinfra')).toBe('ready')
+    expect(await readFile(first.destination, 'utf8')).toBe(`${first.variable}=custom-test-key\n`)
+  })
+
+  it.each(['', 'bad\nprovider', '../gateway', 'x'.repeat(161)])('rejects unsafe provider labels %j', label => {
+    expect(() => resolveCredentialReference('backend-provider', label, '/home/test')).toThrow('provider label')
+  })
+
   it('maps supported selections to private references without values', () => {
     expect(resolveCredentialReference('backend-provider', 'OpenRouter', '/home/test')).toEqual({
       kind: 'backend-provider', destination: '/home/test/.config/dearmachine/backends.env',

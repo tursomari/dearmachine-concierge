@@ -42,6 +42,9 @@ describe('role system prompts', () => {
     expect(sections[1]?.text).toContain('Do not narrate stage numbers')
     expect(sections[1]?.text).toContain('Do not repeat the helper-owned credential message')
     expect(sections[1]?.text).toContain('never run a no-op shell command')
+    expect(sections[1]?.text).not.toContain('without preface or follow-up')
+    expect(sections[1]?.text).toContain('wording guidance, not a fixed script')
+    expect(sections[1]?.text).toContain('information supplied early')
     expect(sections[2]?.text).toContain('INSTALLATION CONTRACT')
   })
 

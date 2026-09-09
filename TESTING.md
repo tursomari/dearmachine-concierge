@@ -95,6 +95,12 @@ state. With existing pnpm dependencies and a disposable HOME,
 `pnpm --config.verify-deps-before-run=false ...` skips pnpm's store relocation
 check without reinstalling dependencies.
 
+The concierge native CLI gate runs the actual native foreground launcher and
+supervisor with a disposable HOME, socket, registry, and dummy daemon. It
+exercises fresh-install consent, all lifecycle slash commands, terminal
+restoration, and two-press Ctrl+C with the built TS entry. It never starts the
+real provider-backed daemon.
+
 ### Forge custom-provider wire gate
 
 After building the backend package, `tests/forge-custom-provider.mjs` exercises
@@ -129,11 +135,6 @@ approved high-reasoning external test at a provider default. The loopback gate
 uses provider defaults deliberately. Named-provider reasoning tests remain in
 the maintained backend adapter suite. This gate is not a credentialed DeepInfra
 availability test or a full installer experience pass.
-
-This gate runs the actual native foreground launcher and supervisor with a
-disposable HOME, socket, registry, and dummy daemon. It exercises fresh-install
-consent, all lifecycle slash commands, terminal restoration, and two-press
-Ctrl+C with the built TS entry. It never starts the real provider-backed daemon.
 
 ## Manual terminal exercises
 

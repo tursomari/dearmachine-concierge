@@ -5,6 +5,7 @@ import { CredentialBridge, credentialSocketPath } from './credential-bridge.ts'
 import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credentials'
 import type { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { loadDistribution, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
+import { loadInterfacePreferences } from './interface-preferences.ts'
 
 interface ManagementRuntimeContext extends CredentialRuntimeContext {
   sharedModelSelection?: { provider: string; model: string; reasoningEffort?: string; profile: string }
@@ -81,6 +82,7 @@ export async function openManagementAgent(ports: {
   // This validates profile metadata; the model host alone resolves referenced secrets.
   const profile = await loadModelHostProfile(modelProfilePath)
   const distribution = await loadDistribution(process.env)
+  const preferences = await loadInterfacePreferences(home)
   const credentialsContext = credentialRuntimeContext()
   const state = join(process.env.XDG_STATE_HOME || join(home, '.local', 'state'), 'machtiani-installer')
   await mkdir(state, { recursive: true, mode: 0o700 })
@@ -95,6 +97,7 @@ export async function openManagementAgent(ports: {
     throw error
   }
   const session = new DshAgentSession({
+    showCommands: preferences.showCommands,
     dshHome, workspace, modelProfilePath, outcomePath: join(dshHome, 'unused-outcome.json'),
     mode: 'management',
     environment: { MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath },

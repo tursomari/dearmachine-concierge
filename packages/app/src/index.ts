@@ -20,6 +20,7 @@ import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-co
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { resolveSourceReference, saveSourceReference, type SourceReference } from './source-reference.ts'
 import { runInstallationWizard } from './installation-wizard.ts'
+import { saveInterfacePreferences } from './interface-preferences.ts'
 import { submitInstallerMessage, type InstallerAssistantState } from './installer-conversation.ts'
 import { loadDistribution, type InstallationMethod, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 
@@ -312,6 +313,9 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     })
     if (configured === undefined) return
     const { selection, method, showCommands } = configured
+    await saveInterfacePreferences(home, { showCommands }).catch(() => {
+      tui.addAssistant('Your command-display choice applies to this installation, but could not be saved for future conversations.')
+    })
     const configuredSetup = await modelSetup()
     await saveModelHostProfile(modelProfilePath, configuredSetup.profileFor(selection))
     const sourceReference = await resolveSourceReference(source)

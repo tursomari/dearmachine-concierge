@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ManagementConversation, openManagementAgent } from '../src/concierge-agent.ts'
 import type { DshAgentSessionOptions } from '@dearmachine/machtiani-installer-dsh-adapter'
+import { saveInterfacePreferences } from '../src/interface-preferences.ts'
 
 const mock = vi.hoisted(() => ({ sessions: [] as { options: DshAgentSessionOptions; prompts: string[] }[], failStart: false }))
 vi.mock('@dearmachine/machtiani-installer-dsh-adapter', () => ({
@@ -45,6 +46,19 @@ async function invoke(path: string, provider = 'openrouter') {
 }
 
 describe('reopened concierge credentials', () => {
+  it.each([true, false])('retains command visibility %s at handoff and on the next management session', async showCommands => {
+    const { root, askSecret, conversation } = await fixture()
+    await saveInterfacePreferences(root, { showCommands })
+    try {
+      await conversation.submit('Check Dear Machine.')
+      expect(mock.sessions.at(-1)!.options.showCommands).toBe(showCommands)
+    } finally { await conversation.close() }
+    const reopened = new ManagementConversation(() => openManagementAgent({ event: () => {}, status: () => {}, askSecret }))
+    try {
+      await reopened.submit('Check again.')
+      expect(mock.sessions.at(-1)!.options.showCommands).toBe(showCommands)
+    } finally { await reopened.close() }
+  })
   it('collects an unknown provider through the real helper and returns only its reusable reference', async () => {
     const { key, askSecret, conversation } = await fixture()
     try {

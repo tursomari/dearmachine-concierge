@@ -95,6 +95,13 @@ state. With existing pnpm dependencies and a disposable HOME,
 `pnpm --config.verify-deps-before-run=false ...` skips pnpm's store relocation
 check without reinstalling dependencies.
 
+`packages/app/tests/interface-preferences.spec.ts` covers private, atomic
+command-display preference persistence and safe defaults for absent/invalid
+files. The concierge credential composition suite also checks that both
+visibility choices reach newly opened management agents. Command-display
+redaction stays covered by the DSH adapter suite. The preference lives in
+`~/.config/dearmachine/interface.json`, separate from model and credential files.
+
 The concierge native CLI gate runs the actual native foreground launcher and
 supervisor with a disposable HOME, socket, registry, and dummy daemon. It
 exercises fresh-install consent, all lifecycle slash commands, terminal

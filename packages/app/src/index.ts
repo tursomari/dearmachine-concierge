@@ -20,6 +20,7 @@ import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-co
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { resolveSourceReference, saveSourceReference, type SourceReference } from './source-reference.ts'
 import { runInstallationWizard } from './installation-wizard.ts'
+import { submitInstallerMessage, type InstallerAssistantState } from './installer-conversation.ts'
 import { loadDistribution, type InstallationMethod, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
@@ -267,6 +268,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   let requestExit!: () => void
   const exitRequested = new Promise<void>(resolve => { requestExit = resolve })
   let agent: DshAgentSession | undefined
+  let assistantState: InstallerAssistantState = 'setup'
   let setup: InstallerModelSetup | undefined
   let wizard: Promise<InstallerModelSelection> | undefined
   const tools = new Map<string, AgentToolActivityState>()
@@ -282,7 +284,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     chooseSupervision: nativeSupervisionChoice,
     control: defaultConciergeControl(),
     say: text => tui.addAssistant(text),
-    converse: async text => { await agent?.prompt(text) },
+    converse: async text => { await submitInstallerMessage(text, assistantState, agent, message => tui.addAssistant(message)) },
     ensureIndependent: async () => {}, unsubscribe: async () => {},
     close: async () => { requestExit() },
   })
@@ -340,6 +342,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       onStatus: status => { tui.setProgress(status === 'running' ? installationProgressLabel : undefined) },
     })
     await agent.start()
+    assistantState = 'ready'
     await agent.prompt(installerAgentPrompt(credentialHelper, selection, modelProfilePath, sourceReference, {
       method, ...(distribution === undefined ? {} : { distribution }),
     }))
@@ -354,6 +357,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       tui.addAssistant(renderInstallationOutcome(completion.outcome))
     }
   } catch (error) {
+    assistantState = 'unavailable'
     const retained = await retainInstallerAgentDiagnostic(diagnosticPath, error, agent?.privateDiagnostic() ?? { stderr: '' })
       .then(() => true, () => false)
     tui.setProgress(undefined)

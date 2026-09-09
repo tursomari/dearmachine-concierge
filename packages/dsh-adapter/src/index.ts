@@ -353,12 +353,41 @@ export class DshAgentSession {
       for (const request of this.pending.values()) request.reject(error)
       this.pending.clear()
     })
-    await this.request('initialize', {
-      cwd: this.options.workspace,
-      provider: MODEL_HOST_PROVIDER,
-      model: selection.model,
-      ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
-    })
+    try {
+      await this.request('initialize', {
+        cwd: this.options.workspace,
+        provider: MODEL_HOST_PROVIDER,
+        model: selection.model,
+        ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
+      })
+    } catch (error) {
+      // The SDK may reject initialize before the plugin loader prints its
+      // underlying error. Drain the failed child before diagnostics are saved.
+      if (!await this.waitForExit(1_000)) {
+        child.kill('SIGTERM')
+        if (!await this.waitForExit(250)) {
+          child.kill('SIGKILL')
+          if (!await this.waitForExit(250)) {
+            child.stdin.destroy()
+            child.stdout.destroy()
+            child.stderr.destroy()
+            this.closed = true
+          }
+        }
+      }
+      throw error
+    }
+  }
+
+  private async waitForExit(timeoutMs: number): Promise<boolean> {
+    if (this.closed) return true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        this.exit!.then(() => true),
+        new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), timeoutMs) }),
+      ])
+    } finally { clearTimeout(timer) }
   }
 
   async prompt(text: string): Promise<void> {

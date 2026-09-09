@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, stat } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   installationProgressLabel,
   installerAgentPrompt,
@@ -14,6 +14,15 @@ import {
 } from '../src/index.ts'
 
 describe('installer source root', () => {
+  it('shows the answer without exposing model deliberation as user guidance', () => {
+    const tui = { addAssistant: vi.fn(), addReasoning: vi.fn(), beginTool: vi.fn() }
+    renderAgentEvent(tui, new Map(), { type: 'assistant',
+      text: 'Your system is ready. Which email service would you like?',
+      reasoning: 'Internal stage bookkeeping and tentative interpretations.' })
+    expect(tui.addAssistant).toHaveBeenCalledWith('Your system is ready. Which email service would you like?')
+    expect(tui.addReasoning).not.toHaveBeenCalled()
+  })
+
   it('describes the whole guided session as installation progress', () => {
     expect(installationProgressLabel).toBe('Machtiani installation in progress')
   })

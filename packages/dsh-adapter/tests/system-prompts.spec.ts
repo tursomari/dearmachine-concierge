@@ -37,6 +37,9 @@ describe('role system prompts', () => {
     expect(sections[0]?.text).toContain('canonical documentation')
     expect(sections[0]?.text.toLocaleLowerCase('en-US')).toContain('ordinary configuration')
     expect(sections[1]?.text).toContain('one end-to-end Dear Machine installation')
+    expect(sections[1]?.text).toContain('Do not narrate stage numbers')
+    expect(sections[1]?.text).toContain('Do not repeat the helper-owned credential message')
+    expect(sections[1]?.text).toContain('never run a no-op shell command')
     expect(sections[2]?.text).toContain('INSTALLATION CONTRACT')
   })
 

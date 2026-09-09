@@ -210,7 +210,8 @@ export interface AgentToolActivityState {
 export function renderAgentEvent(tui: AgentEventTui, tools: Map<string, AgentToolActivityState>, event: InstallerAgentEvent): void {
   switch (event.type) {
     case 'assistant':
-      if (event.reasoning.trim() !== '') tui.addReasoning(event.reasoning)
+      // Model deliberation is not user guidance. Keep the normal installer
+      // conversation as focused as the concierge; tool summaries remain visible.
       if (event.text.trim() !== '') tui.addAssistant(event.text)
       break
     case 'tool-start':

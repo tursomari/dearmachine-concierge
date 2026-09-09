@@ -127,6 +127,7 @@ export interface ForgePreparationReceipt {
   version: '2.13.21'
   provider: string
   model: string
+  reasoningEffort?: string
   credentialMigration: 'performed'
   probe: 'passed'
   compatibilitySurfaceCleanup: 'removed'
@@ -137,6 +138,7 @@ export interface ForgePreparationOptions {
   providerEnvironmentPath: string
   provider: string
   model: string
+  reasoningEffort?: string
   forgeCommand?: string
   timeoutMs?: number
   run?: (command: readonly string[], cwd: string, environment: NodeJS.ProcessEnv, timeoutMs: number) => Promise<ProcessResult>
@@ -213,6 +215,18 @@ export async function prepareForge21321(options: ForgePreparationOptions): Promi
     if (!forgeConfigMatches(selectedProvider, 'Provider', providerName) || !forgeConfigMatches(selectedModel, 'Model', options.model)) {
       throw new Error('Forge did not retain the selected provider and model after credential import.')
     }
+    if (options.reasoningEffort !== undefined) {
+      const configuredReasoning = await execute(
+        [command, 'config', 'set', 'reasoning-effort', options.reasoningEffort], options.home, environment, 30_000,
+      )
+      if (configuredReasoning.code !== 0) throw new Error('Forge did not accept the selected reasoning effort.')
+      const retainedReasoning = await execute(
+        [command, 'config', 'get', 'reasoning-effort', '--porcelain'], options.home, environment, 30_000,
+      )
+      if (retainedReasoning.code !== 0 || retainedReasoning.stdout.trim() !== options.reasoningEffort) {
+        throw new Error('Forge did not retain the selected reasoning effort.')
+      }
+    }
     await execute(['git', 'init', '--quiet'], probe, environment, 30_000)
     const checked = await execute(
       [command, '-C', probe, '--prompt', 'Reply with exactly READY. Do not run tools or alter files.'],
@@ -229,6 +243,7 @@ export async function prepareForge21321(options: ForgePreparationOptions): Promi
   }
   return {
     version: '2.13.21', provider: options.provider, model: options.model,
+    ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
     credentialMigration: 'performed', probe: 'passed', compatibilitySurfaceCleanup: 'removed',
   }
 }

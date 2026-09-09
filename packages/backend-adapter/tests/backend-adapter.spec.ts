@@ -120,6 +120,37 @@ printf 'result=ok\n'
     expect(JSON.stringify(commands)).not.toContain('forge-private-test-value')
   })
 
+  it.each(['high', 'medium'])('verifies requested reasoning before probing (readback %s)', async retained => {
+    const home = await mkdtemp(join(tmpdir(), 'machtiani-forge-reasoning-'))
+    const credential = join(home, 'backends.env')
+    await writeFile(credential, 'OPENROUTER_API_KEY=forge-private-test-value\n', { mode: 0o600 })
+    const commands: string[][] = []
+    const run = async (command: readonly string[]): Promise<ProcessResult> => {
+      commands.push([...command])
+      if (command.length === 1) {
+        await mkdir(join(home, '.forge'))
+        await writeFile(join(home, '.forge', '.credentials.json'), '{}', { mode: 0o600 })
+      }
+      const stdout = command.includes('--version') ? '2.13.21'
+        : command.includes('get') ? command.includes('provider') ? 'OpenRouter'
+          : command.includes('model') ? 'model' : retained
+        : command.includes('--prompt') ? 'READY' : ''
+      return { code: 0, stdout, stderr: '' }
+    }
+    const result = prepareForge21321({
+      home, providerEnvironmentPath: credential, provider: 'openrouter', model: 'model', reasoningEffort: 'high', run,
+    })
+    if (retained === 'high') {
+      await expect(result).resolves.toMatchObject({ reasoningEffort: 'high', probe: 'passed' })
+    } else {
+      await expect(result).rejects.toThrow('did not retain the selected reasoning effort')
+    }
+    expect(commands).toContainEqual(['forge', 'config', 'set', 'reasoning-effort', 'high'])
+    expect(commands).toContainEqual(['forge', 'config', 'get', 'reasoning-effort', '--porcelain'])
+    expect(commands.some(command => command.includes('--prompt'))).toBe(retained === 'high')
+    await expect(lstat(join(home, '.env'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('rejects Forge authentication cancellation before attempting a live probe', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-forge-cancelled-auth-'))
     const home = join(root, 'home')

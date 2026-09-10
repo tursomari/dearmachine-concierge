@@ -69,14 +69,14 @@ describe('backend adapter', () => {
 
   it('discovers only supported executable names', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-backend-discovery-'))
-    for (const command of ['codex', 'omp']) {
+    for (const command of ['codex', 'omp', 'claude']) {
       const path = join(root, command)
       await writeFile(path, '#!/bin/sh\nexit 0\n')
       await chmod(path, 0o700)
     }
-    const adapter = new AgentManagerBackendAdapter({ environment: { PATH: `${root}:${process.env.PATH ?? ''}` } })
+    const adapter = new AgentManagerBackendAdapter({ environment: { PATH: root } })
     const result = await adapter.discover()
-    expect(result.map(candidate => candidate.name)).toEqual(expect.arrayContaining(['Codex', 'OMP']))
+    expect(result.map(candidate => candidate.name)).toEqual(['Codex', 'OMP', 'Claude Code'])
     expect(result.map(candidate => candidate.name)).not.toContain('Unknown')
   })
 
@@ -94,10 +94,12 @@ printf 'backend=%s\\nresult=ok\\n' "$3"
     const candidates = [
       { name: 'Codex', id: 'codex-yolo', executable: '/test/codex' },
       { name: 'Forge', id: 'forge', executable: '/test/forge' },
+      { name: 'Claude Code', id: 'claude', executable: '/test/claude' },
     ]
     await expect(adapter.check(candidates)).resolves.toEqual([
       { ...candidates[0], status: 'ready', summary: 'functional probe passed' },
       { ...candidates[1], status: 'ready', summary: 'functional probe passed' },
+      { ...candidates[2], status: 'ready', summary: 'functional probe passed' },
     ])
   })
 

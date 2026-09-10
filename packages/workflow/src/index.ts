@@ -226,7 +226,7 @@ export async function runThroughBackendSelection(ports: GuidedWorkflowPorts): Pr
   if (state.stage === 'backend-discovery') {
     const candidates = await ports.backends.discover()
     if (candidates.length === 0) {
-      await ports.conversation.ask("Dear Machine needs a backend agent, but I didn't find Codex, Forge, or OMP installed. Would you like help installing the agent you prefer, or would you rather install one yourself?")
+      await ports.conversation.ask("Dear Machine needs a backend agent, but I didn't find Codex, Forge, OMP, or Claude Code installed. Would you like help installing the agent you prefer, or would you rather install one yourself?")
       return undefined
     }
     const permission = await ports.conversation.ask(messages.backendReadiness(candidates.map(candidate => candidate.name).join(', ')))

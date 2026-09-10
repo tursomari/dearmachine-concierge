@@ -10,6 +10,7 @@ const catalog = [
   { name: 'Codex', id: 'codex-yolo', command: 'codex' },
   { name: 'Forge', id: 'forge', command: 'forge' },
   { name: 'OMP', id: 'omp', command: 'omp' },
+  { name: 'Claude Code', id: 'claude', command: 'claude' },
 ] as const
 
 const privateEnvironmentName = /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|ACCESS_KEY(?:_ID)?)$/u

@@ -86,6 +86,7 @@ class MachtianiModelHostAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     try {
+      let hasAnswer = false
       const host = await ModelHost.open(this.profilePath)
       for await (const event of host.generate({
         caller: this.caller,
@@ -100,6 +101,14 @@ class MachtianiModelHostAdapter extends LlmAdapter {
         ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: String(options.reasoningEffort) }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       })) {
+        if ((event.type === 'text-delta' || event.type === 'text-end') && event.text.trim() !== '') hasAnswer = true
+        if (event.type === 'tool-end') hasAnswer = true
+        // Deliberation alone is not a completed conversational response. Let
+        // DSH's bounded provider retry policy retry this request, without
+        // replaying any tool or inventing another human message.
+        if (event.type === 'finish' && event.reason === 'stop' && !hasAnswer) {
+          throw new LlmError('The model returned no answer or tool call.', 'EMPTY_RESPONSE')
+        }
         switch (event.type) {
           case 'text-start': yield { type: 'block-start', index: event.index, blockType: 'text' }; break
           case 'text-delta': yield { type: 'text-delta', index: event.index, text: event.text }; break
@@ -114,7 +123,7 @@ class MachtianiModelHostAdapter extends LlmAdapter {
           case 'finish': yield { type: 'finish', reason: event.reason === 'tool-calls' ? { kind: 'tool-calls' } : event.reason === 'max-tokens' ? { kind: 'max-tokens' } : event.reason === 'cancelled' ? { kind: 'aborted', failure: { code: 'ABORTED', message: 'The model request was cancelled.' } } : { kind: 'stop' } }; break
         }
       }
-    } catch (error) { throw failure(error) }
+    } catch (error) { throw error instanceof LlmError ? error : failure(error) }
   }
 }
 

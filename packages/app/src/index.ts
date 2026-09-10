@@ -239,7 +239,10 @@ export function installerTurnMessage(event: Extract<InstallerAgentEvent, { type:
   if (event.outcome === 'error' && event.failureCode === 'RATE_LIMIT') {
     return 'The installer model provider is temporarily rate-limited. Wait a moment, then type “try again”, or use /help for local controls.'
   }
-  if (event.outcome === 'error' && (event.failureCode === 'SERVER' || event.failureCode === 'TRANSPORT' || event.failureCode === 'EMPTY_RESPONSE')) {
+  if (event.outcome === 'error' && event.failureCode === 'EMPTY_RESPONSE') {
+    return 'The model returned no answer after several attempts. Type “try again” to continue in this window, or use /help for local controls.'
+  }
+  if (event.outcome === 'error' && (event.failureCode === 'SERVER' || event.failureCode === 'TRANSPORT')) {
     return 'The installer model provider had a temporary connection problem. Type “try again” to retry in this window, or use /help for local controls.'
   }
   if (event.outcome === 'max-tokens') {

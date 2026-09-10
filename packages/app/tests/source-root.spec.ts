@@ -105,6 +105,7 @@ describe('installer source root', () => {
 
   it('turns safe DSH failure codes into actionable installer messages', () => {
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'completed' })).toBeUndefined()
+    expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'EMPTY_RESPONSE' })).toContain('no answer after several attempts')
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'TIMEOUT' })).toContain('timed out after several attempts')
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'RATE_LIMIT' })).toContain('rate-limited')
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'SERVER' })).toContain('temporary connection problem')

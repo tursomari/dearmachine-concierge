@@ -209,6 +209,23 @@ final response, clean exit, and absence of the credential from the isolated
 runtime tree. It makes a provider request and can incur charges. It does not
 exercise product installation or email.
 
+## Subscription runtime handoff
+
+`nix develop -c bash tests/subscription-runtime-smoke.sh` exercises the focused
+smoke harness with fake executables and disposable profiles. It checks both
+provider paths, reuse of installer-created state, and two four-role verification
+runs without reading live credentials or contacting a provider.
+
+For the human-assisted runtime gate, use `scripts/subscription-runtime-smoke`
+with `openai-codex` or `anthropic-claude`, an explicitly selected model, and
+absolute `MACHTIANI_BIN` and `MACHTIANI_MODEL_HOST_BIN` paths from the candidate
+builds. The [README's subscription instructions](README.md) document profile
+selection and the complete invocations. Run once per provider with its
+installer-created profile/configuration. This gate uses provider-owned sign-in,
+verifies planner, shell-agent, answer, and file-discovery across fresh processes,
+and stops before Dear Machine installation or email. The fake harness test does
+not establish live subscription readiness.
+
 ## Containerized IXE/QSE
 
 The canonical harness is `tests/e2e/run.sh`; its detailed operational contract

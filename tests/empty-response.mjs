@@ -19,8 +19,13 @@ try {
     const marker = join(home, 'tool-count')
     let requests = 0
     let exhaust = false
+    const wirePrompts = []
     const server = createServer(async (request, response) => {
-      for await (const _chunk of request) { /* drain */ }
+      let body = ''
+      for await (const chunk of request) body += chunk
+      const wire = JSON.parse(body)
+      wirePrompts.push(wire.messages.filter(message => ['system', 'developer'].includes(message.role))
+        .map(message => typeof message.content === 'string' ? message.content : JSON.stringify(message.content)).join('\n'))
       requests++
       const call = !exhaust && requests === 2
       const answer = !exhaust && requests === 4
@@ -72,6 +77,12 @@ try {
       assert.equal(result.outcome, 'error')
       assert.equal(result.failureCode, 'EMPTY_RESPONSE')
       assert.equal(requests, 8, 'Stop after the initial request and three retries')
+      for (const prompt of wirePrompts) {
+        assert.ok(prompt.includes('Do not describe your internal planning'), 'Shared instructions must reach every provider request')
+        assert.ok(prompt.includes(mode === 'management'
+          ? 'Unknown persistence does not mean disabled'
+          : 'You are the Machtiani installation agent'), 'Role instructions must reach every provider request')
+      }
       console.log(`${mode}: reasoning-only recovery, no tool replay, and bounded failure PASS`)
     } finally {
       await session.shutdown()

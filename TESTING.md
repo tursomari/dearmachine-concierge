@@ -65,6 +65,9 @@ After building, `nix develop -c node tests/empty-response.mjs "$PWD"` runs the
 real installer and concierge against a credential-free loopback provider. It
 checks recovery from reasoning-only completions before and after a tool,
 without replaying that tool, and failure after the bounded retry budget.
+It also verifies that the shared and mode-specific system instructions reach
+every provider request, including retries. This proves prompt delivery, not live
+model compliance with those instructions.
 It accepts a packaged runtime root as well. No product or external service is used.
 
 ### Credential security boundary

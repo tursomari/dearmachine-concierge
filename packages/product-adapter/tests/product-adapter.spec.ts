@@ -66,6 +66,24 @@ const selection = {
 }
 
 describe('native product installer', () => {
+  it('verifies the correct inbox when native status includes labeled columns and other pairs', async () => {
+    const test = await fixture()
+    class LabeledStatusRunner extends RecordingRunner {
+      override async run(request: CommandRequest) {
+        const result = await super.run(request)
+        if (request.command[1] !== 'status') return result
+        return { ...result, stdout: 'DearMachine is running (PID 42).\n' +
+          'Pair UUID\tAuthorized sender\tDear Machine inbox\tTransport\n' +
+          'other-pair\tother@example.test\tunrelated@example.test\tagentmail\n' +
+          'pair-id\tsender@example.test\tinbox@example.test\tagentmail\n' }
+      }
+    }
+    const installer = new NativeProductInstaller({
+      ...test, runner: new LabeledStatusRunner(test.home), environment: { PATH: '/usr/bin:/bin' },
+    })
+    await expect(installer.install(selection)).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
+  })
+
   it('configures supplied products without Nix and retains the exact model host path', async () => {
     const test = await fixture()
     const distribution = {

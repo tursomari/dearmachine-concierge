@@ -82,7 +82,8 @@ describe('reopened concierge credentials', () => {
       const prompt = mock.sessions[0]!.prompts[0]!
       expect(prompt).toContain('credentialHelper')
       expect(prompt).toContain('backend-provider')
-      expect(prompt).toContain('backendPreparation')
+      expect(prompt).toContain('"backendPreparations"')
+      expect(prompt).toContain('"forge"')
       expect(prompt).toContain('sharedModelSelection')
       expect(prompt).toContain('fixture-model')
       expect(prompt).not.toContain(key)

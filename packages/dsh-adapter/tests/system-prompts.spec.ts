@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { apply as applyInstallerPrompt } from '../src/installer-system-prompt.ts'
 import { apply as applyManagementPrompt } from '../src/management-system-prompt.ts'
+import { sharedFoundation, conciergeRole } from '../src/system-prompts.ts'
 
 interface CapturedSection { name: string; order: number; text: string }
 
@@ -19,6 +20,15 @@ function promptContext(sections: CapturedSection[]) {
 afterEach(() => { delete process.env.MACHTIANI_INSTALLER_CONTRACT })
 
 describe('role system prompts', () => {
+  it('distinguishes discovery, selected-backend setup, and user-facing configuration facts', () => {
+    expect(sharedFoundation).toContain('command lookup failure is not proof of absence')
+    expect(sharedFoundation).toContain('installed, configured, verified, and activated')
+    expect(sharedFoundation).toContain('backendPreparations.forge')
+    expect(sharedFoundation).toContain('not an OMP or generic backend setup tool')
+    expect(sharedFoundation).toContain('Do not describe your internal planning')
+    expect(conciergeRole).toContain('column 2 is the authorized sender; column 3 is the inbox')
+    expect(conciergeRole).toContain('Unknown persistence does not mean disabled')
+  })
   it('assembles the installer policy and permanent contract as ordered system sections', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-prompt-'))
     const contractPath = join(root, 'INSTALL.md')

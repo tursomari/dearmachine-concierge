@@ -9,7 +9,13 @@ export function credentialRuntimeContext(helper = fileURLToPath(new URL('./crede
       email: [process.execPath, helper, 'email', '<selected transport>'],
       backendProvider: [process.execPath, helper, 'backend-provider', '<selected backend provider>'],
     },
-    backendPreparation: [process.execPath, join(dirname(createRequire(import.meta.url).resolve('@dearmachine/machtiani-installer-backends')), 'bin.mjs'), 'prepare-forge-2.13.21'],
+    backendPreparations: {
+      forge: {
+        supportedVersion: '2.13.21',
+        invocation: [process.execPath, join(dirname(createRequire(import.meta.url).resolve('@dearmachine/machtiani-installer-backends')), 'bin.mjs'), 'prepare-forge-2.13.21'],
+        makesProviderRequest: true,
+      },
+    },
   }
 }
 

@@ -59,6 +59,12 @@ the full `pnpm test` remains the maintained aggregate suite.
 
 ## Concierge increment checks
 
+`packages/app/tests/launch-environment.spec.ts` checks minimal-PATH child
+discovery, caller precedence, idempotence, and the real CLI-to-native bootstrap
+boundary. `packages/app/tests/credential-context.spec.ts` verifies that secure
+entry remains generic while preparation metadata is scoped to Forge 2.13.21.
+These tests use fake executables/credentials and do not make provider requests.
+
 The concierge tests are part of the maintained aggregate suite. After `pnpm build`,
 run the focused contracts and terminal exercises with:
 

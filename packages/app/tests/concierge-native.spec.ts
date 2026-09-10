@@ -21,6 +21,9 @@ async function fixture() {
   const source = join(home, 'source')
   await mkdir(join(source, 'dearmachine'), { recursive: true })
   await mkdir(join(source, 'machtiani-harness'))
+  await mkdir(join(source, 'docs'))
+  await writeFile(join(source, 'docs', 'README.md'), '# Fixture documentation\n')
+  await writeFile(join(source, 'bootstrap-source-revisions.json'), JSON.stringify({ '.': 'a'.repeat(40) }))
   const env = {
     PATH: process.env.PATH!, HOME: home, XDG_RUNTIME_DIR: join(home, 'run'), DEARMACHINE_SUPERVISOR_SOCKET: join(home, '.dearmachine', 'run', 'supervisor.sock'), TERM: 'xterm-256color',
     XDG_STATE_HOME: join(home, 'xdg-state'), XDG_DATA_HOME: join(home, 'xdg-data'), XDG_CONFIG_HOME: join(home, 'xdg-config'),
@@ -80,11 +83,11 @@ describe.skipIf(!native)('native Go to TS foreground handoff', () => {
       { prompt: 'Use /help', input: '/up\r' },
       { prompt: 'Bootstrapping', input: '/help\r' },
       { prompt: 'Run dearmachine status', input: '/down\r' },
-      { prompt: 'Daemon: stopped', input: '/quit\r' },
+      { prompt: 'Dear Machine: stopped', input: '/quit\r' },
     ])
     expect(result.code, result.output).toBe(0)
     expect(result.output).toContain('startup is not yet confirmed')
-    expect(result.output).not.toContain('Daemon: running')
+    expect(result.output).not.toContain('Dear Machine: running')
     expect((await control.request('status')).supervisor).toBe('stopped')
   })
 
@@ -114,14 +117,19 @@ setInterval(() => {}, 1000);
     const before = await readFile(join(root, 'run', 'dearmachine.pid'), 'utf8')
     const result = await terminal(env, [
       { prompt: 'Use /help', input: '/status\r' },
-      { prompt: 'Daemon: stopped', input: '/up\r' },
-      { prompt: 'Daemon: running', input: '/restart\r' },
-      { prompt: 'Daemon: running', input: '/down\r' },
-      { prompt: 'Daemon: stopped', input: '/up\r' },
-      { prompt: 'Daemon: running', input: '/quit\r' },
+      { prompt: 'Dear Machine: stopped', input: '/up\r' },
+      { prompt: 'Dear Machine: running', input: '/restart\r' },
+      { prompt: 'Dear Machine: running', input: '/down\r' },
+      { prompt: 'Dear Machine: stopped', input: '/up\r' },
+      { prompt: 'Dear Machine: running', input: '/quit\r' },
     ])
     expect(result.code, result.output).toBe(0)
     expect(result.output).not.toContain('Would you like to continue')
+    expect(result.output).toContain('Crash recovery:')
+    expect(result.output).toContain('After account logout: not verified')
+    expect(result.output).toContain('Managed startup at login:')
+    expect(result.output).not.toContain('Persistence:')
+    expect(result.output).not.toContain('detailed native status unavailable')
     expect((await control.request('status')).daemon).toBe('running')
     expect(await readFile(join(root, 'run', 'dearmachine.pid'), 'utf8')).not.toBe(before)
     expect(owner.exitCode).toBeNull()
@@ -133,7 +141,7 @@ setInterval(() => {}, 1000);
       { prompt: 'Use /help', input: 'What is running?\r' },
       { prompt: 'provider is unavailable', input: '/help\r' },
       { prompt: 'Native fallback CLI', input: '/status\r' },
-      { prompt: 'Daemon: running', input: '/quit\r' },
+      { prompt: 'Dear Machine: running', input: '/quit\r' },
     ])
     expect(offline.code, offline.output).toBe(0)
     // First Ctrl+C stays in the TS shell; second exits and restores the TTY.

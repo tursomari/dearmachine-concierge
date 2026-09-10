@@ -1,0 +1,114 @@
+import { execFile, type ChildProcess } from 'node:child_process'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nativeStatusReport, summarizeNativeStatusReport, type DaemonStatus } from '../src/concierge-control.ts'
+import { ConciergeShell, formatDaemonStatus, readDaemonStatusReport } from '../src/concierge-shell.ts'
+
+vi.mock('node:child_process', () => ({ execFile: vi.fn() }))
+const running: DaemonStatus = { installation: 'installed', daemon: 'running', supervisor: 'running', persistence: 'unknown' }
+const report = `Dear Machine: running
+Supervisor: running
+Crash recovery: active — retries if Dear Machine exits unexpectedly
+
+Closing this chat: leaves Dear Machine running
+After account logout: not verified — session/service lifetime not assessed
+Managed startup at login: cannot verify
+Managed startup after reboot (before login): cannot verify
+  Reason: systemd user manager unavailable
+  Scope: Dear Machine's managed service; other startup mechanisms not inspected
+`
+beforeEach(() => { vi.resetAllMocks() })
+
+describe('native lifecycle presentation', () => {
+  it('preserves lifecycle wording and scope without exposing pair or exit diagnostics', () => {
+    const result = summarizeNativeStatusReport(report + '\nLast exit: private diagnostic\nInbox: private@example.test\nAuthorized sender: sender@example.test\n')
+    for (const field of report.split('\n').map(line => line.trim()).filter(Boolean)) expect(result).toContain(field)
+    expect(result).not.toContain('private')
+    expect(result).not.toContain('sender@example.test')
+  })
+  it('preserves independent login and reboot observations when a service is available', () => {
+    const serviceReport = report.replace('at login: cannot verify', 'at login: enabled')
+      .replace('(before login): cannot verify', '(before login): disabled')
+      .replace('systemd user manager unavailable', 'service enabled; user lingering disabled')
+    const result = summarizeNativeStatusReport(serviceReport)
+    expect(result).toContain('at login: enabled')
+    expect(result).toContain('(before login): disabled')
+    expect(result).toContain('After account logout: not verified')
+  })
+  it('retains the native retry countdown without the private exit diagnostic', () => {
+    expect(summarizeNativeStatusReport(report + 'Next retry: 12 seconds\nLast exit: private error\n'))
+      .toContain('Next retry: 12 seconds')
+  })
+  it.each([
+    'Installation: installed. Supervisor: running. Daemon: running. Persistence: unknown.',
+    report.replace('Crash recovery:', 'Old recovery:'),
+    report + 'Dear Machine: stopped\n',
+    report.replace('Supervisor: running', 'Supervisor: \x1b[31mrunning'),
+  ])('rejects old, incomplete, ambiguous or terminal-control-bearing reports (%#)', value => {
+    expect(() => summarizeNativeStatusReport(value)).toThrow()
+  })
+  it('uses only the explicit native binary with a bounded read-only status invocation', async () => {
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const done = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void
+      done(null, report, '')
+      return {} as ChildProcess
+    })
+    const env = { HOME: '/fixture/home', DEARMACHINE_NATIVE_BIN: '/fixture/bin/dearmachine' }
+    expect(await nativeStatusReport(env)).toBe(summarizeNativeStatusReport(report))
+    expect(execFile).toHaveBeenCalledExactlyOnceWith(env.DEARMACHINE_NATIVE_BIN, ['status'],
+      { env, timeout: 5_000, maxBuffer: 65_536, windowsHide: true }, expect.any(Function))
+  })
+  it.each([
+    { HOME: '/fixture/home' },
+    { HOME: '/fixture/home', DEARMACHINE_NATIVE_BIN: 'dearmachine' },
+    { HOME: '/fixture/home', DEARMACHINE_NATIVE_BIN: '/fixture/bin/dearmachine', DEARMACHINE_SUPERVISOR_SOCKET: '/other/supervisor.sock' },
+  ])('does not recurse through PATH or query a different owner (%#)', async env => {
+    await expect(nativeStatusReport(env)).rejects.toThrow()
+    expect(execFile).not.toHaveBeenCalled()
+  })
+  it('suppresses process errors and output on failed or timed-out native queries', async () => {
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const done = args.at(-1) as (error: Error, stdout: string, stderr: string) => void
+      done(new Error('private failure'), report, 'private stderr')
+      return {} as ChildProcess
+    })
+    await expect(nativeStatusReport({ HOME: '/fixture/home', DEARMACHINE_NATIVE_BIN: '/fixture/bin/dearmachine' }))
+      .rejects.toThrow('Native lifecycle report unavailable.')
+  })
+})
+
+describe('concierge status reporting', () => {
+  it('shares native lifecycle presentation between the welcome banner and /status without a provider', async () => {
+    const control = { request: vi.fn().mockResolvedValue(running), readStatusReport: vi.fn().mockResolvedValue(summarizeNativeStatusReport(report)) }
+    const banner = await readDaemonStatusReport(control, running)
+    const say = vi.fn()
+    const converse = vi.fn()
+    const shell = new ConciergeShell({ control, say, converse, ensureIndependent: async () => {}, unsubscribe: async () => {}, close: async () => {} })
+    await shell.submit('/status')
+    expect(say).toHaveBeenCalledExactlyOnceWith(banner)
+    expect(control.request).toHaveBeenCalledExactlyOnceWith('status')
+    expect(converse).not.toHaveBeenCalled()
+    expect(banner).not.toContain('Persistence:')
+  })
+  it.each(['enabled', 'disabled', 'unknown'] as const)('never infers startup guarantees from legacy persistence=%s', async persistence => {
+    const control = { request: vi.fn(), readStatusReport: vi.fn().mockRejectedValue(new Error('private failure')) }
+    const result = await readDaemonStatusReport(control, { ...running, persistence })
+    expect(result).toContain('Crash recovery: active')
+    expect(result).toContain('Closing this chat: leaves Dear Machine running')
+    expect(result).toContain('After account logout: not verified')
+    expect(result).toContain('Managed startup at login: cannot verify')
+    expect(result).toContain('Managed startup after reboot (before login): cannot verify')
+    expect(result).toContain('detailed native status unavailable; run dearmachine status')
+    expect(result).not.toContain('private failure')
+    expect(result).not.toContain('Persistence:')
+    expect(control.request).not.toHaveBeenCalled()
+  })
+  it.each([
+    ['backing-off', 'active — waiting to retry'], ['failed', 'paused — consecutive-failure limit reached'],
+    ['stopped', 'inactive until started again'], ['unreachable', 'not verified'],
+  ] as const)('keeps fallback recovery honest for %s', (supervisor, expected) => {
+    const result = formatDaemonStatus({ ...running, supervisor, daemon: 'stopped', lastExit: 'private failure' })
+    expect(result).toContain(`Crash recovery: ${expected}`)
+    expect(result).not.toContain('leaves Dear Machine running')
+    expect(result).not.toContain('private failure')
+  })
+})

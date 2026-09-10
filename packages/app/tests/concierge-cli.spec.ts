@@ -55,7 +55,7 @@ describe('headless concierge CLI', () => {
     const absent = await fixture()
     expect(await cli(['status'], absent.env)).toMatchObject({ code: 1, output: expect.stringContaining('state is unknown') })
     const ready = await fixture(true)
-    expect(await cli(['status'], ready.env)).toMatchObject({ code: 0, output: expect.stringContaining('Daemon: stopped') })
+    expect(await cli(['status'], ready.env)).toMatchObject({ code: 0, output: expect.stringContaining('Dear Machine: stopped') })
   })
   it('uses confirmed lifecycle results through the same socket as the shell', async () => {
     const { env, commands } = await fixture(true)

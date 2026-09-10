@@ -34,7 +34,7 @@ describe('local slash commands', () => {
     control.request.mockResolvedValueOnce(text === '/up' ? stopped : running).mockResolvedValue(desired)
     await shell.submit(text)
     expect(control.request.mock.calls).toEqual([['status'], [text.slice(1)]])
-    expect(ports.say).toHaveBeenCalledWith(expect.stringContaining(`Daemon: ${desired.daemon}`))
+    expect(ports.say).toHaveBeenCalledWith(expect.stringContaining(`Dear Machine: ${desired.daemon}`))
     expect(ports.converse).not.toHaveBeenCalled()
   })
   it.each(['up', 'down'] as const)('treats already %s as a successful no-op', async command => {
@@ -133,7 +133,7 @@ it.each(['restart', 'status'] as const)('handles /%s locally through the control
   const shell = new ConciergeShell({ control: { request }, say, converse, ensureIndependent: async () => {}, unsubscribe: async () => {}, close: async () => {} })
   await shell.submit(`/${command}`)
   expect(request.mock.calls.map(call => call[0])).toEqual(command === 'status' ? ['status'] : ['status', 'restart'])
-  expect(say).toHaveBeenCalledWith(expect.stringContaining('Daemon: running'))
+  expect(say).toHaveBeenCalledWith(expect.stringContaining('Dear Machine: running'))
   expect(converse).not.toHaveBeenCalled()
   expect(localHelp).toContain(`/${command}`)
 })

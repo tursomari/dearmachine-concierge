@@ -21,7 +21,7 @@ A committed lifecycle operation is not undone by cancellation; inspect dearmachi
 
 Native fallback CLI commands:
 dearmachine --help — Local CLI help.
-dearmachine status — Inspect installation, supervisor, daemon, and persistence.
+dearmachine status — Inspect runtime, crash recovery, closing chat, logout, and managed login/reboot startup.
 dearmachine up — Start Dear Machine.
 dearmachine down — Stop Dear Machine.
 dearmachine restart — Restart Dear Machine.
@@ -36,10 +36,35 @@ Inspect: systemctl --user status dearmachine-concierge.service; systemctl --user
 Disable account-wide lingering only if other services do not need it: loginctl disable-linger.`
 
 export function formatDaemonStatus(status: DaemonStatus): string {
-  return `Installation: ${status.installation}. Supervisor: ${status.supervisor}. Daemon: ${status.daemon}. Persistence: ${status.persistence}.` +
-    (status.retryInMs === undefined ? '' : ` Retry in ${status.retryInMs} ms.`) +
+  const recovery = {
+    running: 'active — retries if Dear Machine exits unexpectedly',
+    starting: 'active — waiting for startup readiness',
+    'backing-off': 'active — waiting to retry',
+    stopping: 'inactive — stop in progress',
+    stopped: 'inactive until started again',
+    failed: 'paused — consecutive-failure limit reached',
+    unreachable: 'not verified — no responding native supervisor',
+  }[status.supervisor]
+  const chat = status.supervisor === 'running' && status.daemon === 'running'
+    ? 'leaves Dear Machine running'
+    : status.supervisor === 'stopped' ? 'leaves Dear Machine stopped'
+      : 'cannot verify — inspect dearmachine status'
+  // The legacy socket persistence flag cannot distinguish observed startup
+  // configuration from saved permission. Never use it to infer these fields.
+  return `Installation: ${status.installation}\nDear Machine: ${status.daemon}\nSupervisor: ${status.supervisor}\nCrash recovery: ${recovery}\n` +
+    `Closing this chat: ${chat}\nAfter account logout: not verified — session/service lifetime not assessed\n` +
+    'Managed startup at login: cannot verify\nManaged startup after reboot (before login): cannot verify\n' +
+    'Reason: detailed native status unavailable; run dearmachine status\n' +
+    (status.retryInMs === undefined ? '' : `Next retry: ${Math.ceil(status.retryInMs / 1000)} seconds.\n`) +
     // Exit diagnostics can contain private process output; leave their inspection to the native CLI.
     (status.lastExit === undefined ? '' : ' A last-exit diagnostic is available through dearmachine status.')
+}
+
+export async function readDaemonStatusReport(control: DaemonControl, status: DaemonStatus): Promise<string> {
+  try {
+    if (control.readStatusReport) return `Installation: ${status.installation}\n${await control.readStatusReport()}`
+  } catch { /* Missing/older native CLI must not disable local management. */ }
+  return formatDaemonStatus(status)
 }
 
 /** The scriptable command and slash-command paths share this result validation. */
@@ -53,7 +78,7 @@ export async function executeDaemonCommand(control: DaemonControl, command: Daem
       bootstrapped = true
     }
     if (command === 'status') {
-      return { code: ['failed', 'unreachable'].includes(status.supervisor) || status.daemon === 'unknown' || ['partial', 'unreadable'].includes(status.installation) ? 1 : 0, message: formatDaemonStatus(status) }
+      return { code: ['failed', 'unreachable'].includes(status.supervisor) || status.daemon === 'unknown' || ['partial', 'unreadable'].includes(status.installation) ? 1 : 0, message: await readDaemonStatusReport(control, status) }
     }
     if (status.installation !== 'installed') {
       return { code: 1, message: 'No verified installation is available. Use the installer for an absent installation; inspect existing state with dearmachine status before recovery. No change was requested.' }
@@ -61,11 +86,11 @@ export async function executeDaemonCommand(control: DaemonControl, command: Daem
     const confirmed = (state: DaemonStatus) => state.installation === 'installed' && (command === 'down'
       ? state.supervisor === 'stopped' && state.daemon === 'stopped'
       : state.supervisor === 'running' && state.daemon === 'running')
-    if (command !== 'restart' && confirmed(status)) return { code: 0, message: `${bootstrapped ? '' : `Already ${status.daemon}. `}${formatDaemonStatus(status)}` }
+    if (command !== 'restart' && confirmed(status)) return { code: 0, message: `${bootstrapped ? '' : `Already ${status.daemon}. `}${await readDaemonStatusReport(control, status)}` }
     if (bootstrapped) return { code: 1, message: `Operation not confirmed. ${formatDaemonStatus(status)} Run dearmachine status before retrying.` }
     status = await control.request(command)
     return confirmed(status)
-      ? { code: 0, message: formatDaemonStatus(status) }
+      ? { code: 0, message: await readDaemonStatusReport(control, status) }
       : { code: 1, message: `Operation not confirmed. ${formatDaemonStatus(status)} Run dearmachine status before retrying.` }
   } catch {
     return { code: 1, message: `Supervisor control failed. ${command === 'status' ? 'Daemon state is unknown.' : 'The operation may have completed; do not retry blindly.'} Run dearmachine status and dearmachine --help for recovery.` }

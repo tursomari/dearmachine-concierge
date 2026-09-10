@@ -2,7 +2,7 @@ import { ManagementConversation, openManagementAgent } from './concierge-agent.t
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { nativeSupervisionChoice, defaultConciergeControl, type DaemonControl } from './concierge-control.ts'
 import { inspectInstallation, runConciergeEntry, type InstallationDiagnosis } from './concierge-entry.ts'
-import { ConciergeShell, formatDaemonStatus, conciergeInterruptHint, conciergeWelcome } from './concierge-shell.ts'
+import { ConciergeShell, readDaemonStatusReport, conciergeInterruptHint, conciergeWelcome } from './concierge-shell.ts'
 import { renderAgentEvent, type AgentToolActivityState } from './index.ts'
 import { loadSourceReference, resolveSourceReference, type SourceReference } from './source-reference.ts'
 
@@ -40,9 +40,11 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
     close: async () => { requestExit() },
   })
   try {
+    const statusReport = diagnosis.status === undefined ? `Installation: ${diagnosis.installation}.`
+      : await readDaemonStatusReport(control, diagnosis.status)
     tui.start()
     tui.addAssistant(conciergeWelcome)
-    tui.addAssistant(diagnosis.status === undefined ? `Installation: ${diagnosis.installation}.` : formatDaemonStatus(diagnosis.status))
+    tui.addAssistant(statusReport)
     if (diagnosis.guidance !== undefined) tui.addAssistant(diagnosis.guidance)
     await exited
   } finally { try { await conversation.close() } finally { await tui.dispose() } }

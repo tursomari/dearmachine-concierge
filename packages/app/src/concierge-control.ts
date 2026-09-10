@@ -16,6 +16,8 @@ export interface DaemonControl {
   /** Mutations return confirmed observations, never just an acknowledgement. */
   request(command: DaemonCommand): Promise<DaemonStatus>
   bootstrapUp?(progress?: (text: string) => void): Promise<DaemonStatus>
+  /** Read-only native presentation; never substitutes for lifecycle confirmation. */
+  readStatusReport?(): Promise<string>
 }
 
 function isStatus(value: unknown): value is DaemonStatus {
@@ -100,8 +102,12 @@ export function selectSupervision(options: {
 /** Only an explicit up may cross this bootstrap boundary. Go owns all processes. */
 export class BootstrapDaemonControl implements DaemonControl {
   private starting: Promise<DaemonStatus> | undefined
+  readonly readStatusReport?: () => Promise<string>
   constructor(private readonly socket: DaemonControl, private readonly bootstrap: () => Promise<void>,
-    private readonly timeoutMs = 20_000, private readonly progress: (text: string) => void = () => {}) {}
+    private readonly timeoutMs = 20_000, private readonly progress: (text: string) => void = () => {},
+    readStatusReport?: () => Promise<string>) {
+    if (readStatusReport !== undefined) this.readStatusReport = readStatusReport
+  }
   request(command: DaemonCommand): Promise<DaemonStatus> { return this.socket.request(command) }
   bootstrapUp(progress?: (text: string) => void): Promise<DaemonStatus> {
     if (this.starting !== undefined) return this.starting
@@ -146,7 +152,46 @@ export function nativeBootstrap(environment: NodeJS.ProcessEnv = process.env): P
 }
 
 export function defaultConciergeControl(environment: NodeJS.ProcessEnv = process.env, progress?: (text: string) => void): DaemonControl {
-  return new BootstrapDaemonControl(new SocketDaemonControl(resolveSupervisorSocket(environment)), () => nativeBootstrap(environment), 20_000, progress)
+  return new BootstrapDaemonControl(new SocketDaemonControl(resolveSupervisorSocket(environment)), () => nativeBootstrap(environment), 20_000, progress,
+    () => nativeStatusReport(environment))
+}
+
+/** Keep native lifecycle wording, but exclude pairs and potentially private exit diagnostics. */
+export function summarizeNativeStatusReport(output: string): string {
+  const labels = ['Dear Machine:', 'Supervisor:', 'Crash recovery:', 'Next retry:', 'Closing this chat:',
+    'After account logout:', 'Managed startup at login:', 'Managed startup after reboot (before login):',
+    'Reason:', 'Scope:']
+  const fields = new Map<string, string>()
+  for (const line of output.split('\n')) {
+    const text = line.trim()
+    const label = labels.find(prefix => text.startsWith(prefix))
+    if (label === undefined) continue
+    if (fields.has(label) || text.length === label.length || /[\x00-\x1f\x7f]/u.test(text)) {
+      throw new Error('Invalid native lifecycle report.')
+    }
+    if (label === 'Next retry:' && !/^Next retry: \d+ seconds$/u.test(text)) throw new Error('Invalid native retry interval.')
+    fields.set(label, text)
+  }
+  if (labels.some(label => label !== 'Next retry:' && !fields.has(label))) throw new Error('Native lifecycle report unavailable.')
+  return labels.filter(label => fields.has(label)).map(label => fields.get(label)!).join('\n')
+}
+
+export function nativeStatusReport(environment: NodeJS.ProcessEnv = process.env): Promise<string> {
+  // Require the launcher's explicit native binary: a PATH lookup could recurse
+  // into the installer compatibility CLI instead of reaching the Go command.
+  const binary = environment.DEARMACHINE_NATIVE_BIN
+  if (!binary || !isAbsolute(binary)) return Promise.reject(new Error('Native status executable unavailable.'))
+  const home = environment.HOME
+  if (!home || !isAbsolute(home) || resolveSupervisorSocket(environment) !== join(home, '.dearmachine', 'run', 'supervisor.sock')) {
+    return Promise.reject(new Error('Native status requires the native HOME socket.'))
+  }
+  return new Promise((resolve, reject) => {
+    execFile(binary, ['status'], { env: environment, timeout: 5_000, maxBuffer: 65_536, windowsHide: true },
+      (error, stdout) => {
+        if (error) { reject(new Error('Native lifecycle report unavailable.')); return }
+        try { resolve(summarizeNativeStatusReport(stdout)) } catch { reject(new Error('Native lifecycle report unavailable.')) }
+      })
+  })
 }
 
 /** Explicit choices use the native consent store and runtime probes. No provider. */

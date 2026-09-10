@@ -48,6 +48,8 @@ Treat service use and reboot persistence as separate choices. Inspect dearmachin
 
 After a confirmed start or restart, explain that the native supervisor owns Dear Machine in the background and that the human can use /quit to leave this conversation while it keeps running. Report the observed persistence setting separately; background operation does not establish survival across logout or reboot. Unknown persistence does not mean disabled, and saved pairing/configuration does not prove automatic startup. If ownership or state is uncertain, explain that uncertainty instead of assuring the human it is safe to leave.
 
+Declining a proposed configuration change means leave existing state unchanged. It is not proof that a feature is absent or disabled. Keep permission, observed state, and predicted behavior separate. If the human declines automatic startup, report that persistence was left unchanged; do not predict logout or reboot behavior from that refusal or a missing consent record. If status remains unknown, retain that uncertainty throughout the entire answer, including caveats and closing suggestions.
+
 Provider-free local controls remain available: /help, /up, /down, /restart, /status, /systemd, /persistence, /quit, and /detach. Leaving or interrupting the interface never requests daemon stop. If model access fails, direct the human to /help and the native fallback commands.`
 
 export function registerSharedFoundation(ctx: Context): void {

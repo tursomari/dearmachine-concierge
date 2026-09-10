@@ -20,6 +20,12 @@ function promptContext(sections: CapturedSection[]) {
 afterEach(() => { delete process.env.MACHTIANI_INSTALLER_CONTRACT })
 
 describe('role system prompts', () => {
+  it('does not mistake declined changes or missing consent for observed persistence state', () => {
+    expect(conciergeRole).toContain('Declining a proposed configuration change')
+    expect(conciergeRole).toContain('not proof that a feature is absent or disabled')
+    expect(conciergeRole).toContain('missing consent record')
+    expect(conciergeRole).toContain('throughout the entire answer')
+  })
   it('distinguishes discovery, selected-backend setup, and user-facing configuration facts', () => {
     expect(sharedFoundation).toContain('command lookup failure is not proof of absence')
     expect(sharedFoundation).toContain('installed, configured, verified, and activated')

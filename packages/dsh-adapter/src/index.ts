@@ -56,6 +56,10 @@ function installerToolsPlugin(): string {
   return require.resolve('@dearmachine/machtiani-installer-dsh-adapter/installer-tools')
 }
 
+function credentialPolicyPlugin(): string {
+  return createRequire(import.meta.url).resolve('@dearmachine/machtiani-installer-dsh-adapter/credential-policy')
+}
+
 function roleSystemPromptPlugin(mode: 'installer' | 'management'): string {
   const require = createRequire(import.meta.url)
   return require.resolve(`@dearmachine/machtiani-installer-dsh-adapter/${mode === 'installer' ? 'installer' : 'management'}-system-prompt`)
@@ -73,6 +77,11 @@ function profilePatch(selection: InstallerModelSelection, mode: DshMode = 'insta
 - id: bash-sandbox
   config:
     timeoutMs: 3600000
+- id: tool-bash
+  config:
+    enableRunInBackground: false
+- id: tool-jobs
+  disabled: true
 - id: goal
   disabled: true
 - id: goal-round-driver
@@ -105,6 +114,8 @@ function profilePatch(selection: InstallerModelSelection, mode: DshMode = 'insta
 - insert:
     - id: machtiani-model-host
       name: ${JSON.stringify(modelHostPlugin())}
+    - id: machtiani-credential-policy
+      name: ${JSON.stringify(credentialPolicyPlugin())}
 ${mode === 'task' ? '' : `    - id: machtiani-role-system-prompt
       name: ${JSON.stringify(roleSystemPromptPlugin(mode))}
 `}${mode === 'installer' ? `    - id: machtiani-installer-tools

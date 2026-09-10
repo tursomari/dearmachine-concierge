@@ -59,6 +59,30 @@ the full `pnpm test` remains the maintained aggregate suite.
 
 ## Concierge increment checks
 
+### Credential security boundary
+
+`packages/dsh-adapter/tests/credential-boundary.spec.ts` tests trusted credential
+discovery, alias denial, whole-result inspection, mid-session key changes,
+fail-closed errors, and the independent model-egress check with counterfeit
+values. No actual provider keys are needed.
+
+After building, run the real DSH regression in a disposable test process:
+
+```console
+nix develop -c node tests/credential-boundary.mjs "$PWD"
+```
+
+Alternatively pass an absolute packaged `libexec/machtiani-installer` root.
+The gate creates and removes its own HOME, uses a loopback-only fake provider,
+and tests both concierge and installer. It reproduces direct credential reads,
+symlink/hardlink aliases, copied keys, shell stdout/stderr and encoding, and
+credentials saved during a session. Every model request and decoded session
+artifact is checked. Ordinary backend configuration must remain readable.
+Do not substitute real keys or a real home; a deliberately unsafe old runtime
+is expected to fail this gate. See [the security contract](docs/credential-security.md).
+
+### Lifecycle and configuration
+
 `packages/app/tests/launch-environment.spec.ts` checks minimal-PATH child
 discovery, caller precedence, idempotence, and the real CLI-to-native bootstrap
 boundary. `packages/app/tests/credential-context.spec.ts` verifies that secure

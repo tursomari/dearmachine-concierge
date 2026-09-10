@@ -6,6 +6,10 @@
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
   "exports": {
+    "./credential-policy": {
+      "types": "./dist/credential-policy.d.mts",
+      "default": "./dist/credential-policy.mjs"
+    },
     ".": {
       "types": "./dist/index.d.mts",
       "default": "./dist/index.mjs"

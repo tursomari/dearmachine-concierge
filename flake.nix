@@ -129,7 +129,7 @@
 
       devShells = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; }; in {
-          default = pkgs.mkShell { packages = [ pkgs.nodejs_24 pkgs.pnpm pkgs.zstd ]; };
+          default = pkgs.mkShell { packages = [ pkgs.nodejs_24 pkgs.pnpm pkgs.zstd pkgs.zsh ]; };
         });
     };
 }

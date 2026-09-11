@@ -17,6 +17,8 @@ trap cleanup EXIT
 cd "$root"
 node_binary=$(nix develop --option eval-cache false -c sh -c 'command -v node')
 node_package=$(dirname "$(dirname "$(readlink -f "$node_binary")")")
+zsh_binary=$(nix develop --option eval-cache false -c sh -c 'command -v zsh')
+zsh_package=$(dirname "$(dirname "$(readlink -f "$zsh_binary")")")
 test -f packages/product-adapter/dist/managed-nix.mjs || { echo 'Run pnpm build in the pinned Nix shell first.' >&2; exit 1; }
 mkdir -p "$context/store" "$context/packages/product-adapter/dist" "$context/packages/app/dist" "$context/tests/managed-nix"
 if [[ -z "${DEARMACHINE_TEST_BINARY:-}" ]]; then
@@ -26,12 +28,12 @@ fi
 native_package=$(dirname "$(dirname "$(readlink -f "$DEARMACHINE_TEST_BINARY")")")
 case "$native_package" in /nix/store/*) ;; *) echo 'Supply the production Nix package binary so its runtime closure can be copied.' >&2; exit 1;; esac
 cp "$DEARMACHINE_TEST_BINARY" "$context/dearmachine"
-while IFS= read -r path; do cp -a "$path" "$context/store/"; done < <(nix-store --query --requisites "$node_package" "$native_package" | sort -u)
+while IFS= read -r path; do cp -a "$path" "$context/store/"; done < <(nix-store --query --requisites "$node_package" "$native_package" "$zsh_package" | sort -u)
 cp packages/product-adapter/package.json "$context/packages/product-adapter/"
 cp packages/app/dist/*.mjs "$context/packages/app/dist/"
 cp packages/product-adapter/dist/*.mjs "$context/packages/product-adapter/dist/"
 cp tests/managed-nix/lifecycle.mjs "$context/tests/managed-nix/"
 cp tests/managed-nix/Dockerfile "$context/Dockerfile"
 image="localhost/dearmachine-managed-test:$$"
-"$engine" build --network=none --build-arg "NODE_PACKAGE=$node_package" -t "$image" "$context"
+"$engine" build --network=none --build-arg "NODE_PACKAGE=$node_package" --build-arg "ZSH_PACKAGE=$zsh_package" -t "$image" "$context"
 "$engine" run --rm --network=none "$image"

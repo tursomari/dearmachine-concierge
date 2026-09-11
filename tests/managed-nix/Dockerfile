@@ -5,6 +5,7 @@ COPY dearmachine /fixture/dearmachine
 RUN mkdir -p /fixture/node_modules/@dearmachine && ln -s ../../packages/product-adapter /fixture/node_modules/@dearmachine/machtiani-installer-products
 COPY tests/ /fixture/tests/
 ARG NODE_PACKAGE
-ENV NODE_PACKAGE=$NODE_PACKAGE MANAGED_NIX_CONTAINER=1
+ARG ZSH_PACKAGE
+ENV NODE_PACKAGE=$NODE_PACKAGE ZSH_PACKAGE=$ZSH_PACKAGE MANAGED_NIX_CONTAINER=1
 WORKDIR /fixture
 CMD ["sh", "-c", "exec \"$NODE_PACKAGE/bin/node\" --test tests/managed-nix/lifecycle.mjs"]

@@ -313,3 +313,9 @@ stopped/running client policy, failed builds, failed startup, interrupted
 rollback/recovery, unrelated launcher preservation, unsafe directory rejection,
 and the real native CLI's noninteractive handoff to the installer entry point.
 No live provider, inbox, or host service is touched.
+
+The managed Nix container suite also launches real bash and pinned zsh shells,
+including login sessions, with an older Nix profile first in PATH. It checks the
+public native CLI, custom `ZDOTDIR`, idempotent setup, repair after later Nix
+initialization, private backups, interrupted-shell recovery, and refusal to edit
+symlinked dotfiles. No host startup files are read or mounted by this suite.

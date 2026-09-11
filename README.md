@@ -204,3 +204,13 @@ preserving configuration. `dearmachine update --recover` restores an interrupted
 activation's previous release. Standard installations keep their own release
 channel. See the umbrella's `docs/managed-nix-installation.md` for the complete
 ownership and recovery contract.
+
+The coordinated Nix installer also configures bash and zsh command lookup. It
+places a marked PATH block after startup initialization, so an older Nix profile
+cannot shadow the managed commands. Open a new terminal after installation;
+existing shells keep their previous PATH and command cache. An otherwise-current
+`dearmachine update` repairs this integration without restarting the client.
+`--check` remains read-only. Exported `ZDOTDIR` is respected for zsh files.
+Private originals are retained under the managed data directory's `shell-backups/`.
+Symlinked, unowned, or writable-by-others startup files require manual PATH setup;
+the installer reports that the software is active but shell setup needs attention.

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
@@ -107,7 +107,7 @@ async function fixture(options = {}) {
     return (await exec(command, args)).stdout
   }
   const dataHome = options.xdg ? join(root, 'custom-data') : undefined
-  const manager = new ManagedNix({ home, ...(dataHome ? { dataHome } : {}), run })
+  const manager = new ManagedNix({ home, ...(dataHome ? { dataHome } : {}), ...(options.zdot ? { zshDirectory: join(home, ".config/zsh") } : {}), run })
   const reference = join(home, '.config/dearmachine/source-reference.json')
   return { root, home, original, manager, calls, control, reference, async cleanup() { await rm(root, { recursive: true, force: true }) } }
 }
@@ -236,4 +236,66 @@ exec '${process.execPath}' /fixture/packages/app/dist/bin.mjs "$@"
   await assert.rejects(exec('/fixture/dearmachine', ['update', '--check', '--recover'], { env }))
   const standard = { ...env, MACHTIANI_DISTRIBUTION: '/fixture/standard-distribution.json' }
   await assert.rejects(exec('/fixture/dearmachine', ['update', '--check'], { env: standard }), /Standard releases/)
+})
+
+
+for (const zdot of [false, true]) test(`fresh bash/zsh sessions prefer managed launchers over old Nix profiles (ZDOTDIR=${zdot})`, async t => {
+  const f = await fixture({ zdot }); t.after(() => f.cleanup())
+  const oldBin = join(f.home, '.nix-profile/bin')
+  await mkdir(oldBin, { recursive: true })
+  await writeFile(join(oldBin, 'dearmachine'), '#!/bin/sh\nprintf "old-cli\\n"\n', { mode: 0o755 })
+  const zshDirectory = zdot ? join(f.home, '.config/zsh') : f.home
+  await mkdir(zshDirectory, { recursive: true })
+  const original = 'export PATH="$HOME/.nix-profile/bin:$PATH"\nexport KEEP_SETTING=preserved\n'
+  for (const path of [join(f.home, '.bashrc'), join(f.home, '.bash_profile'), join(zshDirectory, '.zshrc'), join(zshDirectory, '.zlogin')]) await writeFile(path, original, { mode: 0o600 })
+  const release = await f.manager.install(f.original)
+  // Launch the real native CLI through the generated public launcher. Its help
+  // dispatch requires no credentials, service, or terminal interaction.
+  await writeFile(release.binaries.dearmachine, '#!/bin/sh\nexec /fixture/dearmachine "$@"\n', { mode: 0o755 })
+  const env = { HOME: f.home, PATH: oldBin + ':/usr/bin:/bin', ...(zdot ? { ZDOTDIR: zshDirectory } : {}) }
+  const probe = 'test "$KEEP_SETTING" = preserved && test "$(command -v dearmachine)" = "$HOME/.local/bin/dearmachine" && dearmachine update --help'
+  for (const [shell, args] of [['/bin/bash', ['--noprofile', '-ic']], ['/bin/bash', ['-lic']], [process.env.ZSH_PACKAGE + '/bin/zsh', ['-ic']], [process.env.ZSH_PACKAGE + '/bin/zsh', ['-lic']]]) {
+    const result = await exec(shell, [...args, probe], { env })
+    assert.match(result.stdout + result.stderr, /check the coordinated release/)
+  }
+  const before = await readFile(join(zshDirectory, '.zshrc'))
+  const backups = (await readdir(join(f.manager.root, 'shell-backups'))).length
+  await f.manager.install(f.original)
+  assert.deepEqual(await readFile(join(zshDirectory, '.zshrc')), before)
+  assert.equal((await readdir(join(f.manager.root, 'shell-backups'))).length, backups)
+  const saved = JSON.parse(await readFile(join(f.manager.root, 'shell-backups', (await readdir(join(f.manager.root, 'shell-backups')))[0])))
+  assert.equal(saved.files.find(file => file.path === join(zshDirectory, '.zshrc')).before, original)
+  // A later Nix initialization is repaired by an otherwise-current update.
+  await writeFile(join(zshDirectory, '.zshrc'), before + '\nexport PATH="$HOME/.nix-profile/bin:$PATH"\n')
+  await f.manager.update()
+  await exec(process.env.ZSH_PACKAGE + '/bin/zsh', ['-ic', probe], { env })
+  assert.equal(f.control.starts, 0)
+})
+
+test('shell checks are read-only and uneditable dotfiles produce an explicit partial-setup diagnostic', async t => {
+  const f = await fixture(); t.after(() => f.cleanup())
+  const userFile = join(f.home, 'user-zshrc')
+  await writeFile(userFile, 'untouched\n')
+  await symlink(userFile, join(f.home, '.zshrc'))
+  await assert.rejects(f.manager.install(f.original), /release is active, but shell PATH setup needs attention/)
+  assert.equal(await readFile(userFile, 'utf8'), 'untouched\n')
+  await assert.rejects(readFile(join(f.home, '.bashrc')))
+  const before = await readdir(f.home)
+  await f.manager.check()
+  assert.deepEqual(await readdir(f.home), before)
+})
+
+test('interrupted shell changes recover exact originals and retain private backups', async t => {
+  const f = await fixture(); t.after(() => f.cleanup())
+  await writeFile(join(f.home, '.bashrc'), 'export KEEP=yes\n', { mode: 0o640 })
+  await f.manager.install(f.original)
+  const backupPath = join(f.manager.root, 'shell-backups', (await readdir(join(f.manager.root, 'shell-backups')))[0])
+  assert.equal((await lstat(backupPath)).mode & 0o077, 0)
+  await writeFile(join(f.manager.root, 'shell-transaction.json'), await readFile(backupPath), { mode: 0o600 })
+  await assert.rejects(f.manager.check(), /recover/)
+  await f.manager.recover()
+  assert.equal(await readFile(join(f.home, '.bashrc'), 'utf8'), 'export KEEP=yes\n')
+  assert.equal((await lstat(join(f.home, '.bashrc'))).mode & 0o777, 0o640)
+  await assert.rejects(readFile(join(f.home, '.zshrc')))
+  assert.ok(await readFile(backupPath))
 })

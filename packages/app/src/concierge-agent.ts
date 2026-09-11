@@ -6,6 +6,7 @@ import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credenti
 import type { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { loadDistribution, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 import { loadInterfacePreferences } from './interface-preferences.ts'
+import { assistantModelPath, ensureAssistantModel, sharedModelPath } from './assistant-model.ts'
 
 interface ManagementRuntimeContext extends CredentialRuntimeContext {
   sharedModelSelection?: { provider: string; model: string; reasoningEffort?: string; profile: string }
@@ -22,6 +23,7 @@ export interface ManagementAgent {
   start(): Promise<void>
   prompt(text: string): Promise<void>
   interrupt(): Promise<void>
+  pause?(): Promise<void>
   shutdown(): Promise<void>
 }
 
@@ -31,6 +33,7 @@ export class ManagementConversation {
   private agent: ManagementAgent | undefined
   private closed = false
   private contextSent = false
+  private started = false
   private generation = 0
   private turns: Promise<void> = Promise.resolve()
   constructor(private readonly open: () => Promise<ManagementAgent>, private readonly sourceReference?: SourceReference) {}
@@ -41,10 +44,12 @@ export class ManagementConversation {
       if (this.closed) { await agent.shutdown(); return agent }
       this.agent = agent
       await agent.start()
+      this.started = true
       return agent
     }).catch(async error => {
       await this.agent?.shutdown().catch(() => {})
       this.agent = undefined
+      this.started = false
       this.opening = undefined
       throw error
     })
@@ -60,6 +65,13 @@ export class ManagementConversation {
     return turn
   }
   async interrupt(): Promise<void> { this.generation++; await this.agent?.interrupt() }
+  async pause(): Promise<void> {
+    this.generation++
+    if (this.started) {
+      if (this.agent?.pause) await this.agent.pause()
+      else await this.agent?.interrupt()
+    }
+  }
   async close(): Promise<void> {
     this.closed = true
     await this.agent?.shutdown()
@@ -78,9 +90,10 @@ export async function openManagementAgent(ports: {
   ])
   const home = process.env.HOME
   if (!home) throw new Error('HOME is required.')
-  const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
+  const modelProfilePath = assistantModelPath(home)
   // This validates profile metadata; the model host alone resolves referenced secrets.
-  const profile = await loadModelHostProfile(modelProfilePath)
+  const profile = await ensureAssistantModel(home)
+  const shared = await loadModelHostProfile(sharedModelPath(home)).catch(() => undefined)
   const distribution = await loadDistribution(process.env)
   const preferences = await loadInterfacePreferences(home)
   const credentialsContext = credentialRuntimeContext()
@@ -107,13 +120,13 @@ export async function openManagementAgent(ports: {
   return {
     runtimeContext: {
       ...credentialsContext,
-      sharedModelSelection: {
-        provider: profile.provider, model: profile.model, profile: modelProfilePath,
-        ...(profile.reasoningEffort === undefined ? {} : { reasoningEffort: profile.reasoningEffort }),
-      },
+      ...(shared === undefined ? {} : { sharedModelSelection: {
+        provider: shared.provider, model: shared.model, profile: sharedModelPath(home),
+        ...(shared.reasoningEffort === undefined ? {} : { reasoningEffort: shared.reasoningEffort }),
+      } }),
       ...(distribution === undefined ? {} : { installation: { method: 'standard' as const, distribution } }),
     },
-    start: () => session.start(), prompt: text => session.prompt(text), interrupt: () => session.interrupt(),
+    start: () => session.start(), prompt: text => session.prompt(text), interrupt: () => session.interrupt(), pause: () => session.pause(),
     shutdown: async () => {
       try { await session.shutdown() }
       finally { try { await bridge.close() } finally { await rm(dshHome, { recursive: true, force: true }) } }

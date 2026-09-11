@@ -122,6 +122,22 @@ without stopping Dear Machine. A confirmed start or restart uses the native
 supervisor to run the daemon in the background. Login and reboot persistence
 remain separate settings.
 
+Use `/model` during an installer or concierge conversation to see the current
+provider, model, and reasoning level and open the model picker. Existing sign-ins
+are reused; subscription model lists come from the selected runtime. Escape
+goes back a step and cancels from the provider menu. A successful selection
+applies to your next message and is remembered when you reopen the concierge.
+The current turn is interrupted before selection; completed operations remain
+completed, and the conversation history is preserved.
+
+The initial installation wizard still creates the shared Machtiani profile.
+Subsequent `/model` changes save the assistant's own private profile at
+`~/.config/dearmachine/assistant-model.json`. They leave Machtiani's configured
+planner, shell-agent, answer, and file-discovery models in place. Older
+installations inherit `~/.config/machtiani/model-profile.json` until a separate
+assistant selection is saved. `/model` also works when the current provider is
+unavailable or no assistant model is configured; no reinstall is required.
+
 Run the live DSH recursion smoke test only with a disposable or explicitly
 authorized OpenRouter credential already present in the environment:
 

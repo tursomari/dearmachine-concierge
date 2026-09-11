@@ -3,6 +3,21 @@ import { ManagementConversation, managementAgentPrompt, type ManagementAgent } f
 import { ConciergeShell } from '../src/concierge-shell.ts'
 
 describe('management conversation layering', () => {
+ it('preserves the session after a model switch and recovers a failed initial provider', async () => {
+  const agent={start:vi.fn(async()=>{}),prompt:vi.fn(async()=>{}),interrupt:vi.fn(async()=>{}),pause:vi.fn(async()=>{}),shutdown:vi.fn(async()=>{})}
+  const open=vi.fn().mockRejectedValueOnce(new Error('provider unavailable')).mockResolvedValue(agent)
+  const conversation=new ManagementConversation(open)
+  await expect(conversation.submit('first')).rejects.toThrow('provider unavailable')
+  await conversation.pause()
+  await conversation.submit('retry after selecting a provider')
+  await conversation.pause()
+  await conversation.submit('continue with another model')
+  expect(open).toHaveBeenCalledTimes(2)
+  expect(agent.start).toHaveBeenCalledOnce()
+  expect(agent.pause).toHaveBeenCalledOnce()
+  expect(agent.shutdown).not.toHaveBeenCalled()
+  await conversation.close()
+ })
  it('opens the agent only for natural language and leaves role policy to the system prompt', async () => {
   const agent={start:vi.fn(async()=>{}),prompt:vi.fn(async(_text:string)=>{}),interrupt:vi.fn(async()=>{}),shutdown:vi.fn(async()=>{})}
   const open=vi.fn(async()=>agent)

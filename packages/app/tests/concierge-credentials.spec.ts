@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ManagementConversation, openManagementAgent } from '../src/concierge-agent.ts'
 import type { DshAgentSessionOptions } from '@dearmachine/machtiani-installer-dsh-adapter'
+import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { saveInterfacePreferences } from '../src/interface-preferences.ts'
 
 const mock = vi.hoisted(() => ({ sessions: [] as { options: DshAgentSessionOptions; prompts: string[] }[], failStart: false }))
@@ -20,9 +21,6 @@ vi.mock('@dearmachine/machtiani-installer-dsh-adapter', () => ({
     async shutdown() {}
   },
 }))
-vi.mock('@dearmachine/machtiani-model-host', () => ({
-  loadModelHostProfile: async () => ({ provider: 'openrouter', model: 'fixture-model', reasoningEffort: 'high' }),
-}))
 const roots: string[] = []
 afterEach(async () => {
   vi.unstubAllEnvs(); mock.sessions.length = 0; mock.failStart = false
@@ -32,6 +30,10 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'cc-')); roots.push(root)
   vi.stubEnv('HOME', root); vi.stubEnv('XDG_STATE_HOME', join(root, 'state'))
   vi.stubEnv('MACHTIANI_DISTRIBUTION', undefined)
+  await saveModelHostProfile(join(root, '.config', 'machtiani', 'model-profile.json'), {
+    version: 1, driver: 'pi-ai', provider: 'openrouter', authMethod: 'api_key', model: 'fixture-model', reasoningEffort: 'high',
+    credential: { kind: 'environment-file', path: join(root, '.config', 'dearmachine', 'backends.env'), variable: 'OPENROUTER_API_KEY' },
+  })
   const key = 'fake-concierge-key'
   const askSecret = vi.fn(async () => key)
   const open = () => openManagementAgent({ event: () => {}, status: () => {}, askSecret })

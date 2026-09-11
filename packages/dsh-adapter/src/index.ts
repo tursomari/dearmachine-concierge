@@ -326,12 +326,16 @@ export class DshAgentSession {
   private readonly pending = new Map<number, PendingRequest>()
   private exit: Promise<number | null> | undefined
   private closed = false
+  private running = false
+  private readonly idleWaiters = new Set<() => void>()
 
   constructor(private readonly options: DshAgentSessionOptions) {}
 
   async start(): Promise<void> {
     if (this.child !== undefined) throw new Error('the DSH installer session is already started')
-    const selection = this.options.selection ?? DEFAULT_INSTALLER_MODEL_SELECTION
+    // The interactive model host owns the changing selection. Keep DSH's route
+    // neutral so a prior model's reasoning constraints cannot reject later turns.
+    const selection = { provider: MODEL_HOST_PROVIDER, model: 'assistant' }
     await prepareIsolatedDshHome(this.options.dshHome, selection, this.options.mode)
     const child = spawn(process.execPath, [dshBin(), '--profile', 'machtiani-installer'], {
       cwd: this.options.workspace,
@@ -369,7 +373,6 @@ export class DshAgentSession {
         cwd: this.options.workspace,
         provider: MODEL_HOST_PROVIDER,
         model: selection.model,
-        ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
       })
     } catch (error) {
       // The SDK may reject initialize before the plugin loader prints its
@@ -412,6 +415,22 @@ export class DshAgentSession {
   /** Cancel current model/tool activity while preserving the installer session. */
   async interrupt(): Promise<void> {
     await this.request(DSH_INTERRUPT_METHOD, { sessionId: this.sessionId })
+  }
+
+  /** Stop the current turn before committing a new interactive model profile. */
+  async pause(): Promise<void> {
+    if (this.closed) return
+    await this.interrupt()
+    if (!this.running) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let idle!: () => void
+    try {
+      await new Promise<void>((resolve, reject) => {
+        idle = resolve
+        this.idleWaiters.add(idle)
+        timer = setTimeout(() => reject(new Error('The current turn has not stopped. Try /model again after it finishes.')), 5_000)
+      })
+    } finally { clearTimeout(timer); this.idleWaiters.delete(idle) }
   }
 
   async whenExited(): Promise<number | null> {
@@ -486,6 +505,8 @@ export class DshAgentSession {
       }
       const params = record(message?.params)
       if (message?.method === 'session.status' && params?.sessionId === this.sessionId && (params.status === 'running' || params.status === 'idle')) {
+        this.running = params.status === 'running'
+        if (!this.running) for (const resolve of this.idleWaiters) resolve()
         this.options.onStatus?.(params.status)
       }
       if (message?.method === 'session.event' && params?.sessionId === this.sessionId) {

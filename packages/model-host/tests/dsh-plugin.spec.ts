@@ -5,11 +5,42 @@ import { nativeConversationPrompt } from '../src/subscription-drivers.ts'
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
+it('keeps the interactive DSH route independent of provider availability and old reasoning constraints', async () => {
+  vi.stubEnv('MACHTIANI_MODEL_PROFILE', '/fixture/model-profile.json')
+  vi.stubEnv('MACHTIANI_AGENT_MODE', 'management')
+  const open = vi.spyOn(ModelHost, 'open').mockRejectedValue(new Error('provider offline'))
+  let adapter: any
+  apply({ llm: { registerAdapter: (_providers: unknown, value: unknown) => { adapter = value } } } as never)
+  expect(await adapter.resolveModel('machtiani-model-host', 'assistant')).toMatchObject({ id: 'assistant' })
+  expect(open).not.toHaveBeenCalled()
+})
+
+it.each(['installer', 'management', 'task'])('reloads the whole interactive selection while preserving explicit task choices (%s)', async mode => {
+  vi.stubEnv('MACHTIANI_MODEL_PROFILE', '/fixture/model-profile.json')
+  vi.stubEnv('MACHTIANI_AGENT_MODE', mode)
+  let profile: { model: string; reasoningEffort?: string } = { model: 'first', reasoningEffort: 'high' }
+  const requests: any[] = []
+  vi.spyOn(ModelHost, 'open').mockImplementation(async () => ({
+    profile,
+    async * generate(value: any) { requests.push(value); yield { type: 'text-end', index: 0, text: 'Ready.' }; yield { type: 'finish', reason: 'stop' } },
+  }) as never)
+  let adapter: any
+  apply({ llm: { registerAdapter: (_providers: unknown, value: unknown) => { adapter = value } } } as never)
+  const turn = async () => { for await (const _chunk of adapter.stream({ model: 'role-model', reasoningEffort: 'low', messages: [] })) { /* drain */ } }
+  await turn()
+  profile = { model: 'second' }
+  await turn()
+  expect(requests.map(request => [request.model, request.reasoningEffort])).toEqual(mode === 'task'
+    ? [['role-model', 'low'], ['role-model', 'low']]
+    : [['first', 'high'], ['second', undefined]])
+})
+
 it.each(['installer', 'management', 'task'])('preserves the %s caller through DSH generation', async mode => {
   vi.stubEnv('MACHTIANI_MODEL_PROFILE', '/fixture/model-profile.json')
   vi.stubEnv('MACHTIANI_AGENT_MODE', mode)
   let request: any
   vi.spyOn(ModelHost, 'open').mockResolvedValue({
+    profile: { model: 'selected-model' },
     async * generate(value: any) { request = value; yield { type: 'text-end', index: 0, text: 'Ready.' }; yield { type: 'finish', reason: 'stop' } },
   } as never)
   let adapter: any
@@ -30,6 +61,7 @@ it.each([
 ])('handles %s without treating a silent completion as success', async (_name, events, reason, code) => {
   vi.stubEnv('MACHTIANI_MODEL_PROFILE', '/fixture/model-profile.json')
   vi.spyOn(ModelHost, 'open').mockResolvedValue({
+    profile: { model: 'selected-model' },
     async * generate() { yield* events; yield { type: 'finish', reason } },
   } as never)
   let adapter: any

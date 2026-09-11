@@ -5,12 +5,15 @@ import { inspectInstallation, runConciergeEntry, type InstallationDiagnosis } fr
 import { ConciergeShell, readDaemonStatusReport, conciergeInterruptHint, conciergeWelcome } from './concierge-shell.ts'
 import { renderAgentEvent, type AgentToolActivityState } from './index.ts'
 import { loadSourceReference, resolveSourceReference, type SourceReference } from './source-reference.ts'
+import { changeAssistantModel } from './assistant-model.ts'
 
 export { defaultConciergeControl } from './concierge-control.ts'
 
 export async function runLocalConcierge(control: DaemonControl, diagnosis: InstallationDiagnosis, sourceReference?: SourceReference): Promise<void> {
   let requestExit!: () => void
   const exited = new Promise<void>(resolve => { requestExit = resolve })
+  const lifetime = new AbortController()
+  let modelChange: Promise<void> | undefined
   let shell!: ConciergeShell
   const tools = new Map<string, AgentToolActivityState>()
   const conversation: ManagementConversation = new ManagementConversation(() => openManagementAgent({
@@ -34,10 +37,16 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
   shell = new ConciergeShell({
     chooseSupervision: nativeSupervisionChoice,
     converse: text => conversation.submit(text),
+    changeModel: async () => {
+      const home = process.env.HOME
+      if (!home) throw new Error('HOME is required.')
+      modelChange = changeAssistantModel(tui, { home, signal: lifetime.signal, pause: () => conversation.pause() })
+      await modelChange
+    },
     control, say: text => tui.addAssistant(text),
     // Native control owns daemon startup; this interface has no daemon attachment or log subscription.
     ensureIndependent: async () => {}, unsubscribe: async () => {},
-    close: async () => { requestExit() },
+    close: async () => { lifetime.abort(); requestExit() },
   })
   try {
     const statusReport = diagnosis.status === undefined ? `Installation: ${diagnosis.installation}.`
@@ -47,7 +56,10 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
     tui.addAssistant(statusReport)
     if (diagnosis.guidance !== undefined) tui.addAssistant(diagnosis.guidance)
     await exited
-  } finally { try { await conversation.close() } finally { await tui.dispose() } }
+  } finally {
+    lifetime.abort()
+    try { await conversation.close() } finally { await tui.dispose(); await modelChange?.catch(() => {}) }
+  }
 }
 
 export async function launchConcierge(sourceRoot?: string): Promise<void> {

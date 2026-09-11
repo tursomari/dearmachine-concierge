@@ -7,6 +7,7 @@ export const backgroundExitHint = 'Dear Machine is running in the background und
 
 export const localHelp = `Local commands (no model or provider required):
 /help — Show this help.
+/model — Choose the assistant’s provider, model, and reasoning level.
 /up — Start Dear Machine and confirm it is running; never install or enable persistence.
 /down — Stop Dear Machine and cancel pending automatic restarts.
 /restart — Restart Dear Machine and confirm it is running.
@@ -100,6 +101,7 @@ export async function executeDaemonCommand(control: DaemonControl, command: Daem
 export class ConciergeShell {
   private closed = false
   private operations: Promise<void> = Promise.resolve()
+  private changingModel = false
   constructor(private readonly ports: {
     control: DaemonControl
     say(message: string): void
@@ -108,6 +110,7 @@ export class ConciergeShell {
     unsubscribe(): Promise<void>
     close(): Promise<void>
     converse?(text: string): Promise<void>
+    changeModel?(): Promise<void>
     chooseSupervision?(kind: 'systemd' | 'persistence', choice: 'on' | 'off' | 'status'): Promise<string>
   }) {}
 
@@ -116,6 +119,15 @@ export class ConciergeShell {
     const text = input.trim()
     if (text === '') return
     if (text === '/help') { this.ports.say(localHelp); return }
+    if (text === '/model') {
+      if (this.changingModel) { this.ports.say('The model picker is already open. Press Escape to go back or cancel.'); return }
+      if (!this.ports.changeModel) { this.ports.say('Model selection is unavailable in this interface.'); return }
+      this.changingModel = true
+      try { await this.ports.changeModel() }
+      catch { if (!this.closed) this.ports.say('The model change did not complete. Use /model to try again.'); }
+      finally { this.changingModel = false }
+      return
+    }
     if (text === '/systemd' || text === '/persistence') {
       this.ports.say(text === '/systemd'
         ? 'Use the systemd user manager for Dear Machine? This configures a service but does not enable reboot persistence. Answer /systemd on or /systemd off; inspect availability with /systemd status.'
@@ -158,6 +170,7 @@ export class ConciergeShell {
       return
     }
     if (text.startsWith('/')) { this.ports.say('Unknown local command or arguments. Use /help.'); return }
+    if (this.changingModel) { this.ports.say('Finish or cancel the model picker before continuing the conversation.'); return }
     if (this.ports.converse === undefined) {
       this.ports.say('This increment provides local management commands. Use /help; conversational management is not connected yet.')
       return

@@ -22,6 +22,7 @@ import { resolveSourceReference, saveSourceReference, type SourceReference } fro
 import { runInstallationWizard } from './installation-wizard.ts'
 import { saveInterfacePreferences } from './interface-preferences.ts'
 import { submitInstallerMessage, type InstallerAssistantState } from './installer-conversation.ts'
+import { assistantModelPath, changeAssistantModel } from './assistant-model.ts'
 import { loadDistribution, type InstallationMethod, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
@@ -270,6 +271,8 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const exitRequested = new Promise<void>(resolve => { requestExit = resolve })
   let agent: DshAgentSession | undefined
   let assistantState: InstallerAssistantState = 'setup'
+  const lifetime = new AbortController()
+  let modelChange: Promise<void> | undefined
   let setup: InstallerModelSetup | undefined
   let wizard: Promise<InstallerModelSelection> | undefined
   const tools = new Map<string, AgentToolActivityState>()
@@ -287,7 +290,15 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     say: text => tui.addAssistant(text),
     converse: async text => { await submitInstallerMessage(text, assistantState, agent, message => tui.addAssistant(message)) },
     ensureIndependent: async () => {}, unsubscribe: async () => {},
-    close: async () => { requestExit() },
+    changeModel: async () => {
+      if (assistantState !== 'ready' || agent === undefined) {
+        tui.addAssistant('Choose the initial model in the setup menus first. Use /model once the assistant conversation is running.')
+        return
+      }
+      modelChange = changeAssistantModel(tui, { home, signal: lifetime.signal, pause: () => agent!.pause() })
+      await modelChange
+    },
+    close: async () => { lifetime.abort(); requestExit() },
   })
   const credentials = new CredentialFileAdapter({ home })
   const socketPath = credentialSocketPath(paths.stateDirectory)
@@ -321,6 +332,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     })
     const configuredSetup = await modelSetup()
     await saveModelHostProfile(modelProfilePath, configuredSetup.profileFor(selection))
+    await saveModelHostProfile(assistantModelPath(home), configuredSetup.profileFor(selection))
     const sourceReference = await resolveSourceReference(source)
     await saveSourceReference(home, sourceReference)
     await configuredSetup.close()
@@ -335,7 +347,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       dshHome,
       workspace: source,
       selection,
-      modelProfilePath,
+      modelProfilePath: assistantModelPath(home),
       outcomePath,
       environment: {
         MACHTIANI_INSTALLER_CONTRACT: join(source, 'INSTALL.md'),
@@ -368,10 +380,12 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     tui.addAssistant(`The installation assistant could not continue.${retained ? ` A private diagnostic was saved to ${diagnosticPath}.` : ''} Use /help for local controls and recovery commands, or /quit to close this interface.`)
     await exitRequested
   } finally {
+    lifetime.abort()
     outcomeWait.abort()
     tui.setProgress(undefined)
     await agent?.shutdown().catch(() => {})
     await tui.dispose()
+    await modelChange?.catch(() => {})
     await wizard?.catch(() => {})
     await setup?.close().catch(() => {})
     await bridge.close()

@@ -11,7 +11,7 @@ import {
 import { validateCustomOpenAIEndpoint, type CustomOpenAIProviderScope } from '@dearmachine/machtiani-model-host'
 import { InstallerChoiceBackError, SecretInputCancelledError, type InstallerChoice, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 
-type WizardTui = Pick<InstallerTui,
+export type WizardTui = Pick<InstallerTui,
   | 'addAssistant'
   | 'ask'
   | 'beginCancellationScope'
@@ -123,7 +123,8 @@ function plainValue(value: string, label: string): string {
 
 async function customValue(tui: WizardTui, message: string, label: string): Promise<string> {
   while (true) {
-    try { return plainValue(await tui.ask({ message }), label) }
+    const value = await tui.ask({ message })
+    try { return plainValue(value, label) }
     catch (error) { tui.addAssistant(error instanceof Error ? error.message : `Enter a valid ${label}.`) }
   }
 }
@@ -168,6 +169,7 @@ async function runCustomProviderWizard(
   providerId: string,
   scope: CustomOpenAIProviderScope,
   stored: InstallerModelSelection | undefined,
+  assistantOnly: boolean,
 ): Promise<InstallerModelSelection> {
   let previous = stored?.provider === providerId ? stored : undefined
   while (true) {
@@ -196,7 +198,7 @@ async function runCustomProviderWizard(
       }
     }
     const reasoning = await tui.choose(
-      'Should the installer send a reasoning level to this model?',
+      'Should the assistant send a reasoning level to this model?',
       [
         { value: 'default', label: 'No — provider default', description: 'Send no reasoning parameter' },
         ...CUSTOM_REASONING_LEVELS.map(level => ({
@@ -229,7 +231,7 @@ async function runCustomProviderWizard(
         await setup.verifyCustomProvider(selection, apiKey, controller.signal)
         tui.setProgress(undefined)
         await saveInstallerModelSelection(setup.dshHome, selection)
-        tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${name} — ${model}${reasoning === 'default' ? '' : ` — ${reasoning} reasoning`}.`)
+        if (!assistantOnly) tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${name} — ${model}${reasoning === 'default' ? '' : ` — ${reasoning} reasoning`}.`)
         return selection
       } catch (error) {
         tui.setProgress(undefined)
@@ -255,11 +257,11 @@ function preferredEffort(efforts: readonly string[], current: string | undefined
   return efforts[0]
 }
 
-async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, providerId: string): Promise<void> {
+async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, providerId: string, assistantOnly: boolean): Promise<void> {
   const provider = setup.providers().find(candidate => candidate.id === providerId)
   try {
     if (await setup.isAuthenticated(providerId)) {
-      tui.addAssistant(`Your existing ${provider?.name ?? providerId} sign-in is available. It will be used by this installer and by Machtiani for Dear Machine.`)
+      tui.addAssistant(`Your existing ${provider?.name ?? providerId} sign-in is available. ${assistantOnly ? 'It will be used by this assistant.' : 'It will be used by this installer and by Machtiani for Dear Machine.'}`)
       return
     }
   } catch (error) {
@@ -318,14 +320,14 @@ async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, provider
 }
 
 /** Configure the model that conducts installation before that model is started. */
-export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup): Promise<InstallerModelSelection> {
+export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup, assistantOnly = false): Promise<InstallerModelSelection> {
   const stored = await loadInstallerModelSelection(setup.dshHome)
   const preliminary = stored !== undefined && setup.providers().some(provider => provider.id === stored.provider) ? stored : undefined
   const providers = providerChoices(setup)
   let selectedProvider = preliminary?.provider
   while (true) {
     const providerId = await tui.choose(
-        'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
+        assistantOnly ? 'Choose the AI service for this assistant. Press Escape here to cancel.' : 'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
         providers,
         selectedProvider,
       )
@@ -333,9 +335,9 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
     const chosenProvider = setup.providers().find(candidate => candidate.id === providerId)
     try {
       if (chosenProvider?.customScope !== undefined) {
-        return await runCustomProviderWizard(tui, setup, providerId, chosenProvider.customScope, preliminary)
+        return await runCustomProviderWizard(tui, setup, providerId, chosenProvider.customScope, preliminary, assistantOnly)
       }
-      await ensureAuthentication(tui, setup, providerId)
+      await ensureAuthentication(tui, setup, providerId, assistantOnly)
 
       const provider = setup.providers().find(candidate => candidate.id === providerId)
       const models = await setup.modelsFor(providerId)
@@ -345,7 +347,7 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
         let modelId: string
         try {
           modelId = await tui.choose(
-            `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
+            assistantOnly ? `Choose a ${provider?.name ?? providerId} model for this assistant. Type to filter the model list.` : `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
             models.map(model => ({
               value: model.id,
               label: model.name,
@@ -365,11 +367,11 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
         if (model.reasoningEfforts.length > 0) {
           try {
             reasoningEffort = await tui.choose(
-              'How much reasoning should the installation assistant use?',
+              assistantOnly ? 'How much reasoning should this assistant use?' : 'How much reasoning should the installation assistant use?',
               model.reasoningEfforts.map(effort => ({
                 value: effort,
                 label: effort === 'off' ? 'Off' : `${effort[0]?.toLocaleUpperCase()}${effort.slice(1)}`,
-                ...(effort === 'high' ? { description: 'Recommended for installation' } : {}),
+                ...(effort === 'high' ? { description: assistantOnly ? 'Recommended' : 'Recommended for installation' } : {}),
               })),
               preferredEffort(model.reasoningEfforts, current?.provider === providerId && current.model === modelId
                 ? current.reasoningEffort
@@ -389,7 +391,7 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
           ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         }
         await saveInstallerModelSelection(setup.dshHome, selection)
-        tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${provider?.name ?? providerId} — ${model.name}${reasoningEffort === undefined ? '' : ` — ${reasoningEffort} reasoning`}.`)
+        if (!assistantOnly) tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${provider?.name ?? providerId} — ${model.name}${reasoningEffort === undefined ? '' : ` — ${reasoningEffort} reasoning`}.`)
         return selection
       }
     } catch (error) {

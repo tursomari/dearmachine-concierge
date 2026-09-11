@@ -5,6 +5,24 @@ import type { DaemonStatus } from '../src/concierge-control.ts'
 const running: DaemonStatus = { installation: 'installed', supervisor: 'running', daemon: 'running', persistence: 'disabled' }
 const stopped: DaemonStatus = { ...running, supervisor: 'stopped', daemon: 'stopped' }
 
+it('opens /model locally, rejects duplicate pickers and keeps status and exit available', async () => {
+  const { ports } = fixture()
+  let finish!: () => void
+  const changeModel = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+  const shell = new ConciergeShell({ ...ports, changeModel })
+  const changing = shell.submit('/model')
+  await shell.submit('/model')
+  await shell.submit('wait for the picker')
+  await shell.submit('/help')
+  await shell.submit('/status')
+  await shell.submit('/quit')
+  expect(changeModel).toHaveBeenCalledOnce()
+  expect(ports.converse).not.toHaveBeenCalled()
+  expect(ports.close).toHaveBeenCalledOnce()
+  expect(ports.control.request).toHaveBeenCalledExactlyOnceWith('status')
+  finish(); await changing
+})
+
 it('explains safe interface exit after a confirmed local start', async () => {
   const control = { request: vi.fn().mockResolvedValueOnce(stopped).mockResolvedValue(running) }
   const say = vi.fn()

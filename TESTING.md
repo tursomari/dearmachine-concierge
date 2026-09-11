@@ -94,6 +94,18 @@ is expected to fail this gate. See [the security contract](docs/credential-secur
 
 ### Lifecycle and configuration
 
+`packages/app/tests/assistant-model.spec.ts` covers private selection commits,
+cancellation, failed catalogues, old-profile migration, and subscription account
+reuse. `model-switch-pty.spec.ts` drives `/model` through the real concierge TUI
+against a loopback provider, verifies preserved conversation history, and cancels
+from the provider menu. Both belong to `pnpm test` and use disposable homes.
+
+After building, `nix develop -c node tests/model-switch.mjs "$PWD"` verifies both
+real installer and management DSH sessions: interrupt a hung loopback request,
+switch provider endpoint and model, clear an old reasoning level, and continue
+with the previous conversation intact. It also accepts a packaged runtime root.
+It uses no credentials or external service and does not install products.
+
 `packages/app/tests/launch-environment.spec.ts` checks minimal-PATH child
 discovery, caller precedence, idempotence, and the real CLI-to-native bootstrap
 boundary. `packages/app/tests/credential-context.spec.ts` verifies that secure

@@ -69,6 +69,7 @@ class MachtianiModelHostAdapter extends LlmAdapter {
   }
 
   override async resolveModel(_provider: string, model: string): Promise<LlmResolvedModelInfo> {
+    if (this.caller !== 'task') return { provider: MODEL_HOST_PROVIDER, id: model, name: 'Assistant' }
     const host = await ModelHost.open(this.profilePath)
     const entry = (await host.models()).find(candidate => candidate.id === model)
     return {
@@ -88,17 +89,24 @@ class MachtianiModelHostAdapter extends LlmAdapter {
     try {
       let hasAnswer = false
       const host = await ModelHost.open(this.profilePath)
+      // Interactive assistants own one profile. Reload its entire selection for
+      // each request so /model can preserve DSH history, including tool results.
+      // Task callers still supply explicit per-role model and reasoning choices.
+      const selection = this.caller === 'task' ? options : host.profile
+      const system = this.caller === 'task' ? options.system : [options.system,
+        `Current assistant model (runtime metadata): ${JSON.stringify({ provider: host.profile.provider, model: host.profile.model, reasoningEffort: host.profile.reasoningEffort ?? 'provider default' })}`,
+      ].filter(Boolean).join('\n\n')
       for await (const event of host.generate({
         caller: this.caller,
         sessionId: String(options.sessionId ?? 'installer'),
         messages: dshMessages(options.messages),
-        ...(options.system === undefined ? {} : { system: options.system }),
+        ...(system === undefined ? {} : { system }),
         ...(options.tools === undefined ? {} : { tools: options.tools }),
         ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
         ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
         ...(options.stop === undefined ? {} : { stop: options.stop }),
-        model: options.model,
-        ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: String(options.reasoningEffort) }),
+        model: selection.model,
+        ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: String(selection.reasoningEffort) }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       })) {
         if ((event.type === 'text-delta' || event.type === 'text-end') && event.text.trim() !== '') hasAnswer = true

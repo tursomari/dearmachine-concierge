@@ -319,3 +319,7 @@ including login sessions, with an older Nix profile first in PATH. It checks the
 public native CLI, custom `ZDOTDIR`, idempotent setup, repair after later Nix
 initialization, private backups, interrupted-shell recovery, and refusal to edit
 symlinked dotfiles. No host startup files are read or mounted by this suite.
+
+The same container suite checks the real internal curl shell-setup entrypoint
+with a Standard environment and no Nix command available. Umbrella bootstrap
+fixtures verify that both download scripts invoke this shared implementation.

@@ -299,3 +299,27 @@ test('interrupted shell changes recover exact originals and retain private backu
   await assert.rejects(readFile(join(f.home, '.zshrc')))
   assert.ok(await readFile(backupPath))
 })
+
+
+test('curl bootstrap shell entrypoint works noninteractively without Nix or a managed receipt', async t => {
+  const home = await mkdtemp('/tmp/curl-shell-'); t.after(() => rm(home, { recursive: true, force: true }))
+  const oldBin = join(home, '.nix-profile/bin')
+  const localBin = join(home, '.local/bin')
+  await mkdir(oldBin, { recursive: true }); await mkdir(localBin, { recursive: true })
+  await writeFile(join(oldBin, 'dearmachine'), '#!/bin/sh\nexit 97\n', { mode: 0o755 })
+  await writeFile(join(localBin, 'dearmachine'), '#!/bin/sh\nprintf "managed-cli\\n"\n', { mode: 0o755 })
+  await writeFile(join(home, '.zshrc'), 'export PATH="$HOME/.nix-profile/bin:$PATH"\n', { mode: 0o600 })
+  const env = { HOME: home, PATH: '/usr/bin:/bin', MACHTIANI_DISTRIBUTION: '/fixture/standard.json' }
+  const cli = '/fixture/packages/app/dist/bin.mjs'
+  await exec(process.execPath, [cli, '_shell-path'], { env })
+  const result = await exec(process.env.ZSH_PACKAGE + '/bin/zsh', ['-lic', 'dearmachine'], { env })
+  assert.equal(result.stdout.trim(), 'managed-cli')
+  await assert.rejects(readFile(join(home, '.local/share/dearmachine/current/release.json')))
+  await assert.rejects(readFile(join(home, '.config/dearmachine/source-reference.json')))
+  await assert.rejects(exec(process.execPath, [cli, 'update', '--check'], { env }), /Standard releases/)
+  const root = join(home, '.local/share/dearmachine')
+  const backup = join(root, 'shell-backups', (await readdir(join(root, 'shell-backups')))[0])
+  await writeFile(join(root, 'shell-transaction.json'), await readFile(backup), { mode: 0o600 })
+  await exec(process.execPath, [cli, '_shell-path', '--recover'], { env })
+  assert.equal(await readFile(join(home, '.zshrc'), 'utf8'), 'export PATH="$HOME/.nix-profile/bin:$PATH"\n')
+})

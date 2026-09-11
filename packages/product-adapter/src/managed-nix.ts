@@ -281,6 +281,16 @@ export class ManagedNix {
     }
     await rm(join(this.root, 'transaction.json'))
   }
+  // Shared by Nix acquisition and the portable curl bootstrap. No Nix commands,
+  // provider setup, or native client control is needed for shell integration.
+  async configureShell(recover = false): Promise<void> {
+    await this.locked(async () => {
+      if (await exists(join(this.root, 'transaction.json'))) throw new Error('Recover the interrupted release activation before configuring shell startup')
+      if (recover) {
+        if (!await recoverShellLaunchers(this.shellOptions())) throw new Error('No interrupted shell setup was found')
+      } else await configureShellLaunchers(this.shellOptions())
+    })
+  }
   async recover(): Promise<void> {
     await this.locked(async () => {
       if (await recoverShellLaunchers(this.shellOptions())) return

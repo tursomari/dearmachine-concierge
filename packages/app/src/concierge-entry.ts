@@ -19,7 +19,7 @@ machtiani-installer remains available as a compatibility alias.
 `
 
 export type InstallerInvocation =
-  | { mode: 'managed'; action: 'install' | 'update'; args: string[] }
+  | { mode: 'managed'; action: 'install' | 'update' | '_shell-path'; args: string[] }
   | { mode: 'mock' }
   | { mode: 'help' }
   | { mode: 'install'; sourceRoot: string }
@@ -27,7 +27,7 @@ export type InstallerInvocation =
   | { mode: 'control'; command: DaemonCommand }
 
 export function parseInvocation(args: readonly string[], environment: NodeJS.ProcessEnv = {}): InstallerInvocation {
-  if (args[0] === 'update' || args[0] === 'install') return { mode: 'managed', action: args[0], args: args.slice(1) }
+  if (args[0] === 'update' || args[0] === 'install' || args[0] === '_shell-path') return { mode: 'managed', action: args[0], args: args.slice(1) }
   if (args.length === 0 || (args.length === 1 && args[0] === '--concierge')) {
     const sourceRoot = environment.DEARMACHINE_SOURCE_ROOT
     if (!sourceRoot) return { mode: 'concierge' }

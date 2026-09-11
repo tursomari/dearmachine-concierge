@@ -4,7 +4,7 @@ import type { DaemonCommand, DaemonControl, DaemonStatus, InstallationState } fr
 
 export const entryHelp = `Usage: dearmachine [--source-root /absolute/path/to/machtiani]
        dearmachine status|up|down|restart
-       dearmachine update [--check | --recover]
+       dearmachine update [--check | --recover] [--json]
        machtiani-installer install --source-root /absolute/path/to/machtiani
        machtiani-installer migrate-profile <entry> [--check]
        dearmachine --help

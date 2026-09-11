@@ -543,5 +543,5 @@ function requireMachtianiVerificationReport(stdout: string): void {
   }
 }
 
-export { ManagedNix, type ManagedRelease, type ManagedRun } from './managed-nix.ts'
+export { ManagedNix, UnsupportedManagedInstallationError, type ManagedRelease, type ManagedRun } from './managed-nix.ts'
 export { launcherGuidance } from './launcher-guidance.ts'

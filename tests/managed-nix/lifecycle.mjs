@@ -231,11 +231,26 @@ exec '${process.execPath}' /fixture/packages/app/dist/bin.mjs "$@"
   assert.match(result.stdout, /Status: available/)
   assert.match(result.stdout, new RegExp(`Installed: ${old}`))
   assert.deepEqual(await readFile(f.reference), before)
+  const structured = JSON.parse((await exec('/fixture/dearmachine', ['update', '--check', '--json'], { env })).stdout)
+  assert.deepEqual(structured, { version: 1, operation: 'check', state: 'available', current: old, available: next })
+  assert.deepEqual(JSON.parse((await exec('/fixture/dearmachine', ['update', '--json', '--check'], { env })).stdout), structured)
   const stopped = await exec('/fixture/dearmachine', ['_update-control', 'status'], { env })
   assert.deepEqual(JSON.parse(stopped.stdout), { running: false })
   await assert.rejects(exec('/fixture/dearmachine', ['update', '--check', '--recover'], { env }))
   const standard = { ...env, MACHTIANI_DISTRIBUTION: '/fixture/standard-distribution.json' }
   await assert.rejects(exec('/fixture/dearmachine', ['update', '--check'], { env: standard }), /Standard releases/)
+  assert.deepEqual(JSON.parse((await exec('/fixture/dearmachine', ['update', '--check', '--json'], { env: standard })).stdout),
+    { version: 1, operation: 'check', state: 'unsupported' })
+  assert.deepEqual(JSON.parse((await exec('/fixture/dearmachine', ['update', '--json'], { env: standard })).stdout),
+    { version: 1, operation: 'install', state: 'unsupported' })
+
+  await writeFile(join(tools, 'git'), '#!/bin/sh\nexit 98\n', { mode: 0o755 })
+  try {
+    await exec('/fixture/dearmachine', ['update', '--check', '--json'], { env })
+    assert.fail('failed structured check exited successfully')
+  } catch (error) {
+    assert.deepEqual(JSON.parse(error.stdout), { version: 1, operation: 'check', state: 'failed' })
+  }
 })
 
 

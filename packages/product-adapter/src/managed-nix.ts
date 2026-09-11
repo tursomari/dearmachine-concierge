@@ -27,6 +27,13 @@ export interface ManagedOptions {
   progress?: (text: string) => void
 }
 
+export class UnsupportedManagedInstallationError extends Error {
+  constructor() {
+    super('This installation is not managed by the coordinated Nix installer. Existing installations and Standard releases are not migrated automatically.')
+    this.name = 'UnsupportedManagedInstallationError'
+  }
+}
+
 export class ManagedNix {
   readonly root: string
   readonly run: ManagedRun
@@ -46,7 +53,7 @@ export class ManagedNix {
   private async receipt(): Promise<ManagedRelease> {
     if (await exists(join(this.root, 'transaction.json'))) throw new Error('An interrupted update needs recovery: run dearmachine update --recover')
     const path = join(this.current(), 'release.json')
-    if (!await exists(path)) throw new Error('This installation is not managed by the coordinated Nix installer. Existing installations and Standard releases are not migrated automatically.')
+    if (!await exists(path)) throw new UnsupportedManagedInstallationError()
     const receipt = await privateJSON(path) as ManagedRelease
     this.validateRelease(receipt)
     if (await readlink(this.current()) !== join(this.root, 'releases', receipt.revision)) throw new Error('Active release link differs from its receipt')

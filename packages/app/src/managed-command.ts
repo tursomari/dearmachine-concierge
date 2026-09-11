@@ -1,8 +1,12 @@
-import { ManagedNix, launcherGuidance } from '@dearmachine/machtiani-installer-products'
+import { ManagedNix, UnsupportedManagedInstallationError, launcherGuidance } from '@dearmachine/machtiani-installer-products'
+
+function writeJSON(value: object): void {
+  process.stdout.write(`${JSON.stringify({ version: 1, ...value })}\n`)
+}
 
 export async function runManagedCommand(action: 'install' | 'update' | 'migrate-profile' | '_launcher-check', args: string[], callerPath = process.env.PATH ?? ''): Promise<void> {
   if (args.length === 1 && args[0] === '--help') {
-    process.stdout.write('Usage: machtiani-installer install --source-root <absolute-checkout>\n       dearmachine update [--check | --recover]\n       machtiani-installer migrate-profile <entry> [--check]\n')
+    process.stdout.write('Usage: machtiani-installer install --source-root <absolute-checkout>\n       dearmachine update [--check | --recover] [--json]\n       machtiani-installer migrate-profile <entry> [--check]\n')
     return
   }
   const home = process.env.HOME
@@ -14,33 +18,54 @@ export async function runManagedCommand(action: 'install' | 'update' | 'migrate-
     if (args.length) throw new Error('_launcher-check takes no arguments')
     await reportLaunchers(); return
   }
-  if (process.env.MACHTIANI_DISTRIBUTION) throw new Error('Standard releases use their own release channel; the Nix updater cannot change them')
+
+  const json = action === 'update' && args.includes('--json')
+  const updateArgs = json ? args.filter(argument => argument !== '--json') : args
+  const operation = updateArgs.length === 1 && updateArgs[0] === '--check' ? 'check'
+    : updateArgs.length === 0 ? 'install' : undefined
+  if (json && operation === undefined) throw new Error('Usage: dearmachine update [--check | --recover] [--json]')
+  if (process.env.MACHTIANI_DISTRIBUTION) {
+    if (json && operation !== undefined) { writeJSON({ operation, state: 'unsupported' }); return }
+    throw new Error('Standard releases use their own release channel; the Nix updater cannot change them')
+  }
+
   const dataHome = process.env.DEARMACHINE_MANAGED_DATA_HOME || process.env.XDG_DATA_HOME
   const manager = new ManagedNix({ home, ...(dataHome ? { dataHome } : {}),
     progress: text => process.stderr.write(text + '\n') })
-  if (action === 'migrate-profile') {
-    if (!args[0] || args.length > 2 || (args.length === 2 && args[1] !== '--check')) throw new Error('Usage: machtiani-installer migrate-profile <entry> [--check]')
-    const result = await manager.migrateProfile(args[0], args[1] === '--check')
-    process.stdout.write(`${result.backup ? 'Removed' : 'Would remove'} Nix profile entry ${result.entry}: ${result.commands.join(', ')}.\n`)
-    if (result.backup) process.stdout.write(`Backup: ${result.backup}\nPrevious profile generation: ${result.generation}. Existing shells may need their command cache refreshed.\n`)
-    await reportLaunchers()
-    return
+  try {
+    if (action === 'migrate-profile') {
+      if (!args[0] || args.length > 2 || (args.length === 2 && args[1] !== '--check')) throw new Error('Usage: machtiani-installer migrate-profile <entry> [--check]')
+      const result = await manager.migrateProfile(args[0], args[1] === '--check')
+      process.stdout.write(`${result.backup ? 'Removed' : 'Would remove'} Nix profile entry ${result.entry}: ${result.commands.join(', ')}.\n`)
+      if (result.backup) process.stdout.write(`Backup: ${result.backup}\nPrevious profile generation: ${result.generation}. Existing shells may need their command cache refreshed.\n`)
+      await reportLaunchers()
+      return
+    }
+    if (action === 'install') {
+      if (args.length !== 2 || args[0] !== '--source-root' || !args[1]?.startsWith('/')) throw new Error('install requires --source-root <absolute-checkout>')
+      const release = await manager.install(args[1])
+      process.stdout.write(`Installed coordinated release ${release.revision}.\nSource: ${release.sourceRoot}\n`)
+      await reportLaunchers()
+    } else if (updateArgs.length === 1 && updateArgs[0] === '--check') {
+      const result = await manager.check()
+      if (json) writeJSON({ operation: 'check', state: result.status, current: result.current, available: result.available })
+      else process.stdout.write(`Installed: ${result.current}\nAvailable: ${result.available}\nStatus: ${result.status}\n`)
+    } else if (updateArgs.length === 1 && updateArgs[0] === '--recover') {
+      await manager.recover()
+      process.stdout.write('Restored the previous installation.\n')
+    } else if (updateArgs.length === 0) {
+      // Native/package wrappers prepend runtime paths before this handoff. They
+      // cannot establish which installation the user's shell would select.
+      const release = await manager.update()
+      if (json) writeJSON({ operation: 'install', state: 'installed', release: release.revision })
+      else process.stdout.write(`Active release: ${release.revision}\nSource: ${release.sourceRoot}\nReopen the concierge to use its updated runtime and documentation.\n`)
+    } else throw new Error('Usage: dearmachine update [--check | --recover] [--json]')
+  } catch (error) {
+    if (!json || operation === undefined) throw error
+    if (error instanceof UnsupportedManagedInstallationError) writeJSON({ operation, state: 'unsupported' })
+    else {
+      writeJSON({ operation, state: 'failed' })
+      process.exitCode = 1
+    }
   }
-  if (action === 'install') {
-    if (args.length !== 2 || args[0] !== '--source-root' || !args[1]?.startsWith('/')) throw new Error('install requires --source-root <absolute-checkout>')
-    const release = await manager.install(args[1])
-    process.stdout.write(`Installed coordinated release ${release.revision}.\nSource: ${release.sourceRoot}\n`)
-    await reportLaunchers()
-  } else if (args.length === 1 && args[0] === '--check') {
-    const result = await manager.check()
-    process.stdout.write(`Installed: ${result.current}\nAvailable: ${result.available}\nStatus: ${result.status}\n`)
-  } else if (args.length === 1 && args[0] === '--recover') {
-    await manager.recover()
-    process.stdout.write('Restored the previous installation.\n')
-  } else if (args.length === 0) {
-    // Native/package wrappers prepend runtime paths before this handoff. They
-    // cannot establish which installation the user's shell would select.
-    const release = await manager.update()
-    process.stdout.write(`Active release: ${release.revision}\nSource: ${release.sourceRoot}\nReopen the concierge to use its updated runtime and documentation.\n`)
-  } else throw new Error('Usage: dearmachine update [--check | --recover]')
 }

@@ -10,6 +10,11 @@ export type { InstallerInvocation } from './concierge-entry.ts'
 async function main(): Promise<void> {
   process.env.PATH = launchEnvironment(process.env).PATH
   const invocation = parseInvocation(process.argv.slice(2), process.stdin.isTTY && process.stdout.isTTY ? process.env : {})
+  if (invocation.mode === 'managed') {
+    const { runManagedCommand } = await import('./managed-command.ts')
+    await runManagedCommand(invocation.action, invocation.args)
+    return
+  }
   if (invocation.mode === 'help' || (invocation.mode === 'concierge' && (!process.stdin.isTTY || !process.stdout.isTTY))) {
     process.stdout.write(entryHelp)
     return

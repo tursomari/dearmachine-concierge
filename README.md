@@ -186,3 +186,21 @@ does not import DSH internals. The historical source and tests are preserved und
 
 Machtiani Installer is built on DeepSeek Harness. DeepSeek does not support or
 endorse this derivative. See `THIRD_PARTY_NOTICES.md` and `LICENSES/`.
+
+## Coordinated Nix software and source updates
+
+The Nix product installation stage now installs Dear Machine, Agent Manager,
+Machtiani, the concierge and model host as one release. For software-only
+acquisition from a committed umbrella checkout, run this package with
+`install --source-root /absolute/path/to/machtiani`. Existing unrelated public
+launchers are not replaced automatically.
+
+The release retains the umbrella source, pinned submodule contents and docs
+under `${XDG_DATA_HOME:-$HOME/.local/share}/dearmachine/sources/<revision>/`.
+The concierge receives this location through its saved source reference.
+`dearmachine update --check` reports remote availability without activation;
+`dearmachine update` prepares and activates matching binaries and source while
+preserving configuration. `dearmachine update --recover` restores an interrupted
+activation's previous release. Standard installations keep their own release
+channel. See the umbrella's `docs/managed-nix-installation.md` for the complete
+ownership and recovery contract.

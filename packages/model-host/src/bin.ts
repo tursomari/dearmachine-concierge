@@ -3,7 +3,9 @@ import { serveModelHost } from './index.ts'
 import { runInteractiveModelHostAuth } from './cli.ts'
 
 const args = process.argv.slice(2)
-if (args[0] === 'auth') {
+if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
+  process.stdout.write('Usage: machtiani-model-host --profile <private-profile.json>\n       machtiani-model-host auth login --profile <private-profile.json> [--mode <browser|device_code>]\n')
+} else if (args[0] === 'auth') {
   const controller = new AbortController()
   process.once('SIGINT', () => controller.abort())
   process.exitCode = await runInteractiveModelHostAuth(args, process.stdin, process.stdout, process.stderr, undefined, controller.signal)

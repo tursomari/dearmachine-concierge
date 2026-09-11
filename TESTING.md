@@ -288,3 +288,28 @@ Add every new independently runnable suite here in the same change that adds
 it. Keep harness-specific operating detail beside the harness and link it from
 this root document. Do not turn historical imported tests or internal helper
 scripts into implied release gates without first adopting and maintaining them.
+
+## Coordinated Nix installation and update container
+
+After `nix develop -c pnpm build`, build the candidate Dear Machine package on
+the host and pass its exact executable:
+
+```bash
+DEARMACHINE_TEST_BINARY=/nix/store/<candidate-package>/bin/dearmachine \
+  bash tests/managed-nix/run.sh
+```
+
+The runner copies compiled application files and the pinned Node/native runtime
+closures into a disposable container. It mounts no repository, Git metadata,
+host home, credentials, socket, profile, or Nix daemon. The container has no
+network. Git remote queries and package construction are fixture boundaries;
+archive extraction, recursive source snapshots, filesystem activation,
+launchers, metadata and rollback execute normally. Production Nix package
+builds are covered separately by the host build gates.
+
+The suite covers missing `~/.local`, custom `XDG_DATA_HOME`, nested components,
+credential-file exclusion, moved checkout independence, read-only checks,
+stopped/running client policy, failed builds, failed startup, interrupted
+rollback/recovery, unrelated launcher preservation, unsafe directory rejection,
+and the real native CLI's noninteractive handoff to the installer entry point.
+No live provider, inbox, or host service is touched.

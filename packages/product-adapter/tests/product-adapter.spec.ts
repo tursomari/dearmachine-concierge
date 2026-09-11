@@ -40,6 +40,7 @@ async function fixture() {
   await mkdir(join(sourceRoot, 'machtiani-harness'), { recursive: true })
   await mkdir(join(sourceRoot, 'dearmachine'), { recursive: true })
   await mkdir(join(sourceRoot, 'machtiani-installer'), { recursive: true })
+  await writeFile(join(sourceRoot, '.git'), 'fixture git marker')
   await writeFile(join(home, '.config', 'dearmachine', 'backends.env'), 'OPENROUTER_API_KEY=product-test-secret\n', { mode: 0o600 })
   await writeFile(join(home, '.config', 'machtiani', 'model-profile.json'), `${JSON.stringify({
     version: 1,
@@ -139,9 +140,9 @@ describe('native product installer', () => {
     await expect(installer.install(selection)).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
     expect(test.runner.requests.map(request => request.label)).toEqual([
       'Source checkout preflight',
-      'Install Machtiani', 'Install shared model host', 'Verify shared model host', 'Check Machtiani configuration',
+      'Install coordinated release', 'Verify shared model host', 'Check Machtiani configuration',
       'Verify Machtiani model roles',
-      'Install Dear Machine', 'Verify installed commands', 'Configure selected backend', 'Create Dear Machine pair',
+      'Verify installed commands', 'Configure selected backend', 'Create Dear Machine pair',
       'Verify Dear Machine status', 'Verify selected backend', 'Verify source checkout',
     ])
     expect(progress).toEqual(test.runner.requests.map(request => request.label))
@@ -151,13 +152,13 @@ describe('native product installer', () => {
       'machtiani', 'config', 'check',
     ])
     expect(test.runner.requests.find(request => request.label === 'Verify shared model host')?.command).toEqual([
-      'sh', '-c', 'test -x "$1"', 'verify-model-host', join(test.home, '.nix-profile', 'bin', 'machtiani-model-host'),
+      'sh', '-c', 'test -x "$1"', 'verify-model-host', join(test.home, '.local', 'bin', 'machtiani-model-host'),
     ])
     expect(test.runner.requests.find(request => request.label === 'Verify Machtiani model roles')?.command).toEqual([
       'machtiani', 'verify', '--json',
     ])
-    expect(test.runner.requests.find(request => request.label === 'Install Dear Machine')?.command).toEqual([
-      'nix', 'run', `path:${join(test.sourceRoot, 'dearmachine')}#install`,
+    expect(test.runner.requests.find(request => request.label === 'Install coordinated release')?.command.slice(-3)).toEqual([
+      'install', '--source-root', test.sourceRoot,
     ])
     expect(test.runner.requests.find(request => request.label === 'Verify Machtiani model roles')?.environment.MACHTIANI_CONFIG).toBe(
       join(test.home, '.machtiani', 'config.toml'),
@@ -170,7 +171,7 @@ describe('native product installer', () => {
     expect(machtianiConfig).toContain('[model_defaults]')
     expect(machtianiConfig).toContain('cache_enabled = true')
     expect(machtianiConfig).toContain('cache_control = { type = "ephemeral" }')
-    expect(machtianiConfig).toContain(`command = ${JSON.stringify(join(test.home, '.nix-profile', 'bin', 'machtiani-model-host'))}`)
+    expect(machtianiConfig).toContain(`command = ${JSON.stringify(join(test.home, '.local', 'bin', 'machtiani-model-host'))}`)
     expect(await readFile(join(test.home, '.dearmachine', 'config', 'dearmachine.toml'), 'utf8')).toBe(
       'version = 1\nbackends = ["codex-yolo"]\nresponse_tier = "formatted"\n',
     )

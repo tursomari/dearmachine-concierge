@@ -4,6 +4,8 @@ import type { DaemonCommand, DaemonControl, DaemonStatus, InstallationState } fr
 
 export const entryHelp = `Usage: dearmachine [--source-root /absolute/path/to/machtiani]
        dearmachine status|up|down|restart
+       dearmachine update [--check | --recover]
+       machtiani-installer install --source-root /absolute/path/to/machtiani
        dearmachine --help
 
 Bare interactive invocation detects whether Dear Machine is installed. It opens
@@ -17,6 +19,7 @@ machtiani-installer remains available as a compatibility alias.
 `
 
 export type InstallerInvocation =
+  | { mode: 'managed'; action: 'install' | 'update'; args: string[] }
   | { mode: 'mock' }
   | { mode: 'help' }
   | { mode: 'install'; sourceRoot: string }
@@ -24,6 +27,7 @@ export type InstallerInvocation =
   | { mode: 'control'; command: DaemonCommand }
 
 export function parseInvocation(args: readonly string[], environment: NodeJS.ProcessEnv = {}): InstallerInvocation {
+  if (args[0] === 'update' || args[0] === 'install') return { mode: 'managed', action: args[0], args: args.slice(1) }
   if (args.length === 0 || (args.length === 1 && args[0] === '--concierge')) {
     const sourceRoot = environment.DEARMACHINE_SOURCE_ROOT
     if (!sourceRoot) return { mode: 'concierge' }

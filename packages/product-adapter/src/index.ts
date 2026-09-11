@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, readlink, rename, writeFile } from 'node:fs/promises'
@@ -381,11 +382,9 @@ export class NativeProductInstaller {
       [transport.variable]: transport.credentialPath,
       DEARMACHINE_BACKENDS: JSON.stringify([selection.backend.id]),
     }
-    const harness = join(this.options.sourceRoot, 'machtiani-harness')
-    const dearMachine = join(this.options.sourceRoot, 'dearmachine')
-    const installer = join(this.options.sourceRoot, 'machtiani-installer')
+    const sourceHasGit = distribution === undefined && await lstat(join(this.options.sourceRoot, '.git')).then(() => true, (error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return false; throw error })
     const machtianiConfigPath = join(this.options.home, '.machtiani', 'config.toml')
-    const modelHostCommand = distribution?.binaries.modelHost ?? join(this.options.home, '.nix-profile', 'bin', 'machtiani-model-host')
+    const modelHostCommand = distribution?.binaries.modelHost ?? join(this.options.home, '.local', 'bin', 'machtiani-model-host')
     const deviceConfig = join(this.options.home, '.dearmachine', 'config', 'dearmachine.toml')
     const entryPoint = join(this.options.home, '.dearmachine', 'entrypoint', 'main')
     environment.MACHTIANI_CONFIG = machtianiConfigPath
@@ -427,7 +426,7 @@ export class NativeProductInstaller {
       if (await directoryHasEntries(join(this.options.home, '.machtiani'))) {
         throw new Error('An existing Machtiani configuration was found. The installer will not replace it automatically.')
       }
-      const sourceStatus = distribution === undefined
+      const sourceStatus = sourceHasGit
         ? (await run('Source checkout preflight', ['git', '-C', this.options.sourceRoot, 'status', '--porcelain=v2', '--untracked-files=all', '--ignore-submodules=none'])).stdout
         : await snapshotFingerprint(this.options.sourceRoot)
       journal = { version: 1, stage: 'started', selection: selected, sourceStatusHash: statusHash(sourceStatus) }
@@ -445,13 +444,14 @@ export class NativeProductInstaller {
     }
 
     if (!atLeast(journal.stage, 'machtiani-installed')) {
-      if (distribution === undefined) await run('Install Machtiani', ['nix', 'run', `path:${harness}#install`, '--', '--no-interactive'], harness)
+      if (distribution === undefined) {
+        await run('Install coordinated release', [process.execPath, fileURLToPath(new URL('../../app/dist/bin.mjs', import.meta.url)), 'install', '--source-root', this.options.sourceRoot], this.options.sourceRoot)
+      }
       else await run('Verify supplied Machtiani', ['machtiani', '--version'])
       await advance('machtiani-installed')
     }
 
     if (!atLeast(journal.stage, 'model-host-installed')) {
-      if (distribution === undefined) await run('Install shared model host', ['nix', 'profile', 'install', `path:${installer}`], installer)
       await run('Verify shared model host', ['sh', '-c', 'test -x "$1"', 'verify-model-host', modelHostCommand])
       await advance('model-host-installed')
     }
@@ -474,7 +474,6 @@ export class NativeProductInstaller {
 
     if (!atLeast(journal.stage, 'dearmachine-installed')) {
       if (distribution === undefined) {
-        await run('Install Dear Machine', ['nix', 'run', `path:${dearMachine}#install`], dearMachine)
         await run('Verify installed commands', ['sh', '-c', 'command -v machtiani dearmachine agent-manager >/dev/null'])
       } else {
         await run('Verify supplied Dear Machine', ['dearmachine', '--help'])
@@ -509,6 +508,7 @@ export class NativeProductInstaller {
         await run('Create Dear Machine pair', [
           'dearmachine', 'up', '--create', '--resume', '--email', selection.authorizedSender,
           ...inboxArguments, '--transport', transport.id,
+          ...(distribution === undefined ? ['--agent-bin', join(this.options.home, '.local/bin/machtiani'), '--agent-manager', join(this.options.home, '.local/bin/agent-manager')] : []),
           '--project', entryPoint, '--entry-point-repo', entryPoint,
           '--config', deviceConfig, '--poll-interval', '5s', '--magnifica-humanitas', '--verbose',
         ], this.options.workspace, undefined, null)
@@ -521,7 +521,7 @@ export class NativeProductInstaller {
     const inboxAddress = parseInbox(status.stdout, selection.authorizedSender, transport.id)
     const backendCheck = await run('Verify selected backend', ['agent-manager', 'backend', 'health', selection.backend.id], entryPoint)
     if (!/(?:^|\n)result=ok(?:\n|$)/u.test(backendCheck.stdout)) throw new Error('The installed selected backend did not pass its functional health check.')
-    const sourceAfter = distribution === undefined
+    const sourceAfter = sourceHasGit
       ? (await run('Verify source checkout', ['git', '-C', this.options.sourceRoot, 'status', '--porcelain=v2', '--untracked-files=all', '--ignore-submodules=none'])).stdout
       : await snapshotFingerprint(this.options.sourceRoot)
     if (statusHash(sourceAfter) !== journal.sourceStatusHash) throw new Error('Product installation changed the source checkout; the installer stopped before verification could complete.')
@@ -542,3 +542,5 @@ function requireMachtianiVerificationReport(stdout: string): void {
     throw new Error('Machtiani did not verify every configured model role.')
   }
 }
+
+export { ManagedNix, type ManagedRelease, type ManagedRun } from './managed-nix.ts'

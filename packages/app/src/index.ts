@@ -140,7 +140,10 @@ export function installerAgentPrompt(
   installation: { method: InstallationMethod; distribution?: ProductDistribution } = { method: 'nix' },
 ): string {
   const runtimeContext = {
-    installation,
+    installation: { ...installation, ...(installation.method === 'nix' ? {
+      acquisitionCommand: [process.execPath, fileURLToPath(new URL('./bin.mjs', import.meta.url)),
+        'install', '--source-root', sourceReference.sourceRoot],
+    } : {}) },
     documentation: sourceReference,
     sharedModelSelection: {
       provider: selection.provider,

@@ -86,6 +86,9 @@ describe('installer source root', () => {
     expect(prompt).toContain('Begin with Stage 1 now')
     expect(prompt).not.toContain('API_KEY=')
     expect(prompt).toContain('"method": "nix"')
+    const context = JSON.parse(prompt.split('<runtime_context_json>')[1]!.split('</runtime_context_json>')[0]!)
+    expect(context.installation.acquisitionCommand[0]).toBe(process.execPath)
+    expect(context.installation.acquisitionCommand.slice(-3)).toEqual(['install', '--source-root', '/source/machtiani'])
   })
 
   it('passes the chosen acquisition method and exact prebuilt paths as runtime data', () => {

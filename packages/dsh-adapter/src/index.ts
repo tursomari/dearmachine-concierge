@@ -56,6 +56,11 @@ function installerToolsPlugin(): string {
   return require.resolve('@dearmachine/machtiani-installer-dsh-adapter/installer-tools')
 }
 
+function managementToolsPlugin(): string {
+  const require = createRequire(import.meta.url)
+  return require.resolve('@dearmachine/machtiani-installer-dsh-adapter/management-tools')
+}
+
 function credentialPolicyPlugin(): string {
   return createRequire(import.meta.url).resolve('@dearmachine/machtiani-installer-dsh-adapter/credential-policy')
 }
@@ -120,6 +125,8 @@ ${mode === 'task' ? '' : `    - id: machtiani-role-system-prompt
       name: ${JSON.stringify(roleSystemPromptPlugin(mode))}
 `}${mode === 'installer' ? `    - id: machtiani-installer-tools
       name: ${JSON.stringify(installerToolsPlugin())}
+` : mode === 'management' ? `    - id: machtiani-management-tools
+      name: ${JSON.stringify(managementToolsPlugin())}
 ` : ''}`
 }
 
@@ -163,6 +170,7 @@ export interface DshTaskResult {
 
 export type InstallerAgentEvent =
   | { type: 'assistant'; text: string; reasoning: string }
+  | { type: 'local-action'; action: 'check-update' | 'install-update' }
   | { type: 'tool-start'; id: string; name: string; detail: string; command?: string }
   | { type: 'tool-end'; id: string; failed: boolean }
   | {
@@ -276,6 +284,13 @@ export function normalizeDshSessionEvent(value: unknown, options: { showCommands
     }
   }
   if (event?.type === 'tool/call' && typeof data?.callId === 'string' && typeof data.name === 'string') {
+    if (data.name === 'request_dearmachine_update' && typeof data.arguments === 'string') {
+      try {
+        const action = record(JSON.parse(data.arguments))?.action
+        if (action === 'check' || action === 'install') return { type: 'local-action', action: `${action}-update` }
+      } catch { return undefined }
+      return undefined
+    }
     const command = options.showCommands && data.name === 'bash' ? displayCommand(data.arguments) : undefined
     return { type: 'tool-start', id: data.callId, name: data.name, detail: toolCallDetail(data.name, data.arguments),
       ...(command === undefined ? {} : { command }) }

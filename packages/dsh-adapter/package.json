@@ -25,6 +25,10 @@
     "./management-system-prompt": {
       "types": "./dist/management-system-prompt.d.mts",
       "default": "./dist/management-system-prompt.mjs"
+    },
+    "./management-tools": {
+      "types": "./dist/management-tools.d.mts",
+      "default": "./dist/management-tools.mjs"
     }
   },
   "files": ["dist", "src"],

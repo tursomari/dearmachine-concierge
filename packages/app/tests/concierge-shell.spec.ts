@@ -142,6 +142,22 @@ describe('local slash commands', () => {
     await Promise.all([start, exit])
     expect(ports.close).toHaveBeenCalledOnce()
   })
+  it('serializes update requests with lifecycle operations and suppresses duplicate update mutations', async () => {
+    const { control, ports } = fixture(stopped)
+    let finish!: () => void
+    const update = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+    const shell = new ConciergeShell({ ...ports, update })
+    const first = shell.requestUpdate('install')
+    await vi.waitFor(() => expect(update).toHaveBeenCalledOnce())
+    await shell.submit('/update')
+    const start = shell.submit('/up')
+    expect(control.request).not.toHaveBeenCalled()
+    expect(ports.say).toHaveBeenCalledWith(expect.stringContaining('already in progress'))
+    finish()
+    await Promise.all([first, start])
+    expect(update).toHaveBeenCalledOnce()
+    expect(control.request.mock.calls.map(call => call[0])).toEqual(['status', 'up'])
+  })
 })
 
 it.each(['restart', 'status'] as const)('handles /%s locally through the control dispatcher', async command => {

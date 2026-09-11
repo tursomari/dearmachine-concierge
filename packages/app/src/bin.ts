@@ -28,8 +28,8 @@ async function main(): Promise<void> {
     return
   }
   if (invocation.mode === 'concierge') {
-    const { launchConcierge } = await import('./concierge.ts')
-    await launchConcierge(invocation.sourceRoot)
+    const { CONCIERGE_RELAUNCH_EXIT_CODE, launchConcierge } = await import('./concierge.ts')
+    if (await launchConcierge(invocation.sourceRoot) === 'relaunch') process.exitCode = CONCIERGE_RELAUNCH_EXIT_CODE
     return
   }
   const { runInstaller, runMockInstaller } = await import('./index.ts')

@@ -97,6 +97,8 @@ describe('role system prompts', () => {
     expect(sections[1]?.text).toContain('typed credential helper')
     expect(sections[1]?.text).toContain('Preserve existing backends')
     expect(sections[1]?.text).toContain('never ask for a key in chat')
+    expect(sections[1]?.text).toContain('request_dearmachine_update')
+    expect(sections[1]?.text).toContain('not installation consent')
     expect(sections.map(section => section.text).join('\n')).not.toContain('INSTALLATION CONTRACT')
   })
 })

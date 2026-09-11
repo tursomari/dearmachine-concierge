@@ -251,6 +251,12 @@ describe('pinned DSH compatibility boundary', () => {
       type: 'tool/call', data: { callId: 'call-unknown', name: 'custom', arguments: '{"private":"omitted"}' },
     })).toEqual({ type: 'tool-start', id: 'call-unknown', name: 'custom', detail: 'Working' })
     expect(normalizeDshSessionEvent({
+      type: 'tool/call', data: { callId: 'call-update', name: 'request_dearmachine_update', arguments: '{"action":"check"}' },
+    })).toEqual({ type: 'local-action', action: 'check-update' })
+    expect(normalizeDshSessionEvent({
+      type: 'tool/call', data: { callId: 'call-install', name: 'request_dearmachine_update', arguments: '{"action":"install"}' },
+    })).toEqual({ type: 'local-action', action: 'install-update' })
+    expect(normalizeDshSessionEvent({
       type: 'tool/result', data: { message: { content: [{ type: 'tool-result', toolCallId: 'call-1', content: [] }] } },
     })).toEqual({ type: 'tool-end', id: 'call-1', failed: false })
     expect(normalizeDshSessionEvent({
@@ -290,12 +296,13 @@ describe('pinned DSH compatibility boundary', () => {
   })
 })
 
-it('uses the shared model host without installer mutation tools in management mode', async () => {
+it('uses the shared model host with only the non-mutating concierge request tool in management mode', async () => {
  const root=await mkdtemp(join(tmpdir(), 'concierge-dsh-'))
  await prepareIsolatedDshHome(root, undefined, 'management')
  const patch=await readFile(join(root,'profiles','machtiani-installer','cordis.patch.yml'),'utf8')
  expect(patch).toContain('machtiani-model-host')
  expect(patch).toContain('management-system-prompt')
+ expect(patch).toContain('machtiani-management-tools')
  expect(patch).not.toContain('machtiani-installer-tools')
  expect(patch).not.toContain('installer-system-prompt')
 })

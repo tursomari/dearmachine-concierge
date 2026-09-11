@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -11,7 +11,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 async function fixture(withServer = false) {
   const root = await mkdtemp(join(tmpdir(), 'concierge-cli-'))
   cleanups.push(() => rm(root, { recursive: true, force: true }))
-  const env = { ...process.env, HOME: root, DEARMACHINE_SUPERVISOR_SOCKET: '', DEARMACHINE_SOURCE_ROOT: '', XDG_STATE_HOME: join(root, 'state'), XDG_DATA_HOME: join(root, 'data'), TERM: 'xterm-256color' }
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: root, DEARMACHINE_SUPERVISOR_SOCKET: '', DEARMACHINE_SOURCE_ROOT: '', XDG_STATE_HOME: join(root, 'state'), XDG_DATA_HOME: join(root, 'data'), TERM: 'xterm-256color' }
   const commands: string[] = []
   if (withServer) {
     await mkdir(join(root, '.dearmachine'))
@@ -68,6 +68,34 @@ describe('headless concierge CLI', () => {
 })
 
 describe('real PTY concierge exit', () => {
+  it('renders welcome and native status before the provider-free startup update result', async () => {
+    const { root, env } = await fixture(true)
+    const native = join(root, 'native-update')
+    await writeFile(native, `#!/bin/sh
+if [ "\${1:-}" = status ]; then
+  printf '%s\n' 'Dear Machine: stopped' 'Supervisor: stopped' 'Crash recovery: inactive until started again' 'Closing this chat: leaves Dear Machine stopped' 'After account logout: not verified' 'Managed startup at login: disabled' 'Managed startup after reboot (before login): disabled' 'Reason: fixture' 'Scope: fixture'
+elif [ "\${1:-}" = update ] && [ "\${2:-}" = --check ] && [ "\${3:-}" = --json ]; then
+  printf '%s\n' '{"version":1,"operation":"check","state":"current","current":"${'a'.repeat(40)}","available":"${'a'.repeat(40)}"}'
+else exit 97
+fi
+`, { mode: 0o700 })
+    env.DEARMACHINE_NATIVE_BIN = native
+    const result = await new Promise<{ code: number; output: string }>((resolveResult, reject) => {
+      const child = pty.spawn('bash', ['--noprofile', '--norc', '-c', 'before=$(stty -g); "$1" "$2"; code=$?; after=$(stty -g); [ "$before" = "$after" ] || exit 90; exit "$code"', 'concierge-test', process.execPath, app], { env: env as Record<string, string>, cols: 110, rows: 35 })
+      let output = ''
+      let sent = false
+      const timer = setTimeout(() => { child.kill(); reject(new Error('Startup update PTY timed out')) }, 5_000)
+      child.onData(chunk => {
+        output += chunk
+        if (!sent && output.includes('Updates: current')) { sent = true; child.write('/quit\r') }
+      })
+      child.onExit(({ exitCode }) => { clearTimeout(timer); resolveResult({ code: exitCode, output }) })
+    })
+    expect(result.code, result.output).toBe(0)
+    expect(result.output.indexOf('Tell me what you need')).toBeLessThan(result.output.indexOf('Dear Machine: stopped'))
+    expect(result.output.indexOf('Dear Machine: stopped')).toBeLessThan(result.output.indexOf('Updates: current'))
+  })
+
   it.each(['/quit', '/detach'])('restores the terminal and preserves an independent disposable process on %s', async exitCommand => {
     const { env, commands } = await fixture(true)
     const daemon = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { env, detached: true, stdio: 'ignore' })

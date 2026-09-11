@@ -1,4 +1,5 @@
 import { EndpointAbsentError, type DaemonCommand, type DaemonControl, type DaemonStatus } from './concierge-control.ts'
+import type { UpdateRequest } from './concierge-update.ts'
 
 export const conciergeInterruptHint = 'Use /quit to leave. Press Ctrl+C again within 2 seconds to exit the interface only. A committed operation is not undone; inspect dearmachine status.'
 
@@ -8,6 +9,7 @@ export const backgroundExitHint = 'Dear Machine is running in the background und
 export const localHelp = `Local commands (no model or provider required):
 /help — Show this help.
 /model — Choose the assistant’s provider, model, and reasoning level.
+/update — Check for an update and ask before installing an available release.
 /up — Start Dear Machine and confirm it is running; never install or enable persistence.
 /down — Stop Dear Machine and cancel pending automatic restarts.
 /restart — Restart Dear Machine and confirm it is running.
@@ -102,6 +104,7 @@ export class ConciergeShell {
   private closed = false
   private operations: Promise<void> = Promise.resolve()
   private changingModel = false
+  private updatePending = false
   constructor(private readonly ports: {
     control: DaemonControl
     say(message: string): void
@@ -111,8 +114,30 @@ export class ConciergeShell {
     close(): Promise<void>
     converse?(text: string): Promise<void>
     changeModel?(): Promise<void>
+    update?(request: UpdateRequest): Promise<void>
     chooseSupervision?(kind: 'systemd' | 'persistence', choice: 'on' | 'off' | 'status'): Promise<string>
   }) {}
+
+  async requestUpdate(request: UpdateRequest): Promise<void> {
+    if (this.closed) return
+    if (this.updatePending) {
+      this.ports.say('An update check or installation is already in progress. The existing request will provide the authoritative result.')
+      return
+    }
+    if (!this.ports.update) {
+      this.ports.say('Managed updates are unavailable in this interface. Use the absolute installed dearmachine update --check command.')
+      return
+    }
+    this.updatePending = true
+    const operation = this.operations.then(async () => {
+      if (this.closed) return
+      await this.ports.update!(request)
+    }).finally(() => { this.updatePending = false })
+    this.operations = operation.catch(() => {})
+    try { await operation } catch {
+      if (!this.closed) this.ports.say('The update flow could not complete. You can keep using this concierge; inspect dearmachine update --check before retrying.')
+    }
+  }
 
   async submit(input: string): Promise<void> {
     if (this.closed) return
@@ -128,6 +153,7 @@ export class ConciergeShell {
       finally { this.changingModel = false }
       return
     }
+    if (text === '/update') { await this.requestUpdate('install'); return }
     if (text === '/systemd' || text === '/persistence') {
       this.ports.say(text === '/systemd'
         ? 'Use the systemd user manager for Dear Machine? This configures a service but does not enable reboot persistence. Answer /systemd on or /systemd off; inspect availability with /systemd status.'

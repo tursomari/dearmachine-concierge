@@ -205,17 +205,10 @@ activation's previous release. Standard installations keep their own release
 channel. See the umbrella's `docs/managed-nix-installation.md` for the complete
 ownership and recovery contract.
 
-The coordinated Nix installer and curl bootstrap share bash and zsh command-lookup
-setup. It
-places a marked PATH block after startup initialization, so an older Nix profile
-cannot shadow the managed commands. Open a new terminal after installation;
-existing shells keep their previous PATH and command cache. An otherwise-current
-`dearmachine update` repairs this integration without restarting the client.
-`--check` remains read-only. Exported `ZDOTDIR` is respected for zsh files.
-Private originals are retained under the managed data directory's `shell-backups/`.
-Symlinked, unowned, or writable-by-others startup files require manual PATH setup;
-the installer reports that the software is active but shell setup needs attention.
-
-The bootstrap uses the internal `machtiani-installer _shell-path` entrypoint,
-which performs no Nix operations and works for Standard releases as well. For
-interrupted shell-only setup, `_shell-path --recover` restores the originals.
+Managed commands live in `~/.local/bin`; installation never edits shell startup
+files. Reinstalling from a newer committed checkout of the same source updates
+the existing managed release in place. PATH conflicts receive read-only guidance.
+For an already-managed installation, explicitly inspect a superseded Nix profile
+entry with `machtiani-installer migrate-profile <entry> --check`, then omit
+`--check` to remove only that named entry. Its previous generation and profile
+manifest are retained privately for recovery. Unrelated profile packages remain.

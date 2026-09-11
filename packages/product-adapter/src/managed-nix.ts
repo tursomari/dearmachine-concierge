@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { configureShellLaunchers, recoverShellLaunchers } from './shell-launchers.ts'
+import { migrateProfile } from './profile-migration.ts'
 
 const exec = promisify(execFile)
 const components = ['dearmachine', 'machtiani-harness', 'machtiani-installer'] as const
@@ -23,7 +23,6 @@ export type ManagedRun = (command: string, args: string[], cwd?: string) => Prom
 export interface ManagedOptions {
   home: string
   dataHome?: string
-  zshDirectory?: string
   run?: ManagedRun
   progress?: (text: string) => void
 }
@@ -45,7 +44,7 @@ export class ManagedNix {
   private referencePath(): string { return join(this.options.home, '.config/dearmachine/source-reference.json') }
   private current(): string { return join(this.root, 'current') }
   private async receipt(): Promise<ManagedRelease> {
-    if (await exists(join(this.root, 'transaction.json')) || await exists(join(this.root, 'shell-transaction.json'))) throw new Error('An interrupted update needs recovery: run dearmachine update --recover')
+    if (await exists(join(this.root, 'transaction.json'))) throw new Error('An interrupted update needs recovery: run dearmachine update --recover')
     const path = join(this.current(), 'release.json')
     if (!await exists(path)) throw new Error('This installation is not managed by the coordinated Nix installer. Existing installations and Standard releases are not migrated automatically.')
     const receipt = await privateJSON(path) as ManagedRelease
@@ -87,7 +86,7 @@ export class ManagedNix {
       if (await exists(this.current())) {
         const existing = await this.receipt()
         await this.checkLaunchers(true)
-        if (existing.sourceRoot === source) return this.complete(existing)
+        if (existing.sourceRoot === source) return existing
       }
       const remote = (await this.run('git', ['-C', source, 'remote', 'get-url', 'origin'])).trim()
       validateRemote(remote)
@@ -95,14 +94,17 @@ export class ManagedNix {
       if (await exists(this.current())) {
         const existing = await this.receipt()
         await this.checkLaunchers(true)
-        if (existing.revision === revision && existing.remote === remote) return this.complete(existing)
-        throw new Error('A different managed release is already installed; use dearmachine update')
+        if (existing.revision === revision && existing.remote === remote) return existing
+        if (existing.remote !== remote) throw new Error('The checkout belongs to a different release source; the managed installation was left unchanged')
+        const release = await this.prepare(source, revision, remote, existing.branch)
+        await this.activate(release, existing)
+        return release
       }
       await this.checkLaunchers(false)
       const branch = (await this.remoteHead(remote)).branch
       const release = await this.prepare(source, revision, remote, branch)
       await this.activate(release, undefined)
-      return this.complete(release)
+      return release
     })
   }
   async update(): Promise<ManagedRelease> {
@@ -110,7 +112,7 @@ export class ManagedNix {
       const previous = await this.receipt()
       await this.checkLaunchers(true)
       const latest = await this.remoteHead(previous.remote)
-      if (latest.revision === previous.revision) return this.complete(previous)
+      if (latest.revision === previous.revision) return previous
       const stage = await mkdtemp(join(this.root, '.fetch-'))
       try {
         const checkout = join(stage, 'checkout')
@@ -120,17 +122,9 @@ export class ManagedNix {
         await this.run('git', ['-C', checkout, 'submodule', 'update', '--init', '--recursive'])
         const release = await this.prepare(checkout, latest.revision, previous.remote, latest.branch)
         await this.activate(release, previous)
-        return this.complete(release)
+        return release
       } finally { await rm(stage, { recursive: true, force: true }) }
     })
-  }
-  private shellOptions() {
-    return { home: this.options.home, root: this.root, ...(this.options.zshDirectory ? { zshDirectory: this.options.zshDirectory } : {}) }
-  }
-  private async complete(release: ManagedRelease): Promise<ManagedRelease> {
-    try { await configureShellLaunchers(this.shellOptions()) }
-    catch (error) { throw new Error(`The coordinated release is active, but shell PATH setup needs attention: ${error instanceof Error ? error.message : String(error)}`) }
-    return release
   }
   private async prepare(checkout: string, revision: string, remote: string, branch: string): Promise<ManagedRelease> {
     if (!revisionPattern.test(revision)) throw new Error('Invalid umbrella revision')
@@ -281,19 +275,16 @@ export class ManagedNix {
     }
     await rm(join(this.root, 'transaction.json'))
   }
-  // Shared by Nix acquisition and the portable curl bootstrap. No Nix commands,
-  // provider setup, or native client control is needed for shell integration.
-  async configureShell(recover = false): Promise<void> {
-    await this.locked(async () => {
-      if (await exists(join(this.root, 'transaction.json'))) throw new Error('Recover the interrupted release activation before configuring shell startup')
-      if (recover) {
-        if (!await recoverShellLaunchers(this.shellOptions())) throw new Error('No interrupted shell setup was found')
-      } else await configureShellLaunchers(this.shellOptions())
-    })
+  async migrateProfile(entry: string, check = false) {
+    const work = async () => {
+      await this.receipt()
+      await this.checkLaunchers(true)
+      return migrateProfile({ home: this.options.home, root: this.root, entry, check, run: this.run })
+    }
+    return check ? work() : this.locked(work)
   }
   async recover(): Promise<void> {
     await this.locked(async () => {
-      if (await recoverShellLaunchers(this.shellOptions())) return
       const path = join(this.root, 'transaction.json')
       const transaction = await privateJSON(path) as Parameters<ManagedNix['rollback']>[0]
       if (!transaction || typeof transaction.running !== 'boolean' || (transaction.oldReference !== null && typeof transaction.oldReference !== 'string')) throw new Error('Invalid update recovery journal')

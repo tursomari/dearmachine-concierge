@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
@@ -107,7 +107,7 @@ async function fixture(options = {}) {
     return (await exec(command, args)).stdout
   }
   const dataHome = options.xdg ? join(root, 'custom-data') : undefined
-  const manager = new ManagedNix({ home, ...(dataHome ? { dataHome } : {}), ...(options.zdot ? { zshDirectory: join(home, ".config/zsh") } : {}), run })
+  const manager = new ManagedNix({ home, ...(dataHome ? { dataHome } : {}), run })
   const reference = join(home, '.config/dearmachine/source-reference.json')
   return { root, home, original, manager, calls, control, reference, async cleanup() { await rm(root, { recursive: true, force: true }) } }
 }
@@ -239,87 +239,77 @@ exec '${process.execPath}' /fixture/packages/app/dist/bin.mjs "$@"
 })
 
 
-for (const zdot of [false, true]) test(`fresh bash/zsh sessions prefer managed launchers over old Nix profiles (ZDOTDIR=${zdot})`, async t => {
-  const f = await fixture({ zdot }); t.after(() => f.cleanup())
-  const oldBin = join(f.home, '.nix-profile/bin')
-  await mkdir(oldBin, { recursive: true })
-  await writeFile(join(oldBin, 'dearmachine'), '#!/bin/sh\nprintf "old-cli\\n"\n', { mode: 0o755 })
-  const zshDirectory = zdot ? join(f.home, '.config/zsh') : f.home
-  await mkdir(zshDirectory, { recursive: true })
-  const original = 'export PATH="$HOME/.nix-profile/bin:$PATH"\nexport KEEP_SETTING=preserved\n'
-  for (const path of [join(f.home, '.bashrc'), join(f.home, '.bash_profile'), join(zshDirectory, '.zshrc'), join(zshDirectory, '.zlogin')]) await writeFile(path, original, { mode: 0o600 })
-  const release = await f.manager.install(f.original)
-  // Launch the real native CLI through the generated public launcher. Its help
-  // dispatch requires no credentials, service, or terminal interaction.
-  await writeFile(release.binaries.dearmachine, '#!/bin/sh\nexec /fixture/dearmachine "$@"\n', { mode: 0o755 })
-  const env = { HOME: f.home, PATH: oldBin + ':/usr/bin:/bin', ...(zdot ? { ZDOTDIR: zshDirectory } : {}) }
-  const probe = 'test "$KEEP_SETTING" = preserved && test "$(command -v dearmachine)" = "$HOME/.local/bin/dearmachine" && dearmachine update --help'
-  for (const [shell, args] of [['/bin/bash', ['--noprofile', '-ic']], ['/bin/bash', ['-lic']], [process.env.ZSH_PACKAGE + '/bin/zsh', ['-ic']], [process.env.ZSH_PACKAGE + '/bin/zsh', ['-lic']]]) {
-    const result = await exec(shell, [...args, probe], { env })
-    assert.match(result.stdout + result.stderr, /check the coordinated release/)
+
+test('reinstall updates the existing coordinated release without changing startup files', async t => {
+  const f = await fixture(); t.after(() => f.cleanup())
+  for (const file of ['.bashrc', '.profile', '.zshrc', '.zlogin']) await writeFile(join(f.home, file), 'user-owned-startup\n')
+  await f.manager.install(f.original)
+  const originalRun = f.manager.run
+  const updated = new ManagedNix({ home: f.home, run: (command, args, cwd) => command === 'git' && args[2] === 'rev-parse' ? Promise.resolve(next + '\n') : originalRun(command, args, cwd) })
+  f.control.running = true
+  await updated.install(f.original)
+  assert.equal(JSON.parse(await readFile(f.reference)).umbrellaRevision, next)
+  assert.equal(f.control.running, true)
+  for (const file of ['.bashrc', '.profile', '.zshrc', '.zlogin']) assert.equal(await readFile(join(f.home, file), 'utf8'), 'user-owned-startup\n')
+  assert.equal((await readdir(join(f.home, '.local/bin'))).length, 5)
+})
+
+test('real Nix profile migration removes only the old package and works across shells without editing startup files', async t => {
+  const f = await fixture(); t.after(() => f.cleanup())
+  await f.manager.install(f.original)
+  const nix = process.env.NIX_PACKAGE + '/bin/nix'
+  const nixStore = process.env.NIX_PACKAGE + '/bin/nix-store'
+  const env = { HOME: f.home, PATH: process.env.NIX_PACKAGE + '/bin:/usr/bin:/bin', NIX_REMOTE: 'local', NIX_CONFIG: 'experimental-features = nix-command flakes\nsandbox = false\nbuild-users-group =\n' }
+  const profile = join(f.home, '.local/state/nix/profiles/profile')
+  await mkdir(dirname(profile), { recursive: true })
+  const packages = {}
+  for (const [name, programs] of [['legacy-dearmachine', ['dearmachine', 'agent-manager']], ['unrelated', ['keep-tool']], ['mixed', ['machtiani', 'keep-extra']]]) {
+    const source = join(f.root, name)
+    await mkdir(join(source, 'bin'), { recursive: true })
+    for (const program of programs) await writeFile(join(source, 'bin', program), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    packages[name] = (await exec(nixStore, ['--add', source], { env })).stdout.trim()
+    await exec(nix, ['profile', 'install', '--profile', profile, packages[name]], { env })
   }
-  const before = await readFile(join(zshDirectory, '.zshrc'))
-  const backups = (await readdir(join(f.manager.root, 'shell-backups'))).length
-  await f.manager.install(f.original)
-  assert.deepEqual(await readFile(join(zshDirectory, '.zshrc')), before)
-  assert.equal((await readdir(join(f.manager.root, 'shell-backups'))).length, backups)
-  const saved = JSON.parse(await readFile(join(f.manager.root, 'shell-backups', (await readdir(join(f.manager.root, 'shell-backups')))[0])))
-  assert.equal(saved.files.find(file => file.path === join(zshDirectory, '.zshrc')).before, original)
-  // A later Nix initialization is repaired by an otherwise-current update.
-  await writeFile(join(zshDirectory, '.zshrc'), before + '\nexport PATH="$HOME/.nix-profile/bin:$PATH"\n')
-  await f.manager.update()
-  await exec(process.env.ZSH_PACKAGE + '/bin/zsh', ['-ic', probe], { env })
-  assert.equal(f.control.starts, 0)
-})
-
-test('shell checks are read-only and uneditable dotfiles produce an explicit partial-setup diagnostic', async t => {
-  const f = await fixture(); t.after(() => f.cleanup())
-  const userFile = join(f.home, 'user-zshrc')
-  await writeFile(userFile, 'untouched\n')
-  await symlink(userFile, join(f.home, '.zshrc'))
-  await assert.rejects(f.manager.install(f.original), /release is active, but shell PATH setup needs attention/)
-  assert.equal(await readFile(userFile, 'utf8'), 'untouched\n')
-  await assert.rejects(readFile(join(f.home, '.bashrc')))
-  const before = await readdir(f.home)
-  await f.manager.check()
-  assert.deepEqual(await readdir(f.home), before)
-})
-
-test('interrupted shell changes recover exact originals and retain private backups', async t => {
-  const f = await fixture(); t.after(() => f.cleanup())
-  await writeFile(join(f.home, '.bashrc'), 'export KEEP=yes\n', { mode: 0o640 })
-  await f.manager.install(f.original)
-  const backupPath = join(f.manager.root, 'shell-backups', (await readdir(join(f.manager.root, 'shell-backups')))[0])
-  assert.equal((await lstat(backupPath)).mode & 0o077, 0)
-  await writeFile(join(f.manager.root, 'shell-transaction.json'), await readFile(backupPath), { mode: 0o600 })
-  await assert.rejects(f.manager.check(), /recover/)
-  await f.manager.recover()
-  assert.equal(await readFile(join(f.home, '.bashrc'), 'utf8'), 'export KEEP=yes\n')
-  assert.equal((await lstat(join(f.home, '.bashrc'))).mode & 0o777, 0o640)
-  await assert.rejects(readFile(join(f.home, '.zshrc')))
-  assert.ok(await readFile(backupPath))
-})
-
-
-test('curl bootstrap shell entrypoint works noninteractively without Nix or a managed receipt', async t => {
-  const home = await mkdtemp('/tmp/curl-shell-'); t.after(() => rm(home, { recursive: true, force: true }))
-  const oldBin = join(home, '.nix-profile/bin')
-  const localBin = join(home, '.local/bin')
-  await mkdir(oldBin, { recursive: true }); await mkdir(localBin, { recursive: true })
-  await writeFile(join(oldBin, 'dearmachine'), '#!/bin/sh\nexit 97\n', { mode: 0o755 })
-  await writeFile(join(localBin, 'dearmachine'), '#!/bin/sh\nprintf "managed-cli\\n"\n', { mode: 0o755 })
-  await writeFile(join(home, '.zshrc'), 'export PATH="$HOME/.nix-profile/bin:$PATH"\n', { mode: 0o600 })
-  const env = { HOME: home, PATH: '/usr/bin:/bin', MACHTIANI_DISTRIBUTION: '/fixture/standard.json' }
+  // Nix creates its default profile link even when installing into an explicit
+  // profile. Point this disposable test home's link at the fixture profile.
+  await rm(join(f.home, '.nix-profile'), { force: true })
+  await symlink(profile, join(f.home, '.nix-profile'))
+  assert.equal(await readlink(join(f.home, '.nix-profile')), profile)
+  const inspect = async () => JSON.parse((await exec(nix, ['profile', 'list', '--profile', profile, '--json'], { env })).stdout)
+  const before = await inspect()
+  const entry = Object.keys(before.elements).find(name => before.elements[name].storePaths.includes(packages['legacy-dearmachine']))
+  const mixed = Object.keys(before.elements).find(name => before.elements[name].storePaths.includes(packages.mixed))
+  const startup = 'export PATH="$HOME/.nix-profile/bin:$HOME/.local/bin:/usr/bin:/bin"\n'
+  for (const file of ['.bashrc', '.bash_profile', '.zshrc', '.zlogin']) await writeFile(join(f.home, file), startup)
   const cli = '/fixture/packages/app/dist/bin.mjs'
-  await exec(process.execPath, [cli, '_shell-path'], { env })
-  const result = await exec(process.env.ZSH_PACKAGE + '/bin/zsh', ['-lic', 'dearmachine'], { env })
-  assert.equal(result.stdout.trim(), 'managed-cli')
-  await assert.rejects(readFile(join(home, '.local/share/dearmachine/current/release.json')))
-  await assert.rejects(readFile(join(home, '.config/dearmachine/source-reference.json')))
-  await assert.rejects(exec(process.execPath, [cli, 'update', '--check'], { env }), /Standard releases/)
-  const root = join(home, '.local/share/dearmachine')
-  const backup = join(root, 'shell-backups', (await readdir(join(root, 'shell-backups')))[0])
-  await writeFile(join(root, 'shell-transaction.json'), await readFile(backup), { mode: 0o600 })
-  await exec(process.execPath, [cli, '_shell-path', '--recover'], { env })
-  assert.equal(await readFile(join(home, '.zshrc'), 'utf8'), 'export PATH="$HOME/.nix-profile/bin:$PATH"\n')
+  const invoke = args => exec(process.execPath, [cli, ...args], { env })
+  const initialProfile = await readlink(profile)
+  const checked = await invoke(['migrate-profile', entry, '--check'])
+  assert.match(checked.stdout, /Would remove/)
+  assert.equal(await readlink(profile), initialProfile)
+  await assert.rejects(invoke(['migrate-profile', mixed]), /other commands/)
+  await assert.rejects(invoke(['migrate-profile', '--all']), /exact Nix profile entry/)
+  assert.deepEqual(await inspect(), before)
+  const result = await invoke(['migrate-profile', entry])
+  assert.match(result.stdout, /Removed/)
+  const after = await inspect()
+  const expected = { ...before.elements }; delete expected[entry]
+  assert.deepEqual(after.elements, expected)
+  const shellEnv = { HOME: f.home, PATH: join(f.home, '.nix-profile/bin') + ':' + join(f.home, '.local/bin') + ':/usr/bin:/bin' }
+  for (const [shell, flags] of [['/bin/sh', ['-c']], ['/bin/bash', ['-ic']], ['/bin/bash', ['-lic']], [process.env.ZSH_PACKAGE + '/bin/zsh', ['-ic']], [process.env.ZSH_PACKAGE + '/bin/zsh', ['-lic']]]) {
+    await exec(shell, [...flags, 'test "$(command -v dearmachine)" = "$HOME/.local/bin/dearmachine"'], { env: shellEnv })
+  }
+  for (const file of ['.bashrc', '.bash_profile', '.zshrc', '.zlogin']) assert.equal(await readFile(join(f.home, file), 'utf8'), startup)
+  const backupName = (await readdir(f.manager.root)).find(name => name.startsWith('profile-migration-'))
+  const backup = JSON.parse(await readFile(join(f.manager.root, backupName, 'migration.json')))
+  assert.equal(backup.status, 'complete')
+  assert.deepEqual(backup.manifest, before)
+  assert.ok(await readlink(join(f.manager.root, backupName, 'previous-profile')))
+  // Recovery uses Nix's retained, exact generation; no unrelated package is lost.
+  await exec(nix, ['profile', 'rollback', '--profile', profile, '--to', String(backup.generation)], { env })
+  assert.deepEqual(await inspect(), before)
+  const warning = await invoke(['_launcher-check'])
+  // PATH here omits ~/.local/bin entirely; guidance must not create startup files.
+  assert.match(warning.stderr, /another installation|Add \$HOME\/\.local\/bin/)
+  for (const file of ['.bashrc', '.bash_profile', '.zshrc', '.zlogin']) assert.equal(await readFile(join(f.home, file), 'utf8'), startup)
 })

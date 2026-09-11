@@ -8,11 +8,12 @@ export { parseInvocation as parseArguments } from './concierge-entry.ts'
 export type { InstallerInvocation } from './concierge-entry.ts'
 
 async function main(): Promise<void> {
+  const callerPath = process.env.PATH ?? ''
   process.env.PATH = launchEnvironment(process.env).PATH
   const invocation = parseInvocation(process.argv.slice(2), process.stdin.isTTY && process.stdout.isTTY ? process.env : {})
   if (invocation.mode === 'managed') {
     const { runManagedCommand } = await import('./managed-command.ts')
-    await runManagedCommand(invocation.action, invocation.args)
+    await runManagedCommand(invocation.action, invocation.args, callerPath)
     return
   }
   if (invocation.mode === 'help' || (invocation.mode === 'concierge' && (!process.stdin.isTTY || !process.stdout.isTTY))) {

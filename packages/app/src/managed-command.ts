@@ -38,8 +38,9 @@ export async function runManagedCommand(action: 'install' | 'update' | 'migrate-
     await manager.recover()
     process.stdout.write('Restored the previous installation.\n')
   } else if (args.length === 0) {
+    // Native/package wrappers prepend runtime paths before this handoff. They
+    // cannot establish which installation the user's shell would select.
     const release = await manager.update()
     process.stdout.write(`Active release: ${release.revision}\nSource: ${release.sourceRoot}\nReopen the concierge to use its updated runtime and documentation.\n`)
-    await reportLaunchers()
   } else throw new Error('Usage: dearmachine update [--check | --recover]')
 }

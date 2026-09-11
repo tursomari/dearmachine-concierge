@@ -240,6 +240,29 @@ exec '${process.execPath}' /fixture/packages/app/dist/bin.mjs "$@"
 
 
 
+test('native update does not mistake its Nix runtime PATH for a competing installation', async t => {
+  const f = await fixture(); t.after(() => f.cleanup())
+  await f.manager.install(f.original)
+  const before = await readFile(f.reference)
+  const tools = join(f.root, 'tools')
+  await mkdir(tools)
+  await writeFile(join(tools, 'git'), `#!/bin/sh
+[ "$1" = ls-remote ] || exit 97
+printf 'ref: refs/heads/main\\tHEAD\\n${old}\\tHEAD\\n'
+`, { mode: 0o755 })
+  const concierge = join(tools, 'concierge')
+  await writeFile(concierge, `#!/bin/sh
+# Keep the production native wrapper's PATH additions; only fake remote lookup.
+export PATH='${tools}':"$PATH"
+exec '${process.execPath}' /fixture/packages/app/dist/bin.mjs "$@"
+`, { mode: 0o755 })
+  const env = { ...process.env, HOME: f.home, XDG_DATA_HOME: '', DEARMACHINE_CONCIERGE_BIN: concierge, PATH: join(f.home, '.local/bin') + ':/bin:/usr/bin' }
+  const result = await exec('/fixture/dearmachine', ['update'], { env })
+  assert.match(result.stdout, new RegExp(`Active release: ${old}`))
+  assert.equal(result.stderr, '')
+  assert.deepEqual(await readFile(f.reference), before)
+})
+
 test('reinstall updates the existing coordinated release without changing startup files', async t => {
   const f = await fixture(); t.after(() => f.cleanup())
   for (const file of ['.bashrc', '.profile', '.zshrc', '.zlogin']) await writeFile(join(f.home, file), 'user-owned-startup\n')

@@ -314,6 +314,9 @@ rollback/recovery, unrelated launcher preservation, unsafe directory rejection,
 and the real native CLI's noninteractive handoff to the installer entry point.
 No live provider, inbox, or host service is touched.
 
+The native update regression retains the production Nix wrapper's PATH additions
+and verifies that an already-current update emits no competing-installation warning.
+
 The managed Nix container suite also uses a real, container-local Nix store and
 profile to test explicit migration: exact-entry removal, mixed-package refusal,
 unchanged unrelated entries, retained-generation recovery, and fresh POSIX sh,

@@ -328,8 +328,9 @@ Reinstall tests exercise the shared update activation path and config preservati
 
 `packages/dsh-adapter/tests/system-prompts.spec.ts` checks the actual management
 system section delivered to Concierge for native guest allow/list/revoke syntax,
-explicit user authorization, separate delivery/admission/approval/trust gates,
-unsupported automatic invitations, revocation limits, and pending provider sync.
+explicit user authorization, authenticated automatic To/CC invitations, independent
+private approvals, owner-only continuations, removal commands, explicit
+reinvitation, unsupported-provider rejection, and pending provider sync.
 The native command implementation and guest lifecycle proofs belong to the
 sibling DearMachine repository's root `TESTING.md`.
 

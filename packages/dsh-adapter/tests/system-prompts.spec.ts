@@ -30,10 +30,10 @@ describe('role system prompts', () => {
       'guest revoke <address> --pair <pair> --thread-id <thread>',
       'guest revoke <address> --pair <pair> --all',
     ]) expect(prompt).toContain(command)
-    for (const gate of ['Reply All', 'admission', 'instruction approval', 'trust', 'automatic invitations are disabled', 'synchronization pending']) expect(prompt).toContain(gate)
+    for (const gate of ['Reply All', 'no separate admission exchange', 'instruction approval', 'no retained trust shortcut', 'locally verified exact-domain DKIM', 'automatically grants', 'reject all inbound work', 'REMOVE GUEST <code>', 'Ordinary reply-all cannot restore', 'synchronization pending']) expect(prompt).toContain(gate)
     expect(prompt).toContain('original request\'s From, To or CC')
     expect(prompt).toContain('owner-only answer')
-    expect(prompt).toContain('admission/approval prompts stay private')
+    expect(prompt).toContain('Approval prompts stay private')
     expect(prompt).toContain('explicit wish')
     expect(prompt).toContain('does not roll back already-started work')
   })

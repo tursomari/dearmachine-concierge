@@ -44,3 +44,34 @@ This protection is not retroactive. If an older session exposed a key, rotate it
 and restrict or remove affected evidence separately. Never copy old trajectories
 into a new session as recovery context. The credential-free regression and its
 trajectory checks are documented in [TESTING.md](../TESTING.md).
+
+## Explicit credential changes
+
+The existing helper accepts `--use-existing` and `--replace`. With neither,
+backend-provider and email requests retain the original behavior: use an
+available credential or open masked entry when absent. `--use-existing` fails
+without prompting if no credential exists. `--replace` always opens masked
+entry; cancellation preserves the saved value. Replacement changes the shared
+reference for all its consumers, and the masked prompt explains that effect.
+
+`machtiani-provider <exact-provider-alias> --use-existing` connects an existing
+global, direct-HTTP Machtiani provider to the saved environment variable using
+`machtiani config provider set --global --api-key-env`. `--replace` saves the
+new credential and makes the same connection. The helper checks the provider
+before requesting a key, preserves other providers and model choices, and
+returns only a non-secret reference. Model-host providers require their own
+profile configuration and are rejected before mutation. The absolute helper
+invocations are supplied in Concierge's runtime context.
+
+The runtime must load the referenced environment file. A systemd service's
+`EnvironmentFile` does not imply that an interactive terminal has the same
+variables. A resident supervisor can also retain the old environment after key
+rotation; restarting only its child need not reload the file. Configuration success is not authentication verification. These
+operations do not modify service configuration, restart a client, or send a
+provider request. Verify authentication through the actual component runtime
+and use native lifecycle commands when the requested work includes restarting.
+If saving succeeds but connecting Machtiani fails, the receipt reports that
+partial result; retry with `--use-existing` instead of entering the key again.
+
+`/model` changes the Concierge assistant only. Machtiani's model roles and
+backend agents are separate configuration targets.

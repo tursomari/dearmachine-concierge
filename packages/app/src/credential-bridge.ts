@@ -5,16 +5,19 @@ import { dirname, join } from 'node:path'
 import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
 import { SecretInputCancelledError, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { messages } from '@dearmachine/machtiani-installer-workflow'
+import { MachtianiCredentialTarget } from './credential-machtiani.ts'
 
 interface CredentialRequest {
   kind: CredentialKind
   selection: string
+  action: 'ensure' | 'use-existing' | 'replace'
 }
 
 export interface CredentialBridgeOptions {
   socketPath: string
   tui: Pick<InstallerTui, 'askSecret'>
   credentials: CredentialFileAdapter
+  machtiani?: Pick<MachtianiCredentialTarget, 'check' | 'configure'>
 }
 
 const PORTABLE_UNIX_SOCKET_PATH_LIMIT = 100
@@ -36,15 +39,19 @@ export function credentialSocketPath(
 function request(value: unknown): CredentialRequest {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid credential request')
   const candidate = value as Record<string, unknown>
-  if ((candidate.kind !== 'backend-provider' && candidate.kind !== 'email') || typeof candidate.selection !== 'string' || candidate.selection.trim() === '') {
+  if ((candidate.kind !== 'backend-provider' && candidate.kind !== 'machtiani-provider' && candidate.kind !== 'email') || typeof candidate.selection !== 'string' || candidate.selection.trim() === '') {
     throw new Error('invalid credential request')
   }
-  return { kind: candidate.kind, selection: candidate.selection.trim() }
+  const action = candidate.action ?? 'ensure'
+  if (action !== 'ensure' && action !== 'use-existing' && action !== 'replace') throw new Error('invalid credential action')
+  if (candidate.kind === 'machtiani-provider' && action === 'ensure') throw new Error('Machtiani credentials require --use-existing or --replace')
+  return { kind: candidate.kind, selection: candidate.selection.trim(), action }
 }
 
 function credentialPrompt(credential: CredentialRequest): string {
-  if (credential.kind === 'email') return messages.emailCredential(credential.selection)
-  return `Dear Machine needs your ${credential.selection} API key to configure the backend agent you chose.
+  const replacement = credential.action === 'replace' ? 'Replace the saved credential. Other components using this same credential reference will also use the replacement.\n\n' : ''
+  if (credential.kind === 'email') return replacement + messages.emailCredential(credential.selection)
+  return `${replacement}Dear Machine needs your ${credential.selection} API key to configure ${credential.kind === 'machtiani-provider' ? 'the Machtiani harness' : 'the backend agent you chose'}.
 
 Paste it into the secure field below and press Enter. Your input is masked, saved directly to a private file, and never added to the conversation or sent to the installer model.`
 }
@@ -134,15 +141,25 @@ export class CredentialBridge {
       const readiness = await this.options.credentials.prepare(credential.kind, credential.selection)
       const reference = this.options.credentials.reference?.(credential.kind)
       if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return
-      if (readiness === 'ready') {
-        reply(socket, { ok: true, status: 'already-present', reference })
+      const target = credential.kind === 'machtiani-provider' ? (this.options.machtiani ?? new MachtianiCredentialTarget()) : undefined
+      if (target && !reference) throw new Error('Machtiani credential reference is unavailable')
+      if (target) await target.check(credential.selection)
+      if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return
+      if (credential.action === 'use-existing' && readiness !== 'ready') throw new Error('No saved credential is available; use --replace to enter one securely')
+      if (readiness === 'ready' && credential.action !== 'replace') {
+        if (target && reference) await target.configure(credential.selection, reference)
+        reply(socket, { ok: true, status: target ? 'configured' : 'already-present', reference })
         return
       }
       value = await this.options.tui.askSecret(credentialPrompt(credential), cancellation.signal)
       if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return
       await this.options.credentials.save(credential.kind, value)
       value = ''
-      reply(socket, { ok: true, status: 'saved', reference })
+      if (target && reference) {
+        try { await target.configure(credential.selection, reference) }
+        catch { throw new Error('Credential saved, but Machtiani configuration failed. Use --use-existing to retry configuration; authentication has not been verified.') }
+      }
+      reply(socket, { ok: true, status: target ? 'configured' : 'saved', reference })
     } catch (error) {
       value = ''
       if (error instanceof SecretInputCancelledError) reply(socket, { ok: true, status: 'cancelled' })

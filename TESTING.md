@@ -350,3 +350,17 @@ Machtiani launcher, installs DearMachine, and updates the combined release.
 It verifies preserved configuration and standalone files, coordinated launcher
 ownership, suppressed standalone automatic updating, and restoration of the
 original launcher when activation fails after takeover.
+
+
+### Credential replacement and Machtiani targeting
+
+The credential bridge tests cover explicit reuse, masked replacement despite
+an existing credential, cancellation, missing saved credentials, target failure,
+and non-secret receipts. `credential-machtiani.spec.ts` verifies native command
+arguments, preserved configuration, and rejection of model-host providers.
+Set `MACHTIANI_TEST_BINARY` to an absolute, already-built Machtiani executable
+to also run the native configuration-writer case against a disposable HOME.
+It checks that only the requested provider credential changes and needs no key
+or network. The credential CLI tests exercise the packaged socket client with both actions.
+Run them through `pnpm test`; no real home, credentials, client, or provider is
+used. A configuration receipt is not evidence of live authentication.

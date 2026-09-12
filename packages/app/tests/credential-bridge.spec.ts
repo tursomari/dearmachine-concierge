@@ -1,9 +1,9 @@
-import { mkdtemp, stat } from 'node:fs/promises'
+import { mkdtemp, stat, readFile, rm } from 'node:fs/promises'
 import { createConnection } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
+import { CredentialFileAdapter, type CredentialKind } from '@dearmachine/machtiani-installer-credentials'
 import { SecretInputCancelledError, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { CredentialBridge, credentialSocketPath } from '../src/credential-bridge.ts'
 
@@ -130,5 +130,125 @@ describe('credential interaction bridge', () => {
     } finally {
       await bridge.close()
     }
+  })
+})
+
+
+describe('explicit credential actions', () => {
+  async function fixture() {
+    const home = await mkdtemp(join(tmpdir(), 'ca-'))
+    const credentials = new CredentialFileAdapter({ home })
+    await credentials.prepare('backend-provider', 'deepseek')
+    await credentials.save('backend-provider', 'original-fixture-key')
+    await credentials.prepare('backend-provider', 'openrouter')
+    await credentials.save('backend-provider', 'other-fixture-key')
+    return { home, credentials, socketPath: join(home, 'c.sock'), store: join(home, '.config/dearmachine/backends.env') }
+  }
+
+  it.each(['use-existing', 'replace'] as const)('targets Machtiani with %s and preserves other credentials', async action => {
+    const f = await fixture()
+    const events: string[] = []
+    const bridge = new CredentialBridge({
+      ...f,
+      tui: { askSecret: async prompt => {
+        expect(prompt).toContain('Machtiani harness')
+        expect(prompt).toContain('Other components')
+        events.push('prompt')
+        return 'new-fixture-key'
+      } },
+      machtiani: {
+        check: async provider => { expect(provider).toBe('deepseek'); events.push('check') },
+        configure: async (provider, reference) => {
+          expect(provider).toBe('deepseek')
+          expect(reference).toMatchObject({ kind: 'machtiani-provider', variable: 'DEEPSEEK_API_KEY', destination: f.store })
+          events.push('configure')
+        },
+      },
+    })
+    await bridge.start()
+    try {
+      const result = await invoke(f.socketPath, { kind: 'machtiani-provider', selection: 'deepseek', action })
+      expect(JSON.parse(result)).toMatchObject({ ok: true, status: 'configured' })
+      expect(result).not.toContain('fixture-key')
+      expect(events).toEqual(action === 'replace' ? ['check', 'prompt', 'configure'] : ['check', 'configure'])
+      const stored = await readFile(f.store, 'utf8')
+      expect(stored).toContain('OPENROUTER_API_KEY=other-fixture-key')
+      expect(stored).toContain(`DEEPSEEK_API_KEY=${action === 'replace' ? 'new' : 'original'}-fixture-key`)
+    } finally { await bridge.close(); await rm(f.home, { recursive: true, force: true }) }
+  })
+
+  it('preserves the old key and target on cancelled replacement', async () => {
+    const f = await fixture()
+    const original = await readFile(f.store, 'utf8')
+    let configured = false
+    const bridge = new CredentialBridge({ ...f,
+      tui: { askSecret: async () => { throw new SecretInputCancelledError() } },
+      machtiani: { check: async () => {}, configure: async () => { configured = true } },
+    })
+    await bridge.start()
+    try {
+      expect(JSON.parse(await invoke(f.socketPath, { kind: 'machtiani-provider', selection: 'deepseek', action: 'replace' })))
+        .toEqual({ ok: true, status: 'cancelled' })
+      expect(await readFile(f.store, 'utf8')).toBe(original)
+      expect(configured).toBe(false)
+    } finally { await bridge.close(); await rm(f.home, { recursive: true, force: true }) }
+  })
+
+  it('does not prompt or configure when use-existing has no saved credential', async () => {
+    const f = await fixture()
+    const bridge = new CredentialBridge({ ...f,
+      tui: { askSecret: async () => { throw new Error('unexpected prompt') } },
+      machtiani: { check: async () => {}, configure: async () => { throw new Error('unexpected configuration') } },
+    })
+    await bridge.start()
+    try {
+      const result = JSON.parse(await invoke(f.socketPath, { kind: 'machtiani-provider', selection: 'openai', action: 'use-existing' }))
+      expect(result).toEqual({ ok: false, error: 'No saved credential is available; use --replace to enter one securely' })
+    } finally { await bridge.close(); await rm(f.home, { recursive: true, force: true }) }
+  })
+
+  it('rejects an unavailable target before replacement entry or saving', async () => {
+    const f = await fixture()
+    const original = await readFile(f.store, 'utf8')
+    const bridge = new CredentialBridge({ ...f,
+      tui: { askSecret: async () => { throw new Error('unexpected prompt') } },
+      machtiani: { check: async () => { throw new Error('Unsupported provider target') }, configure: async () => {} },
+    })
+    await bridge.start()
+    try {
+      const result = JSON.parse(await invoke(f.socketPath, { kind: 'machtiani-provider', selection: 'deepseek', action: 'replace' }))
+      expect(result).toEqual({ ok: false, error: 'Unsupported provider target' })
+      expect(await readFile(f.store, 'utf8')).toBe(original)
+    } finally { await bridge.close(); await rm(f.home, { recursive: true, force: true }) }
+  })
+
+  it('reports saved-but-not-connected separately so reuse can finish the operation', async () => {
+    const f = await fixture()
+    const bridge = new CredentialBridge({ ...f,
+      tui: { askSecret: async () => 'new-fixture-key' },
+      machtiani: { check: async () => {}, configure: async () => { throw new Error('private subprocess output') } },
+    })
+    await bridge.start()
+    try {
+      const result = await invoke(f.socketPath, { kind: 'machtiani-provider', selection: 'deepseek', action: 'replace' })
+      expect(JSON.parse(result)).toMatchObject({ ok: false, error: expect.stringContaining('Credential saved, but Machtiani configuration failed') })
+      expect(result).not.toContain('private subprocess output')
+      expect(await readFile(f.store, 'utf8')).toContain('DEEPSEEK_API_KEY=new-fixture-key')
+    } finally { await bridge.close(); await rm(f.home, { recursive: true, force: true }) }
+  })
+
+  it('rotates an existing backend key without configuring Machtiani', async () => {
+    const f = await fixture()
+    const bridge = new CredentialBridge({ ...f,
+      tui: { askSecret: async () => 'replacement-fixture-key' },
+      machtiani: { check: async () => { throw new Error('wrong target') }, configure: async () => { throw new Error('wrong target') } },
+    })
+    await bridge.start()
+    try {
+      const result = await invoke(f.socketPath, { kind: 'backend-provider', selection: 'deepseek', action: 'replace' })
+      expect(JSON.parse(result)).toMatchObject({ ok: true, status: 'saved' })
+      expect(result).not.toContain('fixture-key')
+      expect(await readFile(f.store, 'utf8')).toContain('DEEPSEEK_API_KEY=replacement-fixture-key')
+    } finally { await bridge.close(); await rm(f.home, { recursive: true, force: true }) }
   })
 })

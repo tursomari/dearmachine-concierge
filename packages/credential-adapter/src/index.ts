@@ -3,7 +3,7 @@ import { access, chmod, lstat, mkdir, open, readFile, realpath, rename, unlink }
 import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join, relative, sep } from 'node:path'
 
-export type CredentialKind = 'backend-provider' | 'email'
+export type CredentialKind = 'backend-provider' | 'machtiani-provider' | 'email'
 
 export interface CredentialReference {
   kind: CredentialKind
@@ -32,7 +32,7 @@ function normalized(value: string): string {
 }
 
 export function resolveCredentialReference(kind: CredentialKind, selection: string, home: string): CredentialReference {
-  if (kind === 'backend-provider') {
+  if (kind === 'backend-provider' || kind === 'machtiani-provider') {
     const label = selection.trim().toLowerCase().replace(/ +/gu, ' ')
     if (!/^[a-z0-9][a-z0-9 ._-]{0,159}$/u.test(label) || label.includes('..')) {
       throw new Error('Backend provider label must be 1–160 printable letters, numbers, spaces, dots, hyphens or underscores.')

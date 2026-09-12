@@ -8,6 +8,9 @@ export function credentialRuntimeContext(helper = fileURLToPath(new URL('./crede
     credentialHelper: {
       email: [process.execPath, helper, 'email', '<selected transport>'],
       backendProvider: [process.execPath, helper, 'backend-provider', '<selected backend provider>'],
+      machtianiProvider: [process.execPath, helper, 'machtiani-provider', '<exact Machtiani provider alias>', '--use-existing'],
+      replaceMachtianiProvider: [process.execPath, helper, 'machtiani-provider', '<exact Machtiani provider alias>', '--replace'],
+      replaceBackendProvider: [process.execPath, helper, 'backend-provider', '<selected backend provider>', '--replace'],
     },
     backendPreparations: {
       forge: {

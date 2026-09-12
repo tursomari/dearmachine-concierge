@@ -323,3 +323,12 @@ unchanged unrelated entries, retained-generation recovery, and fresh POSIX sh,
 bash and zsh lookup. Startup files are preserved byte-for-byte. The container
 receives copied Nix runtime files; it has no host store database or daemon socket.
 Reinstall tests exercise the shared update activation path and config preservation.
+
+### Guest management command contract
+
+`packages/dsh-adapter/tests/system-prompts.spec.ts` checks the actual management
+system section delivered to Concierge for native guest allow/list/revoke syntax,
+explicit user authorization, separate delivery/admission/approval/trust gates,
+unsupported automatic invitations, revocation limits, and pending provider sync.
+The native command implementation and guest lifecycle proofs belong to the
+sibling DearMachine repository's root `TESTING.md`.

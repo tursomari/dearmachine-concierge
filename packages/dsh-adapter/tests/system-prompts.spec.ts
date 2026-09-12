@@ -20,6 +20,21 @@ function promptContext(sections: CapturedSection[]) {
 afterEach(() => { delete process.env.MACHTIANI_INSTALLER_CONTRACT })
 
 describe('role system prompts', () => {
+  it('delivers the native guest command and authorization contract to Concierge', () => {
+    const sections: CapturedSection[] = []
+    applyManagementPrompt(promptContext(sections) as never)
+    const prompt = sections.map(section => section.text).join('\n')
+    for (const command of [
+      'guest allow <address> --pair <pair> --message-id <message>',
+      'guest list --pair <pair>',
+      'guest revoke <address> --pair <pair> --thread-id <thread>',
+      'guest revoke <address> --pair <pair> --all',
+    ]) expect(prompt).toContain(command)
+    for (const gate of ['Reply All', 'admission', 'instruction approval', 'trust', 'automatic invitations are disabled', 'synchronization pending']) expect(prompt).toContain(gate)
+    expect(prompt).toContain('explicit wish')
+    expect(prompt).toContain('does not roll back already-started work')
+  })
+
   it('does not mistake declined changes or missing consent for observed persistence state', () => {
     expect(conciergeRole).toContain('Declining a proposed configuration change')
     expect(conciergeRole).toContain('not proof that a feature is absent or disabled')

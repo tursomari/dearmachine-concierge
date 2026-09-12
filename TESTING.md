@@ -332,3 +332,13 @@ explicit user authorization, separate delivery/admission/approval/trust gates,
 unsupported automatic invitations, revocation limits, and pending provider sync.
 The native command implementation and guest lifecycle proofs belong to the
 sibling DearMachine repository's root `TESTING.md`.
+
+### Concierge update checks and consent
+
+`packages/app/tests/concierge-update.spec.ts` covers startup checks, unavailable
+channels, check failures, explicit installation consent and relaunch choices.
+`native-update.spec.ts` validates the structured native handoff, and the real
+PTY cases in `concierge-cli.spec.ts` exercise startup availability and decline.
+The full suite also retains the guest management prompt contract. Use the
+managed Nix container gate above for real native JSON handoff and activation,
+and the optional native Concierge gate for the combined Go/TypeScript launcher.

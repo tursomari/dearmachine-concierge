@@ -342,3 +342,11 @@ PTY cases in `concierge-cli.spec.ts` exercise startup availability and decline.
 The full suite also retains the guest management prompt contract. Use the
 managed Nix container gate above for real native JSON handoff and activation,
 and the optional native Concierge gate for the combined Go/TypeScript launcher.
+
+### Machtiani-first installation
+
+The managed Nix container suite also starts with the default standalone
+Machtiani launcher, installs DearMachine, and updates the combined release.
+It verifies preserved configuration and standalone files, coordinated launcher
+ownership, suppressed standalone automatic updating, and restoration of the
+original launcher when activation fails after takeover.

@@ -351,3 +351,36 @@ test('real Nix profile migration removes only the old package and works across s
   assert.match(warning.stderr, /another installation|Add \$HOME\/\.local\/bin/)
   for (const file of ['.bashrc', '.bash_profile', '.zshrc', '.zlogin']) assert.equal(await readFile(join(f.home, file), 'utf8'), startup)
 })
+
+for (const fail of [false, true]) test(`Machtiani first then DearMachine preserves data and launcher ownership (failure=${fail})`, async t => {
+  const f = await fixture(); t.after(() => f.cleanup())
+  const standalone = join(f.home, '.machtiani/installations/machtiani/profile/bin/machtiani')
+  const launcher = join(f.home, '.local/bin/machtiani')
+  await mkdir(dirname(standalone), { recursive: true })
+  await writeFile(standalone, '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  await mkdir(dirname(launcher), { recursive: true })
+  await symlink(standalone, launcher)
+  const config = join(f.home, '.machtiani/config.toml')
+  await writeFile(config, 'existing configuration\n')
+  // Fail after launchers switch, so rollback must restore the standalone link.
+  if (fail) {
+    const switchCurrent = f.manager.switchCurrent.bind(f.manager)
+    f.manager.switchCurrent = async release => {
+      await switchCurrent(release)
+      // A competing file appears after preflight. Its place in command order
+      // makes activation fail after the Machtiani link has been handed over.
+      await writeFile(join(f.home, '.local/bin/machtiani-installer'), 'unrelated launcher')
+    }
+    await assert.rejects(f.manager.install(f.original))
+    assert.equal(await readlink(launcher), standalone)
+  } else {
+    await f.manager.install(f.original)
+    assert.equal(await readlink(launcher), join(f.manager.root, 'current/bin/machtiani'))
+    assert.match(await readFile(join(f.manager.root, 'current/bin/machtiani'), 'utf8'), /export MACHTIANI_UPDATE_REEXEC=1/u)
+    f.control.latest = next
+    await f.manager.update()
+    assert.equal(await readlink(launcher), join(f.manager.root, 'current/bin/machtiani'))
+  }
+  assert.equal(await readFile(config, 'utf8'), 'existing configuration\n')
+  assert.equal(await readFile(standalone, 'utf8'), '#!/bin/sh\nexit 0\n')
+})

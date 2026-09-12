@@ -185,7 +185,7 @@ export class ManagedNix {
         // Keep model-host references and launch paths stable across atomic current switches.
         let prefix = `export DEARMACHINE_MANAGED_DATA_HOME=${quote(dirname(this.root))}\nexport PATH=${quote(join(this.current(), 'bin'))}:"$PATH"\n`
         if (name === 'dearmachine') prefix += `export DEARMACHINE_CONCIERGE_BIN=${quote(binaries['machtiani-installer']!)}\nexport DEARMACHINE_SOURCE_ROOT=${quote(snapshot)}\n`
-        if (name === 'machtiani') prefix += `if [ "\${1:-}" = update ]; then shift; exec ${quote(join(this.current(), 'bin/dearmachine'))} update "$@"; fi\n`
+        if (name === 'machtiani') prefix += `export MACHTIANI_UPDATE_REEXEC=1\nif [ "\${1:-}" = update ]; then shift; exec ${quote(join(this.current(), 'bin/dearmachine'))} update "$@"; fi\n`
         await writeFile(join(prepared, 'bin', name), `#!/bin/sh\n${prefix}exec ${quote(binary)} "$@"\n`, { mode: 0o755 })
       }
       await this.run(binaries.dearmachine!, ['update', '--help'])
@@ -224,11 +224,13 @@ export class ManagedNix {
       await this.archive(join(checkout, child.path), child.revision, join(destination, child.path), key, revisions)
     }
   }
+  private standaloneMachtiani(): string { return join(this.options.home, '.machtiani/installations/machtiani/profile/bin/machtiani') }
   private async checkLaunchers(managed: boolean): Promise<void> {
     const bin = join(this.options.home, '.local/bin')
     for (const name of commands) {
       const path = join(bin, name)
       if (!await exists(path)) { if (managed) throw new Error(`Managed launcher is missing: ${name}`); continue }
+      if (!managed && name === 'machtiani' && await readlink(path).catch(() => '') === this.standaloneMachtiani()) continue
       if (!managed || await readlink(path).catch(() => '') !== join(this.current(), 'bin', name)) throw new Error(`Existing ${name} is not owned by this installation; automatic replacement is disabled`)
     }
   }
@@ -242,13 +244,22 @@ export class ManagedNix {
     const oldReference = await readFile(reference, 'utf8').catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return null; throw error })
     const runtime = previous ? JSON.parse(await this.run(previous.binaries.dearmachine!, ['_update-control', 'status'])) as { running: boolean } : { running: false }
     if (typeof runtime.running !== 'boolean') throw new Error('Cannot determine client state before updating')
-    const transaction = { previous: previous ?? null, next: release, oldReference, running: runtime.running }
+    const standaloneMachtiani = !previous && await readlink(join(this.options.home, '.local/bin/machtiani')).catch(() => '') === this.standaloneMachtiani()
+    const transaction = { previous: previous ?? null, next: release, oldReference, running: runtime.running, standaloneMachtiani }
     await atomicJSON(join(this.root, 'transaction.json'), transaction)
     try {
       if (previous) await this.run(previous.binaries.dearmachine!, ['_update-control', 'stop'])
       await this.switchCurrent(release)
       await safeDirectory(join(this.options.home, '.local/bin'))
-      if (!previous) for (const name of commands) await symlink(join(this.current(), 'bin', name), join(this.options.home, '.local/bin', name))
+      if (!previous) for (const name of commands) {
+        const path = join(this.options.home, '.local/bin', name)
+        if (name === 'machtiani' && standaloneMachtiani) {
+          if (await readlink(path) !== this.standaloneMachtiani()) throw new Error('Machtiani launcher changed during installation')
+          const temporary = join(this.options.home, '.local/bin', `.machtiani-${randomUUID()}`)
+          try { await symlink(join(this.current(), 'bin', name), temporary); await rename(temporary, path) }
+          finally { await rm(temporary, { force: true }) }
+        } else await symlink(join(this.current(), 'bin', name), path)
+      }
       await atomicJSON(reference, sourceReference(release))
       if (previous) await this.run(release.binaries.dearmachine!, ['_update-control', 'refresh'])
       if (runtime.running) await this.run(release.binaries.dearmachine!, ['up'])
@@ -263,7 +274,7 @@ export class ManagedNix {
     await symlink(join(this.root, 'releases', release.revision), temporary)
     await rename(temporary, this.current())
   }
-  private async rollback(transaction: { previous: ManagedRelease | null; next: ManagedRelease; oldReference: string | null; running: boolean }): Promise<void> {
+  private async rollback(transaction: { previous: ManagedRelease | null; next: ManagedRelease; oldReference: string | null; running: boolean; standaloneMachtiani?: boolean }): Promise<void> {
     // The journal is retained if any recovery step fails; never announce success in that case.
     await this.run(transaction.next.binaries.dearmachine!, ['_update-control', 'stop'])
     if (transaction.previous) await this.switchCurrent(transaction.previous)
@@ -272,6 +283,7 @@ export class ManagedNix {
         const path = join(this.options.home, '.local/bin', name)
         if (await readlink(path).catch(() => '') === join(this.current(), 'bin', name)) await rm(path)
       }
+      if (transaction.standaloneMachtiani && !await exists(join(this.options.home, '.local/bin/machtiani'))) await symlink(this.standaloneMachtiani(), join(this.options.home, '.local/bin/machtiani'))
       await rm(this.current(), { force: true })
     }
     if (transaction.oldReference === null) await rm(this.referencePath(), { force: true })
@@ -295,6 +307,7 @@ export class ManagedNix {
       const path = join(this.root, 'transaction.json')
       const transaction = await privateJSON(path) as Parameters<ManagedNix['rollback']>[0]
       if (!transaction || typeof transaction.running !== 'boolean' || (transaction.oldReference !== null && typeof transaction.oldReference !== 'string')) throw new Error('Invalid update recovery journal')
+      if (transaction.standaloneMachtiani !== undefined && typeof transaction.standaloneMachtiani !== 'boolean') throw new Error('Invalid standalone launcher recovery state')
       this.validateRelease(transaction.next)
       if (transaction.previous !== null) this.validateRelease(transaction.previous)
       else if (transaction.running) throw new Error('Invalid initial installation recovery state')

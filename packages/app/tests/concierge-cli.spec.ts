@@ -68,14 +68,14 @@ describe('headless concierge CLI', () => {
 })
 
 describe('real PTY concierge exit', () => {
-  it('renders welcome and native status before the provider-free startup update result', async () => {
+  it.each(['current', 'available'] as const)('reports a %s startup update after welcome/status and permits continued use', async state => {
     const { root, env } = await fixture(true)
     const native = join(root, 'native-update')
     await writeFile(native, `#!/bin/sh
 if [ "\${1:-}" = status ]; then
   printf '%s\n' 'Dear Machine: stopped' 'Supervisor: stopped' 'Crash recovery: inactive until started again' 'Closing this chat: leaves Dear Machine stopped' 'After account logout: not verified' 'Managed startup at login: disabled' 'Managed startup after reboot (before login): disabled' 'Reason: fixture' 'Scope: fixture'
 elif [ "\${1:-}" = update ] && [ "\${2:-}" = --check ] && [ "\${3:-}" = --json ]; then
-  printf '%s\n' '{"version":1,"operation":"check","state":"current","current":"${'a'.repeat(40)}","available":"${'a'.repeat(40)}"}'
+  printf '%s\n' '{"version":1,"operation":"check","state":"${state}","current":"${'a'.repeat(40)}","available":"${(state === 'current' ? 'a' : 'b').repeat(40)}"}'
 else exit 97
 fi
 `, { mode: 0o700 })
@@ -84,16 +84,22 @@ fi
       const child = pty.spawn('bash', ['--noprofile', '--norc', '-c', 'before=$(stty -g); "$1" "$2"; code=$?; after=$(stty -g); [ "$before" = "$after" ] || exit 90; exit "$code"', 'concierge-test', process.execPath, app], { env: env as Record<string, string>, cols: 110, rows: 35 })
       let output = ''
       let sent = false
+      let declined = false
       const timer = setTimeout(() => { child.kill(); reject(new Error('Startup update PTY timed out')) }, 5_000)
       child.onData(chunk => {
         output += chunk
-        if (!sent && output.includes('Updates: current')) { sent = true; child.write('/quit\r') }
+        if (state === 'available' && !declined && output.includes('Install this update now?')) {
+          declined = true
+          child.write('\r')
+        }
+        if (!sent && output.includes(state === 'current' ? 'Updates: current' : 'Update declined.')) { sent = true; child.write('/quit\r') }
       })
       child.onExit(({ exitCode }) => { clearTimeout(timer); resolveResult({ code: exitCode, output }) })
     })
     expect(result.code, result.output).toBe(0)
     expect(result.output.indexOf('Tell me what you need')).toBeLessThan(result.output.indexOf('Dear Machine: stopped'))
-    expect(result.output.indexOf('Dear Machine: stopped')).toBeLessThan(result.output.indexOf('Updates: current'))
+    expect(result.output.indexOf('Dear Machine: stopped')).toBeLessThan(result.output.indexOf(`Updates: ${state}`))
+    if (state === 'available') expect(result.output).toContain('Nothing was installed')
   })
 
   it.each(['/quit', '/detach'])('restores the terminal and preserves an independent disposable process on %s', async exitCommand => {

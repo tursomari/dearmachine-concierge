@@ -38,6 +38,7 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
   }, sourceReference), sourceReference)
   const tui = new InstallerTui({
     title: 'Dear Machine Concierge', exitWindowMs: 2_000, interruptHint: conciergeInterruptHint,
+    inputPlaceholder: 'Enter a prompt or /help',
     onSubmit: text => shell.submit(text),
     onLocalCommand: text => shell.submit(text),
     onInterrupt: () => conversation.interrupt(),

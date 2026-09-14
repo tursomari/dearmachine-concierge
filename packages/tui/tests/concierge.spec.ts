@@ -18,6 +18,45 @@ async function fixture() {
   return { tui, terminal, local, exit, submit }
 }
 describe('concierge terminal commands', () => {
+  it('shows a visual-only prompt placeholder while input is empty', async () => {
+    const terminal = new HeadlessTerminal()
+    const submit = vi.fn()
+    const tui = new InstallerTui({
+      terminal,
+      title: 'Dear Machine Concierge',
+      environment: { TERM: 'xterm' },
+      inputPlaceholder: 'Enter a prompt or /help',
+      onSubmit: submit,
+    })
+    opened.push({ tui, terminal })
+    tui.start()
+    await terminal.waitForFrame()
+    let screen = await terminal.snapshot()
+    expect(screen).toContain('Enter a prompt or /help')
+    const placeholderRow = screen.split('\n').findIndex(line => line.includes('Enter a prompt or /help'))
+    expect(screen.split('\n').slice(placeholderRow + 1, placeholderRow + 4).some(line => line.includes('dim'))).toBe(true)
+
+    terminal.send('\r')
+    expect(submit).not.toHaveBeenCalled()
+
+    terminal.send('hello')
+    await terminal.waitForFrame()
+    screen = await terminal.snapshot()
+    expect(screen).toContain('hello')
+    expect(screen).not.toContain('Enter a prompt or /help')
+
+    for (let index = 0; index < 5; index += 1) terminal.send('\x7f')
+    await terminal.waitForFrame()
+    expect(await terminal.snapshot()).toContain('Enter a prompt or /help')
+
+    terminal.send('\r')
+    expect(submit).not.toHaveBeenCalled()
+    terminal.send('actual prompt')
+    terminal.send('\r')
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledWith('actual prompt'))
+    expect(submit).toHaveBeenCalledTimes(1)
+  })
+
   it('invites conversation and renders command details as subdued literal text', async () => {
     const terminal = new HeadlessTerminal()
     const tui = new InstallerTui({ terminal, title: 'Dear Machine Concierge', environment: { TERM: 'xterm' } })

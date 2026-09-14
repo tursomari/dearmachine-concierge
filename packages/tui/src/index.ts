@@ -13,6 +13,7 @@ import {
   Text,
   TUI,
   matchesKey,
+  truncateToWidth,
   visibleWidth,
   type Terminal,
 } from '@earendil-works/pi-tui'
@@ -37,6 +38,8 @@ export interface InstallerQuestion {
 export interface InstallerTuiOptions {
   terminal?: Terminal
   title?: string
+  /** Visual-only guidance shown while the ordinary editor is empty. */
+  inputPlaceholder?: string
   color?: boolean
   environment?: NodeJS.ProcessEnv
   onLocalCommand?(text: string): void | Promise<void>
@@ -68,6 +71,35 @@ export interface ToolActivity {
 
 export interface InstallerInteractionHandle {
   close(): void
+}
+
+const EMPTY_EDITOR_CURSOR = '\x1b[7m \x1b[0m'
+
+/** Keep placeholder text out of Editor state, history, and submission entirely. */
+class PlaceholderEditor extends Editor {
+  constructor(ui: TUI, theme: InstallerTheme, private readonly placeholder?: string) {
+    super(ui, editorTheme(theme), {
+      frame: 'none',
+      paddingX: 1,
+      prompt: { first: '› ', continuation: '  ' },
+    })
+    this.paintPlaceholder = theme.dim
+  }
+
+  private readonly paintPlaceholder: (text: string) => string
+
+  override render(width: number): string[] {
+    const lines = super.render(width)
+    if (this.placeholder === undefined || this.getText() !== '') return lines
+    const row = lines.findIndex(line => line.includes(EMPTY_EDITOR_CURSOR))
+    if (row < 0) return lines
+    const line = lines[row]!
+    const cursorEnd = line.indexOf(EMPTY_EDITOR_CURSOR) + EMPTY_EDITOR_CURSOR.length
+    const remaining = line.slice(cursorEnd)
+    const hint = truncateToWidth(this.placeholder, visibleWidth(remaining), '')
+    lines[row] = line.slice(0, cursorEnd) + this.paintPlaceholder(hint) + remaining.slice(hint.length)
+    return lines
+  }
 }
 
 export class InstallerTui {
@@ -119,11 +151,7 @@ export class InstallerTui {
       0,
     )
     this.ui = new TUI(this.terminal, false)
-    this.editor = new Editor(this.ui, editorTheme(this.theme), {
-      frame: 'none',
-      paddingX: 1,
-      prompt: { first: '› ', continuation: '  ' },
-    })
+    this.editor = new PlaceholderEditor(this.ui, this.theme, options.inputPlaceholder)
     this.editor.onSubmit = value => { void this.submit(value, false) }
     this.maskedInput.onSubmit = value => { void this.submit(value, true) }
     this.ui.addChild(this.transcript)

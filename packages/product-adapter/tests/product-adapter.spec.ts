@@ -97,7 +97,7 @@ describe('native product installer', () => {
     expect(test.runner.requests.some(request => request.command[0] === 'nix')).toBe(false)
     expect(test.runner.requests.some(request => request.command.includes('status') && request.command[0] === 'git')).toBe(false)
     expect(test.runner.requests.find(request => request.label === 'Verify Machtiani model roles')?.command[0]).toBe(distribution.binaries.machtiani)
-    expect(await readFile(join(test.home, '.machtiani/config.toml'), 'utf8')).toContain('command = "/release/bin/machtiani-model-host"')
+    expect(await readFile(join(test.home, '.config/dearmachine/machtiani/config.toml'), 'utf8')).toContain('command = "/release/bin/machtiani-model-host"')
     await expect(new NativeProductInstaller(test).install(selection)).rejects.toThrow('installation method')
   })
   it('verifies only live email activity appended after its private baseline', async () => {
@@ -127,6 +127,21 @@ describe('native product installer', () => {
       journalPath: test.journalPath, runner: test.runner, environment: { PATH: '/usr/bin:/bin' },
     })
     await expect(installer.waitForLiveEmail('{"version":1}', () => {})).rejects.toThrow('baseline is invalid')
+  })
+
+  it('configures DearMachine without changing an existing standalone configuration', async () => {
+    const test = await fixture()
+    const personal = join(test.home, '.config/machtiani/config.toml')
+    await writeFile(personal, 'personal sentinel\n')
+    await mkdir(join(test.home, '.machtiani'), { recursive: true })
+    const installer = new NativeProductInstaller({ home: test.home, sourceRoot: test.sourceRoot,
+      workspace: test.workspace, journalPath: test.journalPath, runner: test.runner })
+    await installer.install(selection)
+    expect(await readFile(personal, 'utf8')).toBe('personal sentinel\n')
+    expect(await readFile(join(test.home, '.config/dearmachine/machtiani/config.toml'), 'utf8')).toContain('dearmachine-host')
+    for (const request of test.runner.requests) {
+      expect(request.environment.MACHTIANI_CONFIG).toBe(join(test.home, '.config/dearmachine/machtiani/config.toml'))
+    }
   })
 
   it('executes the canonical fresh-install order without placing credentials in arguments', async () => {
@@ -161,13 +176,13 @@ describe('native product installer', () => {
       'install', '--source-root', test.sourceRoot,
     ])
     expect(test.runner.requests.find(request => request.label === 'Verify Machtiani model roles')?.environment.MACHTIANI_CONFIG).toBe(
-      join(test.home, '.machtiani', 'config.toml'),
+      join(test.home, '.config', 'dearmachine', 'machtiani', 'config.toml'),
     )
     expect(test.runner.requests.find(request => request.label === 'Configure selected backend')?.stdin).toBe('\n')
     expect(test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command).toContain('--new-inbox')
     expect(test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.timeoutMs).toBeNull()
     expect(test.runner.requests.find(request => request.label === 'Verify selected backend')?.cwd).toBe(join(test.home, '.dearmachine', 'entrypoint', 'main'))
-    const machtianiConfig = await readFile(join(test.home, '.machtiani', 'config.toml'), 'utf8')
+    const machtianiConfig = await readFile(join(test.home, '.config', 'dearmachine', 'machtiani', 'config.toml'), 'utf8')
     expect(machtianiConfig).toContain('[model_defaults]')
     expect(machtianiConfig).toContain('cache_enabled = true')
     expect(machtianiConfig).toContain('cache_control = { type = "ephemeral" }')
@@ -200,7 +215,7 @@ describe('native product installer', () => {
     })
 
     await expect(installer.install({ ...selection, provider, model })).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
-    const config = await readFile(join(test.home, '.machtiani', 'config.toml'), 'utf8')
+    const config = await readFile(join(test.home, '.config', 'dearmachine', 'machtiani', 'config.toml'), 'utf8')
     expect(config).toContain(`profile = ${JSON.stringify(modelProfilePath)}`)
     expect(config).toContain(`model = ${JSON.stringify(model)}`)
     expect(test.runner.requests.filter(request => request.label === 'Verify Machtiani model roles')).toHaveLength(1)
@@ -231,7 +246,7 @@ describe('native product installer', () => {
       model: 'local-model',
     })).resolves.toEqual({ inboxAddress: 'inbox@example.test' })
 
-    const config = await readFile(join(test.home, '.machtiani', 'config.toml'), 'utf8')
+    const config = await readFile(join(test.home, '.config', 'dearmachine', 'machtiani', 'config.toml'), 'utf8')
     expect(config).toContain(`profile = ${JSON.stringify(modelProfilePath)}`)
     expect(config).toContain('default_model = "dearmachine"')
     expect(config).toContain('shell_agent_model = "dearmachine"')
@@ -286,7 +301,7 @@ describe('native product installer', () => {
     expect(command).toContain('--inbox')
     expect(command).toContain('inbox-qse-owned')
     expect(command).not.toContain('--new-inbox')
-    expect(await readFile(join(test.home, '.machtiani', 'config.toml'), 'utf8')).toContain('effort = "high"')
+    expect(await readFile(join(test.home, '.config', 'dearmachine', 'machtiani', 'config.toml'), 'utf8')).toContain('effort = "high"')
     const journal = await readFile(test.journalPath, 'utf8')
     expect(journal).toContain('"existingInboxIdHash"')
     expect(journal).toContain('"reasoningEffort": "high"')

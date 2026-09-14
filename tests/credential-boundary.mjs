@@ -33,8 +33,8 @@ try {
   for (const mode of ['management', 'installer']) {
     const home = join(root, mode)
     const workspace = join(home, 'workspace')
-    const credentials = join(home, '.config/dearmachine/backends.env')
-    await mkdir(join(home, '.config/dearmachine'), { recursive: true, mode: 0o700 })
+    const credentials = join(home, '.config/dearmachine/machtiani/credentials.env')
+    await mkdir(join(home, '.config/dearmachine/machtiani'), { recursive: true, mode: 0o700 })
     await mkdir(workspace)
     await writeFile(credentials, `OPENROUTER_API_KEY=${keys[0]}\nDEEPSEEK_API_KEY=${keys[1]}\n`, { mode: 0o600 })
     await symlink(credentials, join(workspace, 'alias'))
@@ -48,11 +48,11 @@ try {
       ['read', { file_path: join(workspace, 'alias') }],
       ['read', { file_path: join(workspace, 'hardlink') }],
       ['read', { file_path: join(workspace, 'copy.txt') }],
-      ['bash', { command: 'cat "$HOME/.config/dearmachine/backends.env"', description: 'Counterfeit stdout fixture' }],
-      ['bash', { command: 'cat "$HOME/.config/dearmachine/backends.env" >&2; exit 1', description: 'Counterfeit stderr fixture' }],
-      ['bash', { command: 'base64 "$HOME/.config/dearmachine/backends.env"', description: 'Counterfeit encoded fixture' }],
-      ['bash', { command: 'fold -w 12 "$HOME/.config/dearmachine/backends.env"', description: 'Counterfeit split fixture' }],
-      ['bash', { command: 'cat "$HOME/.config/dearmachine/backends.env"', description: 'Newly saved counterfeit credential' }],
+      ['bash', { command: 'cat "$HOME/.config/dearmachine/machtiani/credentials.env"', description: 'Counterfeit stdout fixture' }],
+      ['bash', { command: 'cat "$HOME/.config/dearmachine/machtiani/credentials.env" >&2; exit 1', description: 'Counterfeit stderr fixture' }],
+      ['bash', { command: 'base64 "$HOME/.config/dearmachine/machtiani/credentials.env"', description: 'Counterfeit encoded fixture' }],
+      ['bash', { command: 'fold -w 12 "$HOME/.config/dearmachine/machtiani/credentials.env"', description: 'Counterfeit split fixture' }],
+      ['bash', { command: 'cat "$HOME/.config/dearmachine/machtiani/credentials.env"', description: 'Newly saved counterfeit credential' }],
       ['read', { file_path: join(workspace, 'ordinary.toml') }],
     ]
     let requests = 0

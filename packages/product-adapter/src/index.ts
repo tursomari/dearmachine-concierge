@@ -383,7 +383,7 @@ export class NativeProductInstaller {
       DEARMACHINE_BACKENDS: JSON.stringify([selection.backend.id]),
     }
     const sourceHasGit = distribution === undefined && await lstat(join(this.options.sourceRoot, '.git')).then(() => true, (error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return false; throw error })
-    const machtianiConfigPath = join(this.options.home, '.machtiani', 'config.toml')
+    const machtianiConfigPath = join(this.options.home, '.config', 'dearmachine', 'machtiani', 'config.toml')
     const modelHostCommand = distribution?.binaries.modelHost ?? join(this.options.home, '.local', 'bin', 'machtiani-model-host')
     const deviceConfig = join(this.options.home, '.dearmachine', 'config', 'dearmachine.toml')
     const entryPoint = join(this.options.home, '.dearmachine', 'entrypoint', 'main')
@@ -422,9 +422,6 @@ export class NativeProductInstaller {
     if (journal === undefined) {
       if (await directoryHasEntries(join(this.options.home, '.dearmachine'))) {
         throw new Error('An existing Dear Machine installation was found. The installer will not change its pairs, inboxes, or running client automatically.')
-      }
-      if (await directoryHasEntries(join(this.options.home, '.machtiani'))) {
-        throw new Error('An existing Machtiani configuration was found. The installer will not replace it automatically.')
       }
       const sourceStatus = sourceHasGit
         ? (await run('Source checkout preflight', ['git', '-C', this.options.sourceRoot, 'status', '--porcelain=v2', '--untracked-files=all', '--ignore-submodules=none'])).stdout

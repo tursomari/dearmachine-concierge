@@ -8,7 +8,7 @@ export class MachtianiCredentialTarget {
 
   async check(provider: string): Promise<void> {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,159}$/u.test(provider)) throw new Error('Use the exact Machtiani provider alias, such as deepseek')
-    const output = await this.run(['config', 'provider', 'show', provider, '--global'])
+    const output = await this.run(['config', 'provider', 'show', provider])
     if (/^\s*transport:\s*model-host\s*$/mu.test(output)) {
       throw new Error('This Machtiani provider uses a model-host profile; configure that profile instead of replacing its credential with an environment reference')
     }
@@ -17,7 +17,7 @@ export class MachtianiCredentialTarget {
   async configure(provider: string, reference: CredentialReference): Promise<void> {
     if (reference.format !== 'environment' || !reference.variable || !/^[A-Z_][A-Z0-9_]*$/u.test(reference.variable)) throw new Error('Machtiani requires a saved provider environment reference')
     await this.check(provider)
-    await this.run(['config', 'provider', 'set', provider, '--global', '--api-key-env', reference.variable, '--no-interactive'])
+    await this.run(['config', 'provider', 'set', provider, '--api-key-env', reference.variable, '--credentials-file', reference.destination, '--no-interactive'])
   }
 
   private run(args: string[]): Promise<string> {
@@ -28,10 +28,10 @@ export class MachtianiCredentialTarget {
     const executable = join(home, '.local', 'bin', 'machtiani')
     return new Promise((resolve, reject) => {
       execFile(executable, args, {
-        cwd: home, env: { ...this.environment, MACHTIANI_UPDATE_REEXEC: '1' }, timeout: 15_000, maxBuffer: 65_536,
+        cwd: home, env: { ...this.environment, MACHTIANI_CONFIG: join(home, '.config/dearmachine/machtiani/config.toml'), MACHTIANI_UPDATE_REEXEC: '1' }, timeout: 15_000, maxBuffer: 65_536,
       }, (error, stdout) => {
         // Native failures can contain private configuration. Never forward them.
-        if (error) reject(new Error('Machtiani provider configuration failed; inspect the provider alias with machtiani config provider show --global'))
+        if (error) reject(new Error('Machtiani provider configuration failed; inspect the provider alias with machtiani config provider show with DearMachine’s MACHTIANI_CONFIG'))
         else resolve(stdout)
       })
     })

@@ -106,3 +106,14 @@ describe('credential file adapter', () => {
     expect((await lstat(directory)).mode & 0o777).toBe(0o700)
   })
 })
+
+it('isolates Machtiani credentials from backend and personal credentials', async () => {
+ const home = await mkdtemp(join(tmpdir(), 'credential-isolation-'))
+ const adapter = new CredentialFileAdapter({ home })
+ await adapter.prepare('backend-provider', 'DeepSeek')
+ await adapter.save('backend-provider', 'backend-fixture')
+ await adapter.prepare('machtiani-provider', 'DeepSeek')
+ await adapter.save('machtiani-provider', 'harness-fixture')
+ expect(await readFile(join(home,'.config/dearmachine/backends.env'),'utf8')).toBe('DEEPSEEK_API_KEY=backend-fixture\n')
+ expect(await readFile(join(home,'.config/dearmachine/machtiani/credentials.env'),'utf8')).toBe('DEEPSEEK_API_KEY=harness-fixture\n')
+})

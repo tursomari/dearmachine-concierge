@@ -138,11 +138,11 @@ describe('explicit credential actions', () => {
   async function fixture() {
     const home = await mkdtemp(join(tmpdir(), 'ca-'))
     const credentials = new CredentialFileAdapter({ home })
-    await credentials.prepare('backend-provider', 'deepseek')
-    await credentials.save('backend-provider', 'original-fixture-key')
-    await credentials.prepare('backend-provider', 'openrouter')
-    await credentials.save('backend-provider', 'other-fixture-key')
-    return { home, credentials, socketPath: join(home, 'c.sock'), store: join(home, '.config/dearmachine/backends.env') }
+    await credentials.prepare('machtiani-provider', 'deepseek')
+    await credentials.save('machtiani-provider', 'original-fixture-key')
+    await credentials.prepare('machtiani-provider', 'openrouter')
+    await credentials.save('machtiani-provider', 'other-fixture-key')
+    return { home, credentials, socketPath: join(home, 'c.sock'), store: join(home, '.config/dearmachine/machtiani/credentials.env') }
   }
 
   it.each(['use-existing', 'replace'] as const)('targets Machtiani with %s and preserves other credentials', async action => {
@@ -239,6 +239,8 @@ describe('explicit credential actions', () => {
 
   it('rotates an existing backend key without configuring Machtiani', async () => {
     const f = await fixture()
+    await f.credentials.prepare('backend-provider', 'deepseek')
+    await f.credentials.save('backend-provider', 'original-fixture-key')
     const bridge = new CredentialBridge({ ...f,
       tui: { askSecret: async () => 'replacement-fixture-key' },
       machtiani: { check: async () => { throw new Error('wrong target') }, configure: async () => { throw new Error('wrong target') } },
@@ -248,7 +250,7 @@ describe('explicit credential actions', () => {
       const result = await invoke(f.socketPath, { kind: 'backend-provider', selection: 'deepseek', action: 'replace' })
       expect(JSON.parse(result)).toMatchObject({ ok: true, status: 'saved' })
       expect(result).not.toContain('fixture-key')
-      expect(await readFile(f.store, 'utf8')).toContain('DEEPSEEK_API_KEY=replacement-fixture-key')
+      expect(await readFile(join(f.home, '.config/dearmachine/backends.env'), 'utf8')).toContain('DEEPSEEK_API_KEY=replacement-fixture-key')
     } finally { await bridge.close(); await rm(f.home, { recursive: true, force: true }) }
   })
 })

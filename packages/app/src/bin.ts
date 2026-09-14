@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { machtianiConfigPath, migrateMachtianiConfig } from './machtiani-config.ts'
 import { entryHelp, parseInvocation } from './concierge-entry.ts'
 import { executeDaemonCommand } from './concierge-shell.ts'
 import { defaultConciergeControl } from './concierge-control.ts'
@@ -9,6 +10,7 @@ export type { InstallerInvocation } from './concierge-entry.ts'
 
 async function main(): Promise<void> {
   const callerPath = process.env.PATH ?? ''
+  if (process.env.HOME) process.env.MACHTIANI_CONFIG = machtianiConfigPath(process.env.HOME)
   process.env.PATH = launchEnvironment(process.env).PATH
   const invocation = parseInvocation(process.argv.slice(2), process.stdin.isTTY && process.stdout.isTTY ? process.env : {})
   if (invocation.mode === 'managed') {
@@ -20,6 +22,7 @@ async function main(): Promise<void> {
     process.stdout.write(entryHelp)
     return
   }
+  if (invocation.mode === 'concierge' || (invocation.mode === 'control' && ['up', 'restart'].includes(invocation.command))) await migrateMachtianiConfig(process.env)
   if (invocation.mode === 'control') {
     const control = defaultConciergeControl()
     const result = await executeDaemonCommand(control, invocation.command)

@@ -44,7 +44,7 @@ export function resolveCredentialReference(kind: CredentialKind, selection: stri
       `MACHTIANI_BACKEND_${label.replace(/[^a-z0-9]/gu, '_').slice(0,40).toUpperCase()}_${createHash('sha256').update(label).digest('hex').slice(0,16).toUpperCase()}_API_KEY`
     return {
       kind,
-      destination: join(home, '.config', 'dearmachine', 'backends.env'),
+      destination: kind === 'machtiani-provider' ? join(home, '.config', 'dearmachine', 'machtiani', 'credentials.env') : join(home, '.config', 'dearmachine', 'backends.env'),
       format: 'environment',
       variable,
     }

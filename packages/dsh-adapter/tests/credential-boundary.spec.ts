@@ -22,6 +22,20 @@ async function fixture() {
 }
 
 describe('credential tool boundary', () => {
+  it('protects both new Machtiani credential stores while leaving configs readable', async () => {
+    const { home, boundary } = await fixture()
+    for (const scope of ['machtiani', 'dearmachine/machtiani']) {
+      const dir = join(home, '.config', scope)
+      await mkdir(dir, { recursive: true, mode: 0o700 })
+      const key = scope.replace('/', '-') + '-private-fixture-key'
+      await writeFile(join(dir, 'credentials.env'), `KEY=${key}\n`, { mode: 0o600 })
+      await boundary.refresh()
+      expect(await boundary.protectedPath(join(dir, 'credentials.env'), home)).toBe(true)
+      expect(boundary.containsCredential({ stdout: key })).toBe(true)
+      expect(await boundary.protectedPath(join(dir, 'config.toml'), home)).toBe(false)
+    }
+  })
+
   it('denies the original read and symlink aliases while permitting ordinary config', async () => {
     const { home, path, boundary } = await fixture()
     await symlink(path, join(home, 'innocent.txt'))

@@ -21,13 +21,20 @@ describe('installation diagnosis', () => {
     expect(await inspectInstallation(home, control)).toEqual({ installation: 'absent' })
     expect(control.request).not.toHaveBeenCalled()
   })
+  it('allows DearMachine setup when only standalone Machtiani exists', async () => {
+    const { home, control } = await fixture()
+    await mkdir(join(home, '.machtiani'))
+    await mkdir(join(home, '.config/machtiani'), { recursive: true })
+    expect(await inspectInstallation(home, control)).toEqual({ installation: 'absent' })
+    expect(control.request).not.toHaveBeenCalled()
+  })
   it('distinguishes an installed but stopped daemon from absence', async () => {
     const { home, control } = await fixture()
     await mkdir(join(home, '.dearmachine'))
     expect(await inspectInstallation(home, control)).toEqual({ installation: 'installed', status: stopped })
     expect(control.request).toHaveBeenCalledExactlyOnceWith('status')
   })
-  it.each(['.dearmachine', '.machtiani'])('preserves partial %s state when control is unavailable', async directory => {
+  it.each(['.dearmachine'])('preserves partial %s state when control is unavailable', async directory => {
     const { home, control } = await fixture()
     await mkdir(join(home, directory))
     vi.mocked(control.request).mockRejectedValue(new Error('offline'))

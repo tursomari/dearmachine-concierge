@@ -65,7 +65,7 @@ export async function inspectInstallation(
   inspect: (path: string) => Promise<{ isDirectory(): boolean; isSymbolicLink(): boolean }> = lstat,
 ): Promise<InstallationDiagnosis> {
   let existing = false
-  for (const directory of ['.dearmachine', '.machtiani']) {
+  for (const directory of ['.dearmachine']) {
     try {
       const metadata = await inspect(join(home, directory))
       if (!metadata.isDirectory() || metadata.isSymbolicLink()) return { installation: 'partial', guidance: recoveryGuidance }

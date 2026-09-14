@@ -365,3 +365,19 @@ It checks that only the requested provider credential changes and needs no key
 or network. The credential CLI tests exercise the packaged socket client with both actions.
 Run them through `pnpm test`; no real home, credentials, client, or provider is
 used. A configuration receipt is not evidence of live authentication.
+
+### Separate native and DearMachine configurations
+
+For configuration or credential integration changes, the real native tests must
+run rather than skip. Build the changed harness and supply its absolute binary:
+
+```console
+MACHTIANI_TEST_BINARY=/absolute/path/to/test-machtiani nix develop -c pnpm test
+```
+
+`credential-machtiani.spec.ts` verifies the native writer against separate personal
+and managed configurations. `machtiani-config.spec.ts` checks one-time legacy
+import and independent credentials. The product-adapter and concierge-entry tests
+cover installation after standalone Machtiani; the managed Nix lifecycle suite
+checks preservation across takeover, update, and failed activation. The real
+credential-boundary gate also exercises the private Machtiani credential store.

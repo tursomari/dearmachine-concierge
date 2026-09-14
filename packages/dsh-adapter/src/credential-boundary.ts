@@ -14,6 +14,8 @@ export class CredentialBoundary {
     if (!isAbsolute(options.home)) throw new Error(CREDENTIAL_UNAVAILABLE)
     const config = join(options.home, '.config', 'dearmachine')
     this.files.set(join(config, 'backends.env'), 'environment')
+    this.files.set(join(config, 'machtiani', 'credentials.env'), 'environment')
+    this.files.set(join(options.environment.XDG_CONFIG_HOME || join(options.home, '.config'), 'machtiani', 'credentials.env'), 'environment')
     for (const transport of ['agentmail', 'openmail', 'sendmux']) this.files.set(join(config, `${transport}-api-key`), 'raw')
     for (const [name, value] of Object.entries(options.environment)) {
       if (/(?:API_?KEY|ACCESS_TOKEN|REFRESH_TOKEN|AUTH_TOKEN|PASSWORD|SECRET)$/iu.test(name) && value) this.remember(value)

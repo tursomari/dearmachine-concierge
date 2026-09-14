@@ -137,7 +137,7 @@ for (const xdg of [false, true]) test(`fresh home, snapshot and check-only (XDG=
 test('update switches coordinated binaries and source, preserves configuration, and leaves a stopped client stopped', async t => {
   const f = await fixture(); t.after(() => f.cleanup())
   await f.manager.install(f.original)
-  const sentinels = ['.dearmachine/pairs.toml', '.dearmachine/config/runtime.toml', '.machtiani/config.toml', '.config/dearmachine/backends.env', '.config/dearmachine/assistant-model.json']
+  const sentinels = ['.dearmachine/pairs.toml', '.dearmachine/config/runtime.toml', '.machtiani/config.toml', '.config/machtiani/config.toml', '.config/machtiani/credentials.env', '.config/dearmachine/machtiani/config.toml', '.config/dearmachine/machtiani/credentials.env', '.config/dearmachine/backends.env', '.config/dearmachine/assistant-model.json']
   for (const path of sentinels) { await mkdir(dirname(join(f.home, path)), { recursive: true }); await writeFile(join(f.home, path), 'fixture-preserved-' + path) }
   f.control.latest = next
   await f.manager.update()
@@ -360,7 +360,8 @@ for (const fail of [false, true]) test(`Machtiani first then DearMachine preserv
   await writeFile(standalone, '#!/bin/sh\nexit 0\n', { mode: 0o755 })
   await mkdir(dirname(launcher), { recursive: true })
   await symlink(standalone, launcher)
-  const config = join(f.home, '.machtiani/config.toml')
+  const config = join(f.home, '.config/machtiani/config.toml')
+  await mkdir(dirname(config), { recursive: true })
   await writeFile(config, 'existing configuration\n')
   // Fail after launchers switch, so rollback must restore the standalone link.
   if (fail) {

@@ -56,9 +56,9 @@ export async function runConciergeUpdate(ports: {
 
   let choice: string
   try {
-    choice = await ports.tui.choose('Install this update now? The release is prepared before Dear Machine is stopped, and a failed activation rolls back.', [
-      { value: 'not-now', label: 'Not now', description: 'Keep using the current release' },
-      { value: 'install', label: 'Install update', description: 'Prepare and activate the available release' },
+    choice = await ports.tui.choose('Install this update now? If Dear Machine is running, it will briefly stop and restart. If it is stopped, it will stay stopped.', [
+      { value: 'not-now', label: 'Not now', description: 'Keep using your current version' },
+      { value: 'install', label: 'Install update', description: 'Update Dear Machine to the new version' },
     ], 'not-now')
   } catch (error) {
     if (!(error instanceof InstallerChoiceBackError)) throw error
@@ -69,7 +69,7 @@ export async function runConciergeUpdate(ports: {
     return
   }
 
-  ports.tui.setProgress('Installing the coordinated Dear Machine update')
+  ports.tui.setProgress('Installing the Dear Machine update')
   let installed: UpdateInstallResult
   try { installed = await ports.updater.install() } catch { installed = { state: 'failed' } }
   finally { ports.tui.setProgress(undefined) }
@@ -78,15 +78,15 @@ export async function runConciergeUpdate(ports: {
     return
   }
   if (installed.state === 'failed') {
-    ports.tui.addAssistant('The update did not complete. The managed updater attempted rollback, and you can keep using this concierge. Inspect dearmachine status; if it reports an interrupted update, run dearmachine update --recover before retrying.')
+    ports.tui.addAssistant('The update could not finish. You can keep using this concierge. Run dearmachine status to check Dear Machine; if it reports an interrupted update, run dearmachine update --recover before trying again.')
     return
   }
 
-  ports.tui.addAssistant(`Updated successfully to release ${installed.release}. The current concierge belongs to the previous release and will close before the new one opens.`)
+  ports.tui.addAssistant(`Update installed successfully (release ${installed.release}). Reopen the concierge to use the new version.`)
   let relaunch: string
   try {
     relaunch = await ports.tui.choose('Open the updated concierge now?', [
-      { value: 'relaunch', label: 'Relaunch now', description: 'Close this process and open the activated release' },
+      { value: 'relaunch', label: 'Reopen now', description: 'Continue with the updated concierge' },
       { value: 'close', label: 'Close for now', description: 'Open dearmachine yourself later' },
     ], 'relaunch')
   } catch (error) {

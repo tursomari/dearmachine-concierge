@@ -6,37 +6,58 @@ export const conciergeInterruptHint = 'Use /quit to leave. Press Ctrl+C again wi
 export const conciergeWelcome = 'Tell me what you need in plain language—for example, “What inbox is configured?”, “Check Dear Machine”, or “Stop Dear Machine”.\n\nUse /quit to leave this conversation; it does not stop Dear Machine. Use /help for local controls.'
 export const backgroundExitHint = 'Dear Machine is running in the background under its supervisor. You can use /quit to leave this conversation and keep it running. Reboot startup is a separate persistence setting.'
 
-export const localHelp = `Local commands (no model or provider required):
-/help — Show this help.
-/model — Choose the assistant’s provider, model, and reasoning level.
-/update — Check for an update and ask before installing an available release.
-/up — Start Dear Machine and confirm it is running; never install or enable persistence.
-/down — Stop Dear Machine and cancel pending automatic restarts.
-/restart — Restart Dear Machine and confirm it is running.
-/status — Inspect current state without changing it.
-/quit — Close the interface, leaving the daemon in its current state.
-/detach — Release the attached log stream and close the interface, leaving Dear Machine up.
-Both exit commands first establish independent ownership if attached; failed handoff keeps this interface open.
-To stop Dear Machine before leaving, use /down first.
-Ctrl+C cancels interface work; press it again within 2 seconds to exit the interface only.
-At an idle prompt, use /quit. Ordinary input or expiry disarms the second press.
-A committed lifecycle operation is not undone by cancellation; inspect dearmachine status.
-
-Native fallback CLI commands:
-dearmachine --help — Local CLI help.
-dearmachine status — Inspect runtime, crash recovery, closing chat, logout, and managed login/reboot startup.
-dearmachine up — Start Dear Machine.
-dearmachine down — Stop Dear Machine.
-dearmachine restart — Restart Dear Machine.
-Native command availability depends on the installed CLI version.
-If persistence is enabled, login or reboot may start Dear Machine again.
-/systemd — Ask about using systemd; /systemd on|off|status records an explicit choice or probes availability.
-/persistence — Ask separately about reboot startup including lingering; /persistence on|off|status.
-dearmachine systemd on|off|status — Choose service use only; never silently switch a resident owner.
-dearmachine persistence on — Explicitly approve reboot startup AND loginctl enable-linger.
-dearmachine persistence off — Disable service startup; retain account-wide lingering.
-Inspect: systemctl --user status dearmachine-concierge.service; systemctl --user is-enabled dearmachine-concierge.service; loginctl show-user --property=Linger.
-Disable account-wide lingering only if other services do not need it: loginctl disable-linger.`
+export const localHelp = [
+  '## Local concierge commands',
+  '',
+  'These commands work without a model or provider.',
+  '',
+  '`/help` — Show this help.',
+  '`/model` — Choose the assistant provider, model, and reasoning level.',
+  '`/update` — Check for an update and ask before installing it.',
+  '`/status` — Inspect Dear Machine without changing it.',
+  '`/up` — Start Dear Machine and confirm it is running; never install or enable persistence.',
+  '`/down` — Stop Dear Machine and cancel pending automatic restarts.',
+  '`/restart` — Restart Dear Machine and confirm it is running.',
+  '`/quit` — Close the concierge without changing Dear Machine’s state.',
+  '`/detach` — Close an attached interface while leaving Dear Machine running.',
+  '',
+  'To stop Dear Machine before leaving, use `/down` first.',
+  '`/quit` and `/detach` are equivalent when Dear Machine is already independently supervised.',
+  'Ctrl+C cancels current interface work. Press it again within 2 seconds to exit.',
+  'Cancellation does not undo a committed lifecycle operation; inspect `/status` afterward.',
+  '',
+  '## Service and persistence choices',
+  '',
+  '`/systemd` — Explain systemd service ownership.',
+  '`/systemd on|off|status` — Choose service use or inspect its availability.',
+  '`/persistence` — Explain managed startup after logout or reboot.',
+  '`/persistence on|off|status` — Choose or inspect managed startup.',
+  '',
+  'Service use and reboot persistence are separate choices.',
+  'Enabling persistence also explicitly enables account-wide user lingering.',
+  '',
+  '## Native fallback CLI commands',
+  '',
+  '`dearmachine --help` — Show local CLI help.',
+  '`dearmachine status` — Inspect runtime, recovery, and managed startup.',
+  '`dearmachine up` — Start Dear Machine.',
+  '`dearmachine down` — Stop Dear Machine.',
+  '`dearmachine restart` — Restart Dear Machine.',
+  '`dearmachine systemd on|off|status` — Choose or inspect native service use.',
+  '`dearmachine persistence on` — Enable managed startup and user lingering.',
+  '`dearmachine persistence off` — Disable managed startup but retain lingering.',
+  '',
+  'Native command availability depends on the installed CLI version.',
+  '',
+  '## Manual systemd inspection and recovery',
+  '',
+  '`systemctl --user status \\`',
+  '  `dearmachine-concierge.service` — Inspect service runtime status.',
+  '`systemctl --user is-enabled \\`',
+  '  `dearmachine-concierge.service` — Inspect whether login startup is enabled.',
+  '`loginctl show-user --property=Linger` — Inspect account-wide lingering.',
+  '`loginctl disable-linger` — Disable lingering only if no other service needs it.',
+].join('\n')
 
 export function formatDaemonStatus(status: DaemonStatus): string {
   const recovery = {

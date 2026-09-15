@@ -42,6 +42,13 @@ describe('local slash commands', () => {
     await shell.submit('/help')
     for (const command of ['--help', 'status', 'up', 'down', 'restart']) expect(localHelp).toContain(`dearmachine ${command}`)
     for (const command of ['/up', '/down', '/quit', '/detach', 'Ctrl+C']) expect(localHelp).toContain(command)
+    for (const heading of ['Local concierge commands', 'Service and persistence choices', 'Native fallback CLI commands', 'Manual systemd inspection and recovery']) {
+      expect(localHelp).toContain(`## ${heading}`)
+    }
+    expect(localHelp).toContain('`/systemd on|off|status`')
+    expect(localHelp).toContain('`/persistence on|off|status`')
+    expect(localHelp).toContain('`systemctl --user status \\`\n  `dearmachine-concierge.service` — Inspect service runtime status.')
+    expect(localHelp).toContain('`/quit` and `/detach` are equivalent when Dear Machine is already independently supervised.')
     expect(ports.say).toHaveBeenCalledWith(localHelp)
     expect(control.request).not.toHaveBeenCalled()
     expect(ports.converse).not.toHaveBeenCalled()

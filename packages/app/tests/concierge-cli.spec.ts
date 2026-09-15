@@ -69,10 +69,13 @@ describe('headless concierge CLI', () => {
 
 describe('real PTY concierge exit', () => {
   it.each(['current', 'available'] as const)('reports a %s startup update after welcome/status and permits continued use', async state => {
-    const { root, env } = await fixture(true)
+    const { root, env } = await fixture()
     const native = join(root, 'native-update')
+    await mkdir(join(root, '.dearmachine'))
     await writeFile(native, `#!/bin/sh
-if [ "\${1:-}" = status ]; then
+if [ "\${1:-}" = status ] && [ "\${2:-}" = --json ]; then
+  printf '%s\n' '{"version":1,"ok":true,"status":{"installation":"installed","supervisor":"stopped","daemon":"stopped","persistence":"unknown"}}'
+elif [ "\${1:-}" = status ]; then
   printf '%s\n' 'Dear Machine: stopped' 'Supervisor: stopped' 'Crash recovery: inactive until started again' 'Closing this chat: leaves Dear Machine stopped' 'After account logout: not verified' 'Managed startup at login: disabled' 'Managed startup after reboot (before login): disabled' 'Reason: fixture' 'Scope: fixture'
 elif [ "\${1:-}" = update ] && [ "\${2:-}" = --check ] && [ "\${3:-}" = --json ]; then
   printf '%s\n' '{"version":1,"operation":"check","state":"${state}","current":"${'a'.repeat(40)}","available":"${(state === 'current' ? 'a' : 'b').repeat(40)}"}'

@@ -105,10 +105,13 @@ export class BootstrapDaemonControl implements DaemonControl {
   readonly readStatusReport?: () => Promise<string>
   constructor(private readonly socket: DaemonControl, private readonly bootstrap: () => Promise<void>,
     private readonly timeoutMs = 20_000, private readonly progress: (text: string) => void = () => {},
-    readStatusReport?: () => Promise<string>) {
+    readStatusReport?: () => Promise<string>, private readonly inspectStatus?: () => Promise<DaemonStatus>) {
     if (readStatusReport !== undefined) this.readStatusReport = readStatusReport
   }
-  request(command: DaemonCommand): Promise<DaemonStatus> { return this.socket.request(command) }
+  request(command: DaemonCommand): Promise<DaemonStatus> {
+    if (command === 'status' && this.inspectStatus !== undefined) return this.inspectStatus()
+    return this.socket.request(command)
+  }
   bootstrapUp(progress?: (text: string) => void): Promise<DaemonStatus> {
     if (this.starting !== undefined) return this.starting
     ;(progress ?? this.progress)('Bootstrapping the native supervisor. Daemon startup is not yet confirmed; use /status to inspect progress.')
@@ -152,8 +155,35 @@ export function nativeBootstrap(environment: NodeJS.ProcessEnv = process.env): P
 }
 
 export function defaultConciergeControl(environment: NodeJS.ProcessEnv = process.env, progress?: (text: string) => void): DaemonControl {
+  const home = environment.HOME
+  const native = environment.DEARMACHINE_NATIVE_BIN
+  const canInspectNative = home && isAbsolute(home) && native && isAbsolute(native) &&
+    resolveSupervisorSocket(environment) === join(home, '.dearmachine', 'run', 'supervisor.sock')
   return new BootstrapDaemonControl(new SocketDaemonControl(resolveSupervisorSocket(environment)), () => nativeBootstrap(environment), 20_000, progress,
-    () => nativeStatusReport(environment))
+    () => nativeStatusReport(environment), canInspectNative ? () => nativeStatus(environment) : undefined)
+}
+
+/** Read installation and runtime independently, including when no supervisor is running. */
+export function nativeStatus(environment: NodeJS.ProcessEnv = process.env): Promise<DaemonStatus> {
+  const binary = environment.DEARMACHINE_NATIVE_BIN
+  const home = environment.HOME
+  if (!binary || !isAbsolute(binary) || !home || !isAbsolute(home) ||
+    resolveSupervisorSocket(environment) !== join(home, '.dearmachine', 'run', 'supervisor.sock')) {
+    return Promise.reject(new Error('Native status requires an explicit native executable and HOME socket.'))
+  }
+  return new Promise((resolve, reject) => {
+    // Allow the native command's five-second socket observation to finish.
+    execFile(binary, ['status', '--json'], { env: environment, timeout: 7_000, maxBuffer: 65_536, windowsHide: true },
+      (error, stdout) => {
+        if (!error) {
+          try {
+            const reply = JSON.parse(stdout) as Record<string, unknown>
+            if (reply.version === 1 && reply.ok === true && isStatus(reply.status)) { resolve(reply.status); return }
+          } catch { /* Fail closed without exposing subprocess output. */ }
+        }
+        reject(new Error('Native installation and runtime status unavailable.'))
+      })
+  })
 }
 
 /** Keep native lifecycle wording, but exclude pairs and potentially private exit diagnostics. */

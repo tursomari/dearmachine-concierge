@@ -34,11 +34,11 @@ describe('installation diagnosis', () => {
     expect(await inspectInstallation(home, control)).toEqual({ installation: 'installed', status: stopped })
     expect(control.request).toHaveBeenCalledExactlyOnceWith('status')
   })
-  it.each(['.dearmachine'])('preserves partial %s state when control is unavailable', async directory => {
+  it.each(['.dearmachine'])('preserves %s state without claiming damage when control is unavailable', async directory => {
     const { home, control } = await fixture()
     await mkdir(join(home, directory))
     vi.mocked(control.request).mockRejectedValue(new Error('offline'))
-    expect(await inspectInstallation(home, control)).toMatchObject({ installation: 'partial', guidance: expect.stringContaining('dearmachine status') })
+    expect(await inspectInstallation(home, control)).toMatchObject({ installation: 'unknown', guidance: expect.stringContaining('dearmachine status') })
   })
   it('does not trust an absent report over existing installation artifacts', async () => {
     const { home, control } = await fixture()
@@ -89,7 +89,7 @@ describe('provider-free entry routing', () => {
     await runConciergeEntry(p)
     expect(p.manage).not.toHaveBeenCalled()
   })
-  it.each(['partial', 'unreadable'])('opens recovery controls for %s state without installing', async installation => {
+  it.each(['partial', 'unreadable', 'unknown'])('opens recovery controls for %s state without installing', async installation => {
     const p = ports()
     p.inspect.mockResolvedValue({ installation, guidance: 'Inspect existing state' })
     await runConciergeEntry(p)

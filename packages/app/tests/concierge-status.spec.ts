@@ -1,6 +1,6 @@
 import { execFile, type ChildProcess } from 'node:child_process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { nativeStatusReport, summarizeNativeStatusReport, type DaemonStatus } from '../src/concierge-control.ts'
+import { defaultConciergeControl, nativeStatus, nativeStatusReport, summarizeNativeStatusReport, type DaemonStatus } from '../src/concierge-control.ts'
 import { ConciergeShell, formatDaemonStatus, readDaemonStatusReport } from '../src/concierge-shell.ts'
 
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }))
@@ -110,5 +110,52 @@ describe('concierge status reporting', () => {
     expect(result).toContain(`Crash recovery: ${expected}`)
     expect(result).not.toContain('leaves Dear Machine running')
     expect(result).not.toContain('private failure')
+  })
+})
+
+
+describe('independent native installation observation', () => {
+  const env = { HOME: '/fixture/home', DEARMACHINE_NATIVE_BIN: '/fixture/bin/dearmachine' }
+  function reply(value: unknown, error: Error | null = null) {
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const done = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void
+      done(error, JSON.stringify(value), 'private stderr')
+      return {} as ChildProcess
+    })
+  }
+  it.each(['installed', 'partial', 'unreadable'] as const)('observes %s without a supervisor socket', async installation => {
+    const status = { ...running, installation, supervisor: 'stopped', daemon: 'stopped' }
+    reply({ version: 1, ok: true, status })
+    expect(await defaultConciergeControl(env).request('status')).toEqual(status)
+    expect(execFile).toHaveBeenCalledExactlyOnceWith(env.DEARMACHINE_NATIVE_BIN, ['status', '--json'],
+      { env, timeout: 7_000, maxBuffer: 65_536, windowsHide: true }, expect.any(Function))
+  })
+  it('preserves installed health when runtime observation is inconclusive', async () => {
+    const status = { ...running, supervisor: 'unreachable', daemon: 'unknown' }
+    reply({ version: 1, ok: true, status })
+    expect(await nativeStatus(env)).toEqual(status)
+  })
+  it.each([
+    { version: 2, ok: true, status: running },
+    { version: 1, ok: false, status: running },
+    { version: 1, ok: true, status: { ...running, installation: 'maybe' } },
+    null,
+  ])('rejects invalid native observations (%#)', async value => {
+    reply(value)
+    await expect(nativeStatus(env)).rejects.toThrow('status unavailable')
+  })
+  it('does not accept output from failed native queries', async () => {
+    reply({ version: 1, ok: true, status: running }, new Error('private failure'))
+    await expect(nativeStatus(env)).rejects.toThrow('Native installation and runtime status unavailable.')
+  })
+  it.each(['up', 'down', 'restart'] as const)('never substitutes read-only observations for %s', async command => {
+    await expect(defaultConciergeControl(env).request(command)).rejects.toThrow()
+    expect(execFile).not.toHaveBeenCalled()
+  })
+  it('keeps custom endpoint observations separate from native HOME', async () => {
+    const custom = { ...env, DEARMACHINE_SUPERVISOR_SOCKET: '/fixture/custom.sock' }
+    await expect(defaultConciergeControl(custom).request('status')).rejects.toThrow()
+    await expect(nativeStatus(custom)).rejects.toThrow()
+    expect(execFile).not.toHaveBeenCalled()
   })
 })

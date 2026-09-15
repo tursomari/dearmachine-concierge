@@ -52,13 +52,13 @@ export function parseInvocation(args: readonly string[], environment: NodeJS.Pro
 }
 
 export interface InstallationDiagnosis {
-  installation: InstallationState
+  installation: InstallationState | 'unknown'
   status?: DaemonStatus
   guidance?: string
 }
 const recoveryGuidance = 'Existing installation state needs diagnosis. Run dearmachine status and dearmachine --help. The concierge will not overwrite or reinstall it.'
 
-/** Presence guards against overwrite; only the native control owner can validate an installation. */
+/** Presence guards against overwrite; native status validates independently of liveness. */
 export async function inspectInstallation(
   home: string,
   control: DaemonControl,
@@ -80,7 +80,7 @@ export async function inspectInstallation(
     if (status.installation === 'absent') return { installation: 'partial', guidance: recoveryGuidance }
     return { installation: status.installation, status, ...(status.installation === 'installed' ? {} : { guidance: recoveryGuidance }) }
   } catch {
-    return { installation: 'partial', guidance: recoveryGuidance }
+    return { installation: 'unknown', guidance: 'Installation health could not be verified. Run dearmachine status. An unavailable supervisor does not establish an incomplete installation.' }
   }
 }
 

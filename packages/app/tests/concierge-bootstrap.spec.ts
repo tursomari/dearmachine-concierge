@@ -50,3 +50,20 @@ it.each(['backing-off', 'failed', 'stopped'] as const)('does not retry a complet
   expect(result.code).toBe(1)
   expect(request.mock.calls.every(args => args.length === 1 && args[0] === 'status')).toBe(true)
 })
+
+it('bootstraps explicit up after native inspection confirms an installed stopped client', async () => {
+  const stopped: DaemonStatus = { ...running, supervisor: 'stopped', daemon: 'stopped' }
+  let available = false
+  const socket = { request: vi.fn(async () => {
+    if (!available) throw new EndpointAbsentError()
+    return running
+  }) }
+  const bootstrap = vi.fn(async () => { available = true })
+  const control = new BootstrapDaemonControl(socket, bootstrap, 100, undefined, undefined, async () => stopped)
+  expect((await executeDaemonCommand(control, 'status')).code).toBe(0)
+  expect((await executeDaemonCommand(control, 'down')).code).toBe(0)
+  expect(bootstrap).not.toHaveBeenCalled()
+  expect(socket.request).not.toHaveBeenCalled()
+  expect((await executeDaemonCommand(control, 'up')).code).toBe(0)
+  expect(bootstrap).toHaveBeenCalledTimes(1)
+})

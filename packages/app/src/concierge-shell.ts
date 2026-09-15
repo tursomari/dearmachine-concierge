@@ -112,7 +112,12 @@ export async function executeDaemonCommand(control: DaemonControl, command: Daem
       : state.supervisor === 'running' && state.daemon === 'running')
     if (command !== 'restart' && confirmed(status)) return { code: 0, message: `${bootstrapped ? '' : `Already ${status.daemon}. `}${await readDaemonStatusReport(control, status)}` }
     if (bootstrapped) return { code: 1, message: `Operation not confirmed. ${formatDaemonStatus(status)} Run dearmachine status before retrying.` }
-    status = await control.request(command)
+    try { status = await control.request(command) } catch (error) {
+      // Native inspection can confirm a stopped installation even when its
+      // socket is absent. Only an explicit up may bootstrap that owner.
+      if (command !== 'up' || !(error instanceof EndpointAbsentError) || !control.bootstrapUp) throw error
+      status = await control.bootstrapUp(progress)
+    }
     return confirmed(status)
       ? { code: 0, message: await readDaemonStatusReport(control, status) }
       : { code: 1, message: `Operation not confirmed. ${formatDaemonStatus(status)} Run dearmachine status before retrying.` }

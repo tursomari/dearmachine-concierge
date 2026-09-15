@@ -151,5 +151,42 @@ setInterval(() => {}, 1000);
     ])
     expect(interrupted.code).toBe(0)
     expect((await control.request('status')).daemon).toBe('running')
+
+    // A clean update/service shutdown releases ownership but leaves its lock.
+    // Reopening the concierge must still validate the installation, remain
+    // stopped, and allow the ordinary startup update check.
+    await control.request('down')
+    await stop(owner)
+    const registry = await readFile(join(root, 'pairs.toml'), 'utf8')
+    const record = await readFile(join(root, 'run', 'supervisor.lock'), 'utf8')
+    const launchRecord = await readFile(join(root, 'run', 'launches'), 'utf8')
+    const stopped = await terminal(env, [
+      { prompt: 'Use /help', input: '/status\r' },
+      { prompt: 'Dear Machine: stopped', input: '/quit\r' },
+    ])
+    expect(stopped.code, stopped.output).toBe(0)
+    expect(stopped.output).toContain('Supervisor: stopped')
+    expect(stopped.output).toContain('Crash recovery: inactive until started again')
+    expect(stopped.output).not.toContain('Installation: partial')
+    expect(stopped.output).not.toContain('Existing installation state needs diagnosis')
+    expect(stopped.output).not.toContain('Bootstrapping')
+    expect(stopped.output).not.toContain('detailed native status unavailable')
+    expect(await readFile(join(root, 'pairs.toml'), 'utf8')).toBe(registry)
+    expect(await readFile(join(root, 'run', 'supervisor.lock'), 'utf8')).toBe(record)
+    expect(await readFile(join(root, 'run', 'launches'), 'utf8')).toBe(launchRecord)
+    await expect(control.request('status')).rejects.toThrow()
+  })
+  it('keeps actual incomplete setup in recovery without a supervisor', async () => {
+    const { home, env } = await fixture()
+    const root = join(home, '.dearmachine')
+    await mkdir(root, { mode: 0o700 })
+    const invalid = 'invalid registry ['
+    await writeFile(join(root, 'pairs.toml'), invalid, { mode: 0o600 })
+    const result = await terminal(env, [{ prompt: 'Use /help', input: '/quit\r' }])
+    expect(result.code, result.output).toBe(1)
+    expect(result.output).toContain('Recovery: existing installation state is partial or unreadable')
+    expect(result.output).toContain('automatic fresh setup was not selected')
+    expect(result.output).not.toContain('Would you like to continue')
+    expect(await readFile(join(root, 'pairs.toml'), 'utf8')).toBe(invalid)
   })
 })

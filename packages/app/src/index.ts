@@ -210,6 +210,8 @@ export interface AgentToolActivityState {
 
 export function renderAgentEvent(tui: AgentEventTui, tools: Map<string, AgentToolActivityState>, event: InstallerAgentEvent): void {
   switch (event.type) {
+    case 'assistant-stream':
+      break
     case 'assistant':
       // Model deliberation is not user guidance. Keep the normal installer
       // conversation as focused as the concierge; tool summaries remain visible.

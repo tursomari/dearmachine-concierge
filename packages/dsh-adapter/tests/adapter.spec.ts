@@ -223,6 +223,18 @@ describe('pinned DSH compatibility boundary', () => {
       data: { message: { content: [{ type: 'reasoning', text: 'considering' }, { type: 'text', text: 'Welcome.' }] } },
     })).toEqual({ type: 'assistant', text: 'Welcome.', reasoning: 'considering' })
     expect(normalizeDshSessionEvent({
+      type: 'assistant/chunk', data: { chunk: { type: 'reasoning-delta', index: 0, text: 'private token' } },
+    })).toEqual({ type: 'assistant-stream', channel: 'internal' })
+    expect(normalizeDshSessionEvent({
+      type: 'assistant/chunk', data: { chunk: { type: 'text-delta', index: 1, text: 'visible token' } },
+    })).toEqual({ type: 'assistant-stream', channel: 'visible' })
+    expect(normalizeDshSessionEvent({
+      type: 'assistant/chunk', data: { chunk: { type: 'tool-call-delta', index: 2, id: 'call-1', argumentsDelta: 'private arguments' } },
+    })).toEqual({ type: 'assistant-stream', channel: 'internal' })
+    expect(JSON.stringify(normalizeDshSessionEvent({
+      type: 'assistant/chunk', data: { chunk: { type: 'reasoning-delta', index: 0, text: 'private token' } },
+    }))).not.toContain('private token')
+    expect(normalizeDshSessionEvent({
       type: 'tool/call',
       data: {
         callId: 'call-1',

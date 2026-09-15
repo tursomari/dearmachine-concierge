@@ -273,6 +273,29 @@ describe('Machtiani Installer TUI', () => {
     expect(harness.terminal.progress).toBe(false)
   })
 
+  it('renders the two-cell activity glyph before a stable status label', async () => {
+    const terminal = new HeadlessTerminal()
+    const tui = new InstallerTui({
+      terminal,
+      color: true,
+      environment: { TERM: 'xterm-256color', MACHTIANI_MOTION: 'reduced' },
+    })
+    const harness = { terminal, tui }
+    opened.push(harness)
+    tui.start()
+    tui.setProgress('Working through…', 'medium')
+    await terminal.waitForFrame()
+    const active = await terminal.snapshot()
+    expect(active).toContain('⢆⡰ Working through…')
+    expect(active).toContain('fg=bright-magenta')
+    expect(active).toContain('dim')
+    expect(active).toContain('› ')
+
+    tui.setProgress(undefined)
+    await terminal.waitForFrame()
+    expect(await terminal.snapshot()).not.toContain('⢆⡰')
+  })
+
   it('recesses routine tool activity while keeping failures prominent', async () => {
     const terminal = new HeadlessTerminal()
     const tui = new InstallerTui({ terminal, color: true, environment: { TERM: 'xterm-256color' } })

@@ -8,6 +8,7 @@ import { loadSourceReference, resolveSourceReference, type SourceReference } fro
 import { changeAssistantModel } from './assistant-model.ts'
 import { NativeUpdateControl } from './native-update.ts'
 import { NaturalUpdateRouter, runConciergeUpdate } from './concierge-update.ts'
+import { ConciergeActivityIndicator } from './concierge-activity.ts'
 
 export { defaultConciergeControl } from './concierge-control.ts'
 export const CONCIERGE_RELAUNCH_EXIT_CODE = 75
@@ -20,11 +21,13 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
   let shell!: ConciergeShell
   const naturalUpdates = new NaturalUpdateRouter()
   const tools = new Map<string, AgentToolActivityState>()
+  let activity!: ConciergeActivityIndicator
   const conversation: ManagementConversation = new ManagementConversation(() => openManagementAgent({
     askSecret: (message, signal) => tui.askSecret(message, signal),
     event: event => {
+      activity.event(event)
       const updateRequest = naturalUpdates.accept(event)
-      if (event.type === 'local-action') {
+      if (event.type === 'local-action' || event.type === 'assistant-stream') {
         return
       }
       if (event.type !== 'turn-end') renderAgentEvent(tui, tools, event.type === 'assistant' ? { ...event, reasoning: '' } : event)
@@ -34,7 +37,7 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
         tui.addAssistant('The management assistant could not complete that turn. Use /help for local controls; inspect dearmachine status for any unconfirmed operation.')
       }
     },
-    status: status => tui.setProgress(status === 'running' ? 'Thinking' : undefined),
+    status: status => activity.status(status),
   }, sourceReference), sourceReference)
   const tui = new InstallerTui({
     title: 'Dear Machine Concierge', exitWindowMs: 2_000, interruptHint: conciergeInterruptHint,
@@ -44,6 +47,7 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
     onInterrupt: () => conversation.interrupt(),
     onExit: () => { void shell.submit('/quit') },
   })
+  activity = new ConciergeActivityIndicator(tui)
   const updater = new NativeUpdateControl()
   shell = new ConciergeShell({
     chooseSupervision: nativeSupervisionChoice,
@@ -75,6 +79,7 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
     return await exited
   } finally {
     lifetime.abort()
+    activity.dispose()
     try { await conversation.close() } finally { await tui.dispose(); await modelChange?.catch(() => {}) }
   }
 }

@@ -69,6 +69,8 @@ export interface ToolActivity {
   fail(summary: string): void
 }
 
+export type InstallerProgressSpeed = 'slow' | 'medium' | 'fast'
+
 export interface InstallerInteractionHandle {
   close(): void
 }
@@ -129,7 +131,9 @@ export class InstallerTui {
   private started = false
   private stopped = false
   private progressMessage: string | undefined
+  private progressSpeed: InstallerProgressSpeed | undefined
   private suspendedProgressMessage: string | undefined
+  private suspendedProgressSpeed: InstallerProgressSpeed | undefined
   private progressFrame = 0
   private progressTimer: ReturnType<typeof setInterval> | undefined
   private exitArmed = false
@@ -240,23 +244,31 @@ export class InstallerTui {
     this.requestRender()
   }
 
-  setProgress(message: string | undefined): void {
+  setProgress(message: string | undefined, speed?: InstallerProgressSpeed): void {
     if (message === undefined) {
       this.progressMessage = undefined
+      this.progressSpeed = undefined
       this.progressFrame = 0
       if (this.progressTimer !== undefined) clearInterval(this.progressTimer)
       this.progressTimer = undefined
       this.status.setText('')
     } else {
       const nextMessage = displayText(message)
-      if (nextMessage !== this.progressMessage) this.progressFrame = 0
+      const priorDelay = this.progressDelay()
+      if (nextMessage !== this.progressMessage || speed !== this.progressSpeed) this.progressFrame = 0
       this.progressMessage = nextMessage
+      this.progressSpeed = speed
       this.renderProgress()
+      const nextDelay = this.progressDelay()
+      if (this.progressTimer !== undefined && priorDelay !== nextDelay) {
+        clearInterval(this.progressTimer)
+        this.progressTimer = undefined
+      }
       if (this.motionMode === 'full' && this.progressTimer === undefined) {
         this.progressTimer = setInterval(() => {
           this.progressFrame += 1
           this.renderProgress()
-        }, 600)
+        }, nextDelay)
         this.progressTimer.unref()
       }
     }
@@ -362,6 +374,7 @@ export class InstallerTui {
       `${this.theme.bold(this.theme.truth(`🔒  ${displayText(label)}`))}  ${this.theme.dim(displayText(cancellationHint))}`,
     )
     this.suspendedProgressMessage = this.progressMessage
+    this.suspendedProgressSpeed = this.progressSpeed
     this.setProgress(undefined)
     this.inputSlot.removeChild(this.editor)
     this.inputSlot.addChild(this.secureInputLabel)
@@ -420,7 +433,9 @@ export class InstallerTui {
     if (this.progressTimer !== undefined) clearInterval(this.progressTimer)
     this.progressTimer = undefined
     this.progressMessage = undefined
+    this.progressSpeed = undefined
     this.suspendedProgressMessage = undefined
+    this.suspendedProgressSpeed = undefined
     this.cancellationHandler = undefined
     this.clearExitWarning()
     if (this.externalWaitLabel !== undefined) this.inputSlot.removeChild(this.externalWaitLabel)
@@ -507,8 +522,10 @@ export class InstallerTui {
     this.inputSlot.addChild(this.editor)
     this.ui.setFocus(this.editor)
     const resumeProgress = this.suspendedProgressMessage
+    const resumeSpeed = this.suspendedProgressSpeed
     this.suspendedProgressMessage = undefined
-    if (resumeProgress !== undefined) this.setProgress(resumeProgress)
+    this.suspendedProgressSpeed = undefined
+    if (resumeProgress !== undefined) this.setProgress(resumeProgress, resumeSpeed)
     this.requestRender()
   }
 
@@ -570,12 +587,28 @@ export class InstallerTui {
   private renderProgress(): void {
     const message = this.progressMessage
     if (message === undefined) return
+    if (this.progressSpeed !== undefined) {
+      const frames = ['⢆⡰', '⢎⡠', '⢎⡁', '⢎⠑', '⠎⠱', '⠊⡱', '⢈⡱', '⢄⡱'] as const
+      const marker = this.motionMode === 'none'
+        ? ''
+        : `${this.theme.beauty(frames[this.motionMode === 'full' ? this.progressFrame % frames.length : 0]!)} `
+      this.status.setText(`${marker}${this.theme.dim(message)}`)
+      this.requestRender()
+      return
+    }
     const frames = ['', '.', '..', '...'] as const
     const marker = this.motionMode === 'full'
       ? frames[this.progressFrame % frames.length]
       : this.motionMode === 'reduced' ? '...' : ''
     this.status.setText(this.theme.dim(`${message}${marker}`))
     this.requestRender()
+  }
+
+  private progressDelay(): number {
+    if (this.progressSpeed === 'fast') return 20
+    if (this.progressSpeed === 'medium') return 50
+    if (this.progressSpeed === 'slow') return 100
+    return 600
   }
 }
 

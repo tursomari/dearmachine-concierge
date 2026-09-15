@@ -170,6 +170,7 @@ export interface DshTaskResult {
 
 export type InstallerAgentEvent =
   | { type: 'assistant'; text: string; reasoning: string }
+  | { type: 'assistant-stream'; channel: 'visible' | 'internal' }
   | { type: 'local-action'; action: 'check-update' | 'install-update' }
   | { type: 'tool-start'; id: string; name: string; detail: string; command?: string }
   | { type: 'tool-end'; id: string; failed: boolean }
@@ -281,6 +282,19 @@ export function normalizeDshSessionEvent(value: unknown, options: { showCommands
       type: 'assistant',
       text: contentText(message?.content, 'text'),
       reasoning: contentText(message?.content, 'reasoning'),
+    }
+  }
+  if (event?.type === 'assistant/chunk') {
+    const chunk = record(data?.chunk)
+    if (chunk?.type === 'text-delta' && typeof chunk.text === 'string' && chunk.text !== '') {
+      return { type: 'assistant-stream', channel: 'visible' }
+    }
+    if (chunk?.type === 'reasoning-delta' && typeof chunk.text === 'string' && chunk.text !== '') {
+      return { type: 'assistant-stream', channel: 'internal' }
+    }
+    if (chunk?.type === 'tool-call-delta' &&
+      (typeof chunk.argumentsDelta === 'string' && chunk.argumentsDelta !== '' || typeof chunk.name === 'string' && chunk.name !== '')) {
+      return { type: 'assistant-stream', channel: 'internal' }
     }
   }
   if (event?.type === 'tool/call' && typeof data?.callId === 'string' && typeof data.name === 'string') {

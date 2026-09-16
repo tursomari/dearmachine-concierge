@@ -10,7 +10,7 @@ import { assistantModelPath, ensureAssistantModel, sharedModelPath } from './ass
 
 interface ManagementRuntimeContext extends CredentialRuntimeContext {
   sharedModelSelection?: { provider: string; model: string; reasoningEffort?: string; profile: string }
-  installation?: { method: 'standard'; distribution: ProductDistribution }
+  installation?: { method: 'standard' | 'container'; distribution: ProductDistribution }
 }
 
 export function managementAgentPrompt(text: string, sourceReference?: SourceReference, credentials?: ManagementRuntimeContext): string {
@@ -124,7 +124,7 @@ export async function openManagementAgent(ports: {
         provider: shared.provider, model: shared.model, profile: sharedModelPath(home),
         ...(shared.reasoningEffort === undefined ? {} : { reasoningEffort: shared.reasoningEffort }),
       } }),
-      ...(distribution === undefined ? {} : { installation: { method: 'standard' as const, distribution } }),
+      ...(distribution === undefined ? {} : { installation: { method: distribution.method ?? 'standard', distribution } }),
     },
     start: () => session.start(), prompt: text => session.prompt(text), interrupt: () => session.interrupt(), pause: () => session.pause(),
     shutdown: async () => {

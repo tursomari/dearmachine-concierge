@@ -2,17 +2,17 @@ import { expect, it, vi } from 'vitest'
 import { InstallerChoiceBackError } from '@dearmachine/machtiani-installer-tui'
 import { chooseInstallationMethod } from '../src/installation-method.ts'
 
-it('offers Standard by default with an explicit Nix alternative', async () => {
-  const choose = vi.fn().mockResolvedValue('standard')
-  expect(await chooseInstallationMethod({ choose }, true, new Promise(() => {}))).toBe('standard')
-  expect(choose.mock.calls[0]?.[2]).toBe('standard')
-  expect(choose.mock.calls[0]?.[1].map((option: { value: string }) => option.value)).toEqual(['standard', 'nix'])
+it('offers Nix and Container build without requiring prebuilt products', async () => {
+  const choose = vi.fn().mockResolvedValue('container')
+  expect(await chooseInstallationMethod({ choose }, true, new Promise(() => {}))).toBe('container')
+  expect(choose.mock.calls[0]?.[2]).toBe('container')
+  expect(choose.mock.calls[0]?.[1].map((option: { value: string }) => option.value)).toEqual(['nix', 'container'])
 })
 
-it('does not advertise missing prebuilt products from a Nix entrypoint', async () => {
-  const choose = vi.fn()
-  expect(await chooseInstallationMethod({ choose }, false, new Promise(() => {}))).toBe('nix')
-  expect(choose).not.toHaveBeenCalled()
+it('offers the same methods from a source checkout', async () => {
+  const choose = vi.fn().mockResolvedValue('container')
+  expect(await chooseInstallationMethod({ choose }, false, new Promise(() => {}))).toBe('container')
+  expect(choose.mock.calls[0]?.[1].map((option: { label: string }) => option.label)).toEqual(['Nix', 'Container build'])
 })
 
 it('returns to the preceding consent screen on Escape', async () => {

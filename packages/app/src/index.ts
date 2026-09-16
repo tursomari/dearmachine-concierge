@@ -19,6 +19,7 @@ import { ConciergeShell, conciergeInterruptHint } from './concierge-shell.ts'
 import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-control.ts'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { resolveSourceReference, saveSourceReference, type SourceReference } from './source-reference.ts'
+import { buildContainerDistribution } from './container-build.ts'
 import { runInstallationWizard } from './installation-wizard.ts'
 import { saveInterfacePreferences } from './interface-preferences.ts'
 import { submitInstallerMessage, type InstallerAssistantState } from './installer-conversation.ts'
@@ -267,7 +268,7 @@ export function installerTurnMessage(event: Extract<InstallerAgentEvent, { type:
 export async function runInstaller(sourceRoot: string, paths = defaultInstallerPaths()): Promise<void> {
   assertInteractiveTerminal()
   const dshHome = join(paths.stateDirectory, 'dsh')
-  const source = await validatedSourceRoot(sourceRoot)
+  let source = await validatedSourceRoot(sourceRoot)
   const home = process.env.HOME
   if (home === undefined || home === '') throw new Error('HOME is required to run the installer agent')
   await mkdir(paths.workspace, { recursive: true, mode: 0o700 })
@@ -278,6 +279,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   let assistantState: InstallerAssistantState = 'setup'
   const lifetime = new AbortController()
   let modelChange: Promise<void> | undefined
+  let building: AbortController | undefined
   let setup: InstallerModelSetup | undefined
   let wizard: Promise<InstallerModelSelection> | undefined
   const tools = new Map<string, AgentToolActivityState>()
@@ -286,7 +288,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     onLocalCommand: text => shell.submit(text),
     exitWindowMs: 2_000, interruptHint: conciergeInterruptHint,
     onSubmit: text => shell.submit(text),
-    onInterrupt: async () => { await agent?.interrupt() },
+    onInterrupt: async () => { if (building) building.abort(); else await agent?.interrupt() },
     onExit: () => { void shell.submit('/quit') },
   })
   shell = new ConciergeShell({
@@ -303,7 +305,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       modelChange = changeAssistantModel(tui, { home, signal: lifetime.signal, pause: () => agent!.pause() })
       await modelChange
     },
-    close: async () => { lifetime.abort(); requestExit() },
+    close: async () => { lifetime.abort(); building?.abort(); requestExit() },
   })
   const credentials = new CredentialFileAdapter({ home })
   const socketPath = credentialSocketPath(paths.stateDirectory)
@@ -314,7 +316,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   const outcomeWait = new AbortController()
   try {
     tui.start()
-    const distribution = await loadDistribution(process.env)
+    let distribution = await loadDistribution(process.env)
     if (distribution !== undefined && distribution.sourceRoot !== source) throw new Error('the distribution does not match the installer source root')
     const credentialPath = join(home, '.config', 'dearmachine', 'backends.env')
     const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
@@ -329,9 +331,18 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     const configured = await runInstallationWizard(tui, distribution !== undefined, exitRequested, async () => {
       wizard = runInstallerModelWizard(tui, await modelSetup())
       return await wizard
+    }, async method => {
+      if (method !== 'container' || distribution?.method === 'container') return
+      building = new AbortController()
+      tui.setProgress('Building Dear Machine with Docker; the first build downloads its dependencies. Ctrl+C cancels.')
+      try {
+        distribution = await buildContainerDistribution({ sourceRoot: source,
+          diagnosticPath: join(paths.stateDirectory, 'container-build.log'), signal: building.signal })
+      } finally { building = undefined; tui.setProgress(undefined) }
     })
     if (configured === undefined) return
     const { selection, method, showCommands } = configured
+    if (method === 'container' && distribution) source = distribution.sourceRoot
     await saveInterfacePreferences(home, { showCommands }).catch(() => {
       tui.addAssistant('Your command-display choice applies to this installation, but could not be saved for future conversations.')
     })
@@ -358,6 +369,8 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
         MACHTIANI_INSTALLER_CONTRACT: join(source, 'INSTALL.md'),
         MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath,
         MACHTIANI_INSTALL_METHOD: method,
+        ...(method === 'container' && distribution ? { MACHTIANI_DISTRIBUTION: distribution.manifestPath,
+          PATH: `${dirname(distribution.binaries.dearmachine)}:${process.env.PATH ?? ''}` } : {}),
       },
       onEvent: event => { renderAgentEvent(tui, tools, event) },
       onStatus: status => { tui.setProgress(status === 'running' ? installationProgressLabel : undefined) },
@@ -365,7 +378,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     await agent.start()
     assistantState = 'ready'
     await agent.prompt(installerAgentPrompt(credentialHelper, selection, modelProfilePath, sourceReference, {
-      method, ...(distribution === undefined ? {} : { distribution }),
+      method, ...(method === 'nix' || distribution === undefined ? {} : { distribution }),
     }))
     const completion = await Promise.race([
       exitRequested.then(() => ({ kind: 'exit' as const })),

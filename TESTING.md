@@ -57,6 +57,19 @@ The active Vitest configuration collects `packages/*/tests/**/*.spec.ts` and
 Use Vitest's normal file or name filters after `pnpm build` for focused work;
 the full `pnpm test` remains the maintained aggregate suite.
 
+## Container build wizard and handoff
+
+The existing `installation-method.spec.ts` and `installation-wizard.spec.ts`
+suites cover Nix/Container build selection, back navigation, build failure,
+and exit before provider setup. `container-build.spec.ts` exercises the real
+subprocess handoff with a fixture builder: validated manifest, paths containing
+spaces, retained diagnostics and cancellation. They run through `pnpm test`.
+
+The umbrella owns the actual Docker recipe, source isolation and activation
+tests. Its shared runtime smoke gate and IXE VM acquisition exercise use the
+same production builder. Do not duplicate them in this component or treat a
+mocked command runner as proof that a Docker-built runtime works.
+
 ## Concierge increment checks
 
 ### Empty model responses

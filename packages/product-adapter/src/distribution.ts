@@ -2,8 +2,9 @@ import { access, lstat, readFile, realpath, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { dirname, isAbsolute, join, relative } from 'node:path'
 
-export type InstallationMethod = 'standard' | 'nix'
+export type InstallationMethod = 'standard' | 'nix' | 'container'
 export interface ProductDistribution {
+  method?: 'standard' | 'container'
   manifestPath: string
   sourceRoot: string
   binaries: { dearmachine: string; machtiani: string; modelHost: string; agentManager: string }
@@ -20,7 +21,7 @@ export async function loadDistribution(environment: NodeJS.ProcessEnv): Promise<
   }
   const root = await realpath(dirname(manifestPath))
   const value = JSON.parse(await readFile(manifestPath, 'utf8')) as {
-    version?: unknown; sourceRoot?: unknown; binaries?: Record<string, unknown>
+    version?: unknown; method?: unknown; sourceRoot?: unknown; binaries?: Record<string, unknown>
   }
   if (value.version !== 1 || value.binaries === undefined || value.binaries === null) throw new Error('invalid distribution manifest')
   const resolveMember = async (member: unknown, executable: boolean): Promise<string> => {
@@ -39,7 +40,9 @@ export async function loadDistribution(environment: NodeJS.ProcessEnv): Promise<
     } else if (!info.isDirectory()) throw new Error('distribution source root is not a directory')
     return path
   }
+  if (value.method !== undefined && value.method !== 'container' && value.method !== 'standard') throw new Error('invalid distribution method')
   return {
+    ...(value.method === undefined ? {} : { method: value.method }),
     manifestPath, sourceRoot: await resolveMember(value.sourceRoot, false),
     binaries: {
       dearmachine: await resolveMember(value.binaries.dearmachine, true),

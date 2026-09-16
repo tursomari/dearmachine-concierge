@@ -105,9 +105,9 @@ export async function saveHeadlessModelProfile(
 export async function runHeadlessProductInstallation(sourceRoot: string, selectionFile: string, existingInboxId?: string, reasoningEffort?: string): Promise<InstalledProducts> {
   const source = await validatedSourceRoot(sourceRoot)
   const method = process.env.MACHTIANI_INSTALL_METHOD
-  if (method !== undefined && method !== 'standard' && method !== 'nix') throw new Error('invalid installation method')
+  if (method !== undefined && method !== 'standard' && method !== 'nix' && method !== 'container') throw new Error('invalid installation method')
   const distribution = method === 'nix' ? undefined : await loadDistribution(process.env)
-  if (method === 'standard' && distribution === undefined) throw new Error('standard installation requires a complete prebuilt distribution')
+  if ((method === 'standard' || method === 'container') && distribution === undefined) throw new Error('this installation method requires a complete supplied distribution')
   const home = process.env.HOME
   if (home === undefined || home === '') throw new Error('HOME is required for headless product installation.')
   const paths = defaultInstallerPaths()

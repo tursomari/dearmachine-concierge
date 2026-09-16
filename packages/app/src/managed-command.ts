@@ -26,7 +26,7 @@ export async function runManagedCommand(action: 'install' | 'update' | 'migrate-
   if (json && operation === undefined) throw new Error('Usage: dearmachine update [--check | --recover] [--json]')
   if (process.env.MACHTIANI_DISTRIBUTION) {
     if (json && operation !== undefined) { writeJSON({ operation, state: 'unsupported' }); return }
-    throw new Error('Standard releases use their own release channel; the Nix updater cannot change them')
+    throw new Error('Container build and Standard releases cannot be changed by the Nix updater')
   }
 
   const dataHome = process.env.DEARMACHINE_MANAGED_DATA_HOME || process.env.XDG_DATA_HOME

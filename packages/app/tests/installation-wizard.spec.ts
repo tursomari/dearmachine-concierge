@@ -4,7 +4,7 @@ import { runInstallationWizard } from '../src/installation-wizard.ts'
 
 it('goes from provider back to installation method without repeating consent', async () => {
   const choose = vi.fn().mockResolvedValueOnce('continue').mockResolvedValueOnce('yes')
-    .mockResolvedValueOnce('standard').mockResolvedValueOnce('nix')
+    .mockResolvedValueOnce('container').mockResolvedValueOnce('nix')
   const selection = { provider: 'fixture', model: 'fixture' }
   const model = vi.fn().mockRejectedValueOnce(new InstallerChoiceBackError()).mockResolvedValueOnce(selection)
   expect(await runInstallationWizard({ choose, addAssistant: vi.fn() }, true, new Promise(() => {}), model))
@@ -21,9 +21,39 @@ it('returns from method selection to consent and can decline without opening a m
   expect(model).not.toHaveBeenCalled()
 })
 
-it('returns to consent from the provider menu when there is no method menu', async () => {
-  const choose = vi.fn().mockResolvedValueOnce('continue').mockResolvedValueOnce('no').mockResolvedValueOnce('not-now')
-  const model = vi.fn().mockRejectedValueOnce(new InstallerChoiceBackError())
-  expect(await runInstallationWizard({ choose, addAssistant: vi.fn() }, false, new Promise(() => {}), model)).toBeUndefined()
-  expect(model).toHaveBeenCalledTimes(1)
+it('returns to method selection from the provider menu even without prebuilt products', async () => {
+  const choose = vi.fn().mockResolvedValueOnce('continue').mockResolvedValueOnce('no')
+    .mockResolvedValueOnce('container').mockResolvedValueOnce('nix')
+  const selection = { provider: 'fixture', model: 'fixture' }
+  const model = vi.fn().mockRejectedValueOnce(new InstallerChoiceBackError()).mockResolvedValueOnce(selection)
+  expect(await runInstallationWizard({ choose, addAssistant: vi.fn() }, false, new Promise(() => {}), model))
+    .toEqual({ selection, method: 'nix', showCommands: false })
+  expect(choose.mock.calls.filter(call => call[0].includes('How would you like to install'))).toHaveLength(2)
+})
+
+it('prepares the chosen runtime before model setup and allows another method after a build failure', async () => {
+  const choose = vi.fn().mockResolvedValueOnce('continue').mockResolvedValueOnce('no')
+    .mockResolvedValueOnce('container').mockResolvedValueOnce('nix')
+  const addAssistant = vi.fn()
+  const calls: string[] = []
+  const prepare = async (method: string) => {
+    calls.push(method)
+    if (method === 'container') throw new Error('Docker is not available. Start Docker and try again.')
+  }
+  const selection = { provider: 'fixture', model: 'fixture' }
+  const model = async () => { calls.push('model'); return selection }
+  expect(await runInstallationWizard({ choose, addAssistant }, false, new Promise(() => {}), model, prepare))
+    .toEqual({ selection, method: 'nix', showCommands: false })
+  expect(calls).toEqual(['container', 'nix', 'model'])
+  expect(addAssistant).toHaveBeenCalledWith(expect.stringContaining('Docker is not available'))
+})
+
+it('does not open model setup when the interface exits during a build', async () => {
+  let exit!: () => void
+  const exited = new Promise<void>(resolve => { exit = resolve })
+  const choose = vi.fn().mockResolvedValueOnce('continue').mockResolvedValueOnce('no').mockResolvedValueOnce('container')
+  const model = vi.fn()
+  const prepare = async () => { exit(); await Promise.resolve() }
+  expect(await runInstallationWizard({ choose, addAssistant: vi.fn() }, false, exited, model, prepare)).toBeUndefined()
+  expect(model).not.toHaveBeenCalled()
 })

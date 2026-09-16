@@ -10,7 +10,10 @@ export async function runInstallationWizard(
   prebuiltAvailable: boolean,
   exited: Promise<void>,
   chooseModel: () => Promise<InstallerModelSelection>,
+  prepare: (method: InstallationMethod) => Promise<void> = async () => {},
 ): Promise<{ selection: InstallerModelSelection; method: InstallationMethod; showCommands: boolean } | undefined> {
+  let closed = false
+  void exited.then(() => { closed = true })
   while (true) {
     const consent = await installationConsent(tui, exited)
     if (consent === undefined) return
@@ -19,12 +22,19 @@ export async function runInstallationWizard(
       if (method === undefined) return
       if (method === 'back') break
       try {
+        await prepare(method)
+      } catch (error) {
+        if (closed) return
+        tui.addAssistant(error instanceof Error ? error.message : 'Software preparation failed. Choose a method to try again.')
+        continue
+      }
+      if (closed) return
+      try {
         const selection = await Promise.race([chooseModel(), exited.then(() => undefined)])
         if (selection === undefined) return
         return { selection, method, showCommands: consent.showCommands }
       } catch (error) {
         if (!(error instanceof InstallerChoiceBackError)) throw error
-        if (!prebuiltAvailable) break
       }
     }
   }

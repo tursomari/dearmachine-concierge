@@ -55,7 +55,7 @@ async function fixture(options = {}) {
       if (args[0] === 'ls-remote') return `ref: refs/heads/main\tHEAD\n${control.latest}\tHEAD\n`
       if (args[0] === 'clone') { await mkdir(args.at(-1)); return '' }
       const checkout = args[1], action = args[2]
-      if (action === 'remote') return 'https://example.invalid/dearmachine.git\n'
+      if (action === 'config' && args.at(-1) === 'remote.origin.url') return 'https://example.invalid/dearmachine.git\n'
       if (action === 'rev-parse') return old + '\n'
       if (action === 'checkout' || action === 'submodule') return ''
       const revision = args.at(-1)

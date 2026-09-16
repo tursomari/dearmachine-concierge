@@ -128,8 +128,18 @@ function commandPath(environment: NodeJS.ProcessEnv, home: string): string {
   return [join(home, '.local', 'bin'), join(home, '.nix-profile', 'bin'), environment.PATH ?? ''].filter(Boolean).join(delimiter)
 }
 
+function nativeRunning(status: string): boolean {
+  return /^(?:Dear Machine: running|DearMachine is running(?: \(PID \d+\))?\.?)\r?$/mu.test(status)
+}
+
 function parseInbox(status: string, sender: string, transport: string): string {
   const expectedSender = sender.trim().toLocaleLowerCase('en-US')
+  for (const match of status.matchAll(/^Inbox: ([^\r\n]+)\r?\nAuthorized sender: ([^\r\n]+)\r?\nTransport: ([^\r\n]+)\r?$/gmu)) {
+    if (match[2]?.trim().toLocaleLowerCase('en-US') === expectedSender && match[3]?.trim() === transport) {
+      const address = match[1]?.trim()
+      if (address) return address
+    }
+  }
   for (const line of status.split(/\r?\n/gu)) {
     const fields = line.split('\t')
     if (fields.length === 4 && fields[1]?.toLocaleLowerCase('en-US') === expectedSender && fields[3] === transport) {
@@ -492,10 +502,10 @@ export class NativeProductInstaller {
         try { recoveredInbox = parseInbox(recoveredStatus.stdout, selection.authorizedSender, transport.id) } catch {
           throw new Error('Pair creation was interrupted before a matching local pair could be proven. The installer will not request another remote inbox automatically.')
         }
-        if (!recoveredStatus.stdout.includes('DearMachine is running')) {
+        if (!nativeRunning(recoveredStatus.stdout)) {
           await run('Restart recovered Dear Machine pair', ['dearmachine', 'up'])
           const restarted = await run('Verify restarted Dear Machine status', ['dearmachine', 'status'])
-          if (!restarted.stdout.includes('DearMachine is running')) throw new Error('The recovered Dear Machine pair did not restart successfully.')
+          if (!nativeRunning(restarted.stdout)) throw new Error('The recovered Dear Machine pair did not restart successfully.')
           recoveredInbox = parseInbox(restarted.stdout, selection.authorizedSender, transport.id)
         }
         await advance('pair-created', recoveredInbox)
@@ -514,7 +524,7 @@ export class NativeProductInstaller {
     }
 
     const status = await run('Verify Dear Machine status', ['dearmachine', 'status'])
-    if (!status.stdout.includes('DearMachine is running')) throw new Error('Dear Machine did not report a running native client.')
+    if (!nativeRunning(status.stdout)) throw new Error('Dear Machine did not report a running native client.')
     const inboxAddress = parseInbox(status.stdout, selection.authorizedSender, transport.id)
     const backendCheck = await run('Verify selected backend', ['agent-manager', 'backend', 'health', selection.backend.id], entryPoint)
     if (!/(?:^|\n)result=ok(?:\n|$)/u.test(backendCheck.stdout)) throw new Error('The installed selected backend did not pass its functional health check.')

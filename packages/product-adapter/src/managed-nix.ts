@@ -95,7 +95,8 @@ export class ManagedNix {
         await this.checkLaunchers(true)
         if (existing.sourceRoot === source) return existing
       }
-      const remote = (await this.run('git', ['-C', source, 'remote', 'get-url', 'origin'])).trim()
+      // Retain the configured identity; Git applies insteadOf only for transport.
+      const remote = (await this.run('git', ['-C', source, 'config', '--get', 'remote.origin.url'])).trim()
       validateRemote(remote)
       const revision = (await this.run('git', ['-C', source, 'rev-parse', 'HEAD'])).trim()
       if (await exists(this.current())) {

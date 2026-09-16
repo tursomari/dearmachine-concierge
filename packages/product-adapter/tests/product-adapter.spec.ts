@@ -22,7 +22,7 @@ class RecordingRunner implements CommandRunner {
       }
     }
     if ((request.command[0] === 'dearmachine' || request.command[0]?.endsWith('/dearmachine')) && request.command[1] === 'status') {
-      return { code: 0, stdout: 'DearMachine is running (PID 42).\npair-id\tsender@example.test\tinbox@example.test\tagentmail\n', stderr: '' }
+      return { code: 0, stdout: 'Dear Machine: running\nSupervisor: running\n\nInbox: inbox@example.test\nAuthorized sender: sender@example.test\nTransport: agentmail\n', stderr: '' }
     }
     if (request.label === 'Verify selected backend') return { code: 0, stdout: 'result=ok\n', stderr: '' }
     return { code: 0, stdout: '', stderr: '' }
@@ -67,6 +67,38 @@ const selection = {
 }
 
 describe('native product installer', () => {
+  it('matches one complete labeled inbox block from the current native status', async () => {
+    const test = await fixture()
+    class CurrentStatusRunner extends RecordingRunner {
+      override async run(request: CommandRequest) {
+        const result = await super.run(request)
+        if (request.command[1] !== 'status') return result
+        return { ...result, stdout: 'Dear Machine: running\nSupervisor: running\n\n' +
+          'Inbox: unrelated@example.test\nAuthorized sender: other@example.test\nTransport: agentmail\n\n' +
+          'Inbox: inbox@example.test\nAuthorized sender: SENDER@example.test\nTransport: agentmail\n' }
+      }
+    }
+    await expect(new NativeProductInstaller({ ...test, runner: new CurrentStatusRunner(test.home) }).install(selection))
+      .resolves.toEqual({ inboxAddress: 'inbox@example.test' })
+  })
+
+  it.each([
+    ['Dear Machine: stopped\nSupervisor: running\n', 'sender@example.test', 'agentmail', 'running native client'],
+    ['Dear Machine: running\n', 'other@example.test', 'agentmail', 'inbox could not be verified'],
+    ['Dear Machine: running\n', 'sender@example.test', 'openmail', 'inbox could not be verified'],
+  ])('rejects mismatched native status: %s %s %s', async (header, sender, transport, message) => {
+    const test = await fixture()
+    class InvalidStatusRunner extends RecordingRunner {
+      override async run(request: CommandRequest) {
+        const result = await super.run(request)
+        if (request.command[1] !== 'status') return result
+        return { ...result, stdout: `${header}\nInbox: inbox@example.test\nAuthorized sender: ${sender}\nTransport: ${transport}\n` }
+      }
+    }
+    await expect(new NativeProductInstaller({ ...test, runner: new InvalidStatusRunner(test.home) }).install(selection))
+      .rejects.toThrow(message)
+  })
+
   it('verifies the correct inbox when native status includes labeled columns and other pairs', async () => {
     const test = await fixture()
     class LabeledStatusRunner extends RecordingRunner {

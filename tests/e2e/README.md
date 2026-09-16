@@ -4,7 +4,7 @@ This is the detailed operating contract for the harness. Start with the
 repository-wide [`TESTING.md`](../../TESTING.md) to select the appropriate
 Installer test and understand its safety class.
 
-`run.sh` builds a source-only container, runs the installer snapshot and PTY
+`run.sh` builds an isolated source container, runs the installer snapshot and PTY
 tests in that sparse environment, then exercises the guarded product adapter
 against a pre-provisioned pair of disposable AgentMail inboxes. The live gate
 sends a real message, requires a reply through Forge, and restores the exact
@@ -33,3 +33,28 @@ OPENROUTER_KEY_PATH=/absolute/path/to/openrouter.key \
 Both overrides must be absolute. The credential sources remain host-side,
 must be owned regular non-symlink files with mode `0600`, and are copied only
 into the private transaction and disposable container.
+
+## Git fixture
+
+The host exports umbrella `HEAD` and every recursive gitlink revision, regardless
+of component working-tree `HEAD`s. Each object pack contains just the original
+commit and its full tree; ancestors and host Git administration are excluded.
+Packing uses one thread so unchanged pins produce stable image-cache inputs.
+Fresh shallow bare origins and a recursive clone are created inside the container,
+preserving commit IDs, gitlinks and committed `.gitmodules`. HTTPS repository
+identities are mapped to these local origins with disposable Git URL rewrites.
+Unmapped Git transports are disabled. The installer retains the configured
+release identity while Git applies the transport mapping.
+
+Before credentials or inboxes are loaded, an offline container proves that the
+umbrella origin advertises its default branch and every recursive pin can be
+cloned cleanly. The self-test runs the same Git fixture check on the host with
+a disposable HOME, plus a regression covering nested pins, drifted checkouts,
+and excluded host state. It does not require Docker. Tracked `.env.example`,
+`.env.sample` and `.env.template` files are allowed in the object export; actual
+credential paths are rejected.
+
+The live clone and its local origins use a dedicated 2 GiB tmpfs at
+`/run/machtiani-qse-git`. Nix build scratch uses the container's ordinary `/tmp`
+on disk; it must not share the clone's bounded tmpfs. The installer dependency
+and package builds require several GiB of scratch space.

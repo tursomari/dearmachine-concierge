@@ -257,10 +257,11 @@ is in [`tests/e2e/README.md`](tests/e2e/README.md).
 tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani --self-test
 ```
 
-The self-test validates the sparse source-only container, installer snapshot
-and PTY coverage, harness contracts, and cleanup machinery. It requires Docker
-but does not read live credentials, provision inboxes, send email, or invoke a
-remote model.
+The self-test validates context contracts, exact recursive Git fixtures and
+cleanup machinery. It does not require Docker or run the snapshot/PTY suite,
+read live credentials, provision inboxes, send email, or invoke a remote model.
+The live runner builds the image and runs the snapshot/PTY suite before loading
+credentials.
 
 ### Live QSE
 
@@ -270,8 +271,8 @@ tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani
 
 Run the live form only with the approved OpenRouter and AgentMail credentials
 in their documented private locations. It provisions and journals exactly two
-disposable AgentMail inboxes, conducts the installer path in a source-only
-container, verifies the installed native client receives a real email, invokes
+disposable AgentMail inboxes, conducts the installer path in an isolated
+container with freshly reconstructed local Git origins, verifies the installed native client receives a real email, invokes
 Forge, replies successfully, and restores the pre-run remote baseline. It
 makes provider requests, sends mail, mutates disposable remote resources, and
 can incur charges. It must never delete or modify the permanent AgentMail

@@ -231,9 +231,12 @@ trap 'exit 143' TERM
 printf '==> Creating a source-only installer IXE/QSE context...\n'
 git -C "$umbrella_root" archive HEAD | tar -x -C "$context_dir"
 mkdir -p "$context_dir/machtiani-harness" "$context_dir/dearmachine" "$context_dir/machtiani-installer"
-git -C "$umbrella_root/machtiani-harness" archive HEAD | tar -x -C "$context_dir/machtiani-harness"
-git -C "$umbrella_root/dearmachine" archive HEAD | tar -x -C "$context_dir/dearmachine"
-git -C "$installer_root" archive HEAD | tar -x -C "$context_dir/machtiani-installer"
+git -C "$umbrella_root/machtiani-harness" archive "$(git -C "$umbrella_root" rev-parse HEAD:machtiani-harness)" | tar -x -C "$context_dir/machtiani-harness"
+git -C "$umbrella_root/dearmachine" archive "$(git -C "$umbrella_root" rev-parse HEAD:dearmachine)" | tar -x -C "$context_dir/dearmachine"
+git -C "$umbrella_root/machtiani-installer" archive "$(git -C "$umbrella_root" rev-parse HEAD:machtiani-installer)" | tar -x -C "$context_dir/machtiani-installer"
+
+# Export objects from umbrella HEAD and its recursive pins, never component HEADs.
+python3 "$script_dir/git-fixture.py" export "$umbrella_root" "$context_dir/.qse-git"
 
 forbidden=$(find "$context_dir" \( -name .git -o -name .ssh -o -name .secrets -o -name '.env*' \
   -o -name .forge -o -name .credentials.json \) -print -quit)
@@ -248,6 +251,10 @@ if test "$self_test" = true; then
   if AGENTMAIL_SECRETS_PATH=relative/path qse_agentmail_secrets_path /source >/dev/null 2>&1; then
     fail 'AgentMail credential path accepted a relative override'
   fi
+  python3 "$script_dir/git-fixture-test.py"
+  mkdir "$run_root/git-home"
+  HOME="$run_root/git-home" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$run_root/git-home/.gitconfig" \
+    python3 "$script_dir/git-fixture.py" restore "$context_dir/.qse-git" "$run_root/git-preflight"
   (unset TXN_RUNTIME_ROOT TXN_JOURNAL; txn_self_test)
   run_complete=true
   exit 0
@@ -267,6 +274,14 @@ docker run --rm --entrypoint /bin/sh "$image_name" -eu -c '
     -o -name .forge -o -name .credentials.json \) -print -quit)
   test -z "$bad"
 ' || fail 'IXE image contains forbidden host or credential state'
+
+printf '==> Checking the local origins and recursive pins without credentials...\n'
+docker run --rm --network=none --tmpfs /tmp:exec,size=2g --env HOME=/tmp/qse-preflight-home \
+  --entrypoint /bin/sh "$image_name" -ec '
+    mkdir -p "$HOME"
+    python3 /workspace/machtiani/machtiani-installer/tests/e2e/git-fixture.py \
+      restore /workspace/machtiani/.qse-git /tmp/qse-preflight
+  '
 
 printf '==> Loading approved credentials into the private host transaction...\n'
 secrets_load "$agentmail_secrets_path"
@@ -404,7 +419,7 @@ print(json.dumps({"container_name": sys.argv[1], "cidfile": sys.argv[2], "label_
 PY
 )
 txn_record intent container-create "$container_intent"
-docker create --name "$container_name" --cidfile "$container_cidfile" --label "$container_label=$run_id" \
+docker create --tmpfs /run/machtiani-qse-git:exec,size=2g --name "$container_name" --cidfile "$container_cidfile" --label "$container_label=$run_id" \
   --env QSE_RECEIVER_ID="$receiver_id" --env QSE_RECEIVER_ADDRESS="$receiver_address" \
   --env QSE_SENDER_ADDRESS="$sender_address" --env QSE_RUN_ID="$run_id" "$image_name" >/dev/null
 chmod 0600 "$container_cidfile"
@@ -426,7 +441,7 @@ for artifact in result.json installer.stderr dearmachine.status backend.status s
   chmod 0600 "$run_root/$artifact"
 done
 docker cp "$container_id:/home/installer/.local/state/machtiani-installer/product-installation.json" "$run_root/product-installation.json" >/dev/null
-docker cp "$container_id:/home/installer/.machtiani/config.toml" "$run_root/machtiani-config.toml" >/dev/null
+docker cp "$container_id:/home/installer/.config/dearmachine/machtiani/config.toml" "$run_root/machtiani-config.toml" >/dev/null
 docker cp "$container_id:/home/installer/.dearmachine/log/dearmachine.log" "$run_root/dearmachine.log" >/dev/null
 chmod 0600 "$run_root/product-installation.json" "$run_root/machtiani-config.toml" "$run_root/dearmachine.log"
 

@@ -38,33 +38,10 @@ git config --global user.name 'Machtiani Installer QSE'
 git config --global user.email 'installer-qse@example.invalid'
 git config --global init.defaultBranch main
 
-initialize_repository() {
-  qse_repo=$1
-  shift
-  git -C "$qse_repo" init --quiet --initial-branch=main
-  git -C "$qse_repo" add -- "$@"
-  git -C "$qse_repo" commit --quiet -m 'test: seed source-only QSE snapshot'
-}
-
-initialize_repository "$umbrella/machtiani-harness" \
-  .dockerignore .gitignore .gitmodules .machtiani AGENTS.md BENCHING.md README.md ROADMAP.md TESTING.md \
-  agent docs flake.lock flake.nix issues machtiani_pier_adapter scripts tests third_party
-git -C "$umbrella/machtiani-harness" add -f -- plans
-git -C "$umbrella/machtiani-harness" commit --quiet --amend --no-edit
-harness_origin=$(mktemp -d /tmp/machtiani-qse-harness-origin.XXXXXX)/origin.git
-git init --quiet --bare --initial-branch=main "$harness_origin"
-git -C "$umbrella/machtiani-harness" remote add origin "file://$harness_origin"
-git -C "$umbrella/machtiani-harness" push --quiet --set-upstream origin main
-
-initialize_repository "$umbrella/dearmachine" \
-  .gitattributes .gitignore LICENSE README.md ROADMAP.md TODO.md contrib dearmachine deploy docs flake.lock flake.nix scripts tests
-
-initialize_repository "$umbrella/machtiani-installer" \
-  .gitignore LICENSE LICENSES README.md THIRD_PARTY_NOTICES.md flake.lock flake.nix package.json packages patches \
-  pnpm-lock.yaml pnpm-workspace.yaml scripts tests tsconfig.json vitest.config.ts
-
-initialize_repository "$umbrella" \
-  .gitignore .gitmodules INSTALL.md LICENSE README.md docs scripts tests
+# Reconstruct fresh local origins and clone the exact recursive gitlinks.
+fixture_root=$(mktemp -d /run/machtiani-qse-git/fixture.XXXXXX)
+umbrella=$(python3 /workspace/machtiani/machtiani-installer/tests/e2e/git-fixture.py \
+  restore /workspace/machtiani/.qse-git "$fixture_root/repositories")
 
 IFS= read -r openrouter_key < "$openrouter_secret"
 IFS= read -r agentmail_key < "$agentmail_secret"
@@ -119,7 +96,7 @@ rm -f -- "$openrouter_secret" "$agentmail_secret"
 unset openrouter_key agentmail_key
 
 git -C "$umbrella" status --porcelain=v2 --untracked-files=all --ignore-submodules=none > "$runtime/source.before"
-node "$umbrella/machtiani-installer/packages/app/dist/headless-bin.mjs" \
+node /workspace/machtiani/machtiani-installer/packages/app/dist/headless-bin.mjs \
   --source-root "$umbrella" --selection-file "$selection" \
   --existing-inbox-id "$QSE_RECEIVER_ID" --reasoning-effort high \
   > "$runtime/result.json" 2> "$runtime/installer.stderr"

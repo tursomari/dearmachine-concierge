@@ -94,6 +94,14 @@ is expected to fail this gate. See [the security contract](docs/credential-secur
 
 ### Lifecycle and configuration
 
+`concierge-shell.spec.ts` checks that `/uninstall` only displays the terminal
+command and confirmation instructions, without a model request, daemon operation
+or interface shutdown. The shared prompt directs natural-language uninstall
+requests to the same human-run native command. Actual destructive removal is
+covered by the umbrella `tests/uninstall/run.py` container gate and DearMachine's
+native tests; see the umbrella `tests/uninstall/README.md` for isolation and
+coverage limits.
+
 `packages/app/tests/assistant-model.spec.ts` covers private selection commits,
 cancellation, failed catalogues, old-profile migration, and subscription account
 reuse. `model-switch-pty.spec.ts` drives `/model` through the real concierge TUI

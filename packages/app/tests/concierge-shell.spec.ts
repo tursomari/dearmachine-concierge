@@ -5,6 +5,17 @@ import type { DaemonStatus } from '../src/concierge-control.ts'
 const running: DaemonStatus = { installation: 'installed', supervisor: 'running', daemon: 'running', persistence: 'disabled' }
 const stopped: DaemonStatus = { ...running, supervisor: 'stopped', daemon: 'stopped' }
 
+it('/uninstall gives terminal instructions without model access or lifecycle changes', async () => {
+  const { shell, control, ports } = fixture()
+  await shell.submit('/uninstall')
+  expect(ports.say).toHaveBeenCalledWith(expect.stringContaining('dearmachine uninstall'))
+  expect(ports.say).toHaveBeenCalledWith(expect.stringContaining('confirmation'))
+  expect(localHelp).toContain('/uninstall')
+  expect(control.request).not.toHaveBeenCalled()
+  expect(ports.converse).not.toHaveBeenCalled()
+  expect(ports.close).not.toHaveBeenCalled()
+})
+
 it('opens /model locally, rejects duplicate pickers and keeps status and exit available', async () => {
   const { ports } = fixture()
   let finish!: () => void

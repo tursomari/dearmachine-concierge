@@ -14,6 +14,7 @@ export const localHelp = [
   '`/help` — Show this help.',
   '`/model` — Choose the assistant provider, model, and reasoning level.',
   '`/update` — Check for an update and ask before installing it.',
+  '`/uninstall` — Show the terminal command for confirmed permanent removal.',
   '`/status` — Inspect Dear Machine without changing it.',
   '`/up` — Start Dear Machine and confirm it is running; never install or enable persistence.',
   '`/down` — Stop Dear Machine and cancel pending automatic restarts.',
@@ -170,6 +171,10 @@ export class ConciergeShell {
     const text = input.trim()
     if (text === '') return
     if (text === '/help') { this.ports.say(localHelp); return }
+    if (text === '/uninstall') {
+      this.ports.say('To permanently remove DearMachine, run `dearmachine uninstall` in another terminal. That command shows the deletion paths and requires explicit confirmation. It stops DearMachine and closes its concierge sessions, then deletes owned binaries, configuration, credentials, databases, memory, logs and caches. Independent backends, personal Machtiani data, external projects and remote accounts are preserved. Nothing has been changed by /uninstall.')
+      return
+    }
     if (text === '/model') {
       if (this.changingModel) { this.ports.say('The model picker is already open. Press Escape to go back or cancel.'); return }
       if (!this.ports.changeModel) { this.ports.say('Model selection is unavailable in this interface.'); return }

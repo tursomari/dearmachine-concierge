@@ -3,20 +3,23 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Unstable has retired Intel macOS; keep that target on the supported line.
+    nixpkgs-intel-darwin.url = "github:NixOS/nixpkgs/nixos-26.05";
     dsh-src = {
       url = "github:deepseek-ai/deepseek-harness/76fda729799fe9b3848dbe2c211d4b231032b81e";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, dsh-src }:
+  outputs = { self, nixpkgs, nixpkgs-intel-darwin, dsh-src }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
+      pkgsFor = system: import (if system == "x86_64-darwin" then nixpkgs-intel-darwin else nixpkgs) { inherit system; };
     in {
       packages = forAllSystems (system:
         let
-          pkgs = import nixpkgs { inherit system; };
+          pkgs = pkgsFor system;
           claudeRuntime = if system == "x86_64-linux" then pkgs.fetchurl {
             url = "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.3.260.tgz";
             hash = "sha512-JL07je0d2g680Hbu0D9W4hGuZlUeQlhPQac+NPKTJAdJ21bH12JdaMO5QE9RDNIxjd1BaodqMOdTEhjrH1capQ==";
@@ -128,7 +131,7 @@
         });
 
       devShells = forAllSystems (system:
-        let pkgs = import nixpkgs { inherit system; }; in {
+        let pkgs = pkgsFor system; in {
           default = pkgs.mkShell { packages = [ pkgs.nodejs_24 pkgs.pnpm pkgs.zstd pkgs.zsh ]; };
         });
     };

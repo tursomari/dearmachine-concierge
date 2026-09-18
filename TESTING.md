@@ -34,6 +34,17 @@ tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani --self-test
 
 The credentialed live QSE is a release gate, not a routine inner-loop test.
 
+## macOS build targets
+
+The flake exposes `x86_64-darwin` and `aarch64-darwin`. Intel macOS uses a
+separate pinned Nixpkgs 26.05 input because the main unstable input no longer
+supports that platform. Linux and Apple Silicon keep the existing input.
+Evaluating either derivation on Linux checks packaging expressions only; run
+`nix build` and the tests on the corresponding Mac before claiming support.
+Standard and Container build currently produce Linux runtimes, so the macOS
+wizard offers Nix only. The umbrella macOS guide tracks runtime verification
+and the remaining lifecycle limitations.
+
 ## Maintained TypeScript suites
 
 | Entrypoint | Coverage | Safety and cost |
@@ -61,7 +72,8 @@ the full `pnpm test` remains the maintained aggregate suite.
 
 The existing `installation-method.spec.ts` and `installation-wizard.spec.ts`
 suites cover Nix/Container build selection, back navigation, build failure,
-and exit before provider setup. `container-build.spec.ts` exercises the real
+and exit before provider setup. macOS cases offer Nix only and reject stale
+Linux container selections. `container-build.spec.ts` exercises the real
 subprocess handoff with a fixture builder: validated manifest, paths containing
 spaces, retained diagnostics and cancellation. They run through `pnpm test`.
 

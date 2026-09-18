@@ -11,6 +11,7 @@ export async function runInstallationWizard(
   exited: Promise<void>,
   chooseModel: () => Promise<InstallerModelSelection>,
   prepare: (method: InstallationMethod) => Promise<void> = async () => {},
+  platform: NodeJS.Platform = process.platform,
 ): Promise<{ selection: InstallerModelSelection; method: InstallationMethod; showCommands: boolean } | undefined> {
   let closed = false
   void exited.then(() => { closed = true })
@@ -18,7 +19,7 @@ export async function runInstallationWizard(
     const consent = await installationConsent(tui, exited)
     if (consent === undefined) return
     while (true) {
-      const method = await chooseInstallationMethod(tui, prebuiltAvailable, exited)
+      const method = await chooseInstallationMethod(tui, prebuiltAvailable, exited, platform)
       if (method === undefined) return
       if (method === 'back') break
       try {

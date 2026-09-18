@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { HeadlessTerminal } from '../../tui/tests/headless-terminal.ts'
+import { ConciergeActivityIndicator } from '../src/concierge-activity.ts'
+import { installationProgressLabel } from '../src/index.ts'
 import { authenticateClaudeBackend } from '../src/backend-auth.ts'
 
 afterEach(() => vi.unstubAllEnvs())
@@ -21,7 +23,10 @@ process.stdin.once('data', code => { fs.mkdirSync(process.env.CLAUDE_CONFIG_DIR,
   const terminal = new HeadlessTerminal(100, 35)
   const tui = new InstallerTui({ terminal, color: false })
   tui.start()
-  return { home, executable, terminal, tui, close: async () => { await tui.dispose(); await terminal.dispose(); await rm(home, { recursive: true, force: true }) } }
+  const activity = new ConciergeActivityIndicator(tui, 200, installationProgressLabel)
+  activity.status('running')
+  const authenticate = (signal: AbortSignal) => activity.duringInteraction(() => authenticateClaudeBackend(tui, home, signal, executable))
+  return { home, executable, terminal, tui, activity, authenticate, close: async () => { activity.dispose(); await tui.dispose(); await terminal.dispose(); await rm(home, { recursive: true, force: true }) } }
 }
 
 it.each([false, true])('uses a masked code and the backend profile (custom profile: %s)', async custom => {
@@ -31,14 +36,21 @@ it.each([false, true])('uses a masked code and the backend profile (custom profi
   for (const name of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN']) vi.stubEnv(name, 'fixture-bypass')
   await writeFile(join(f.home, 'installer-profile.json'), '{"provider":"independent"}')
   try {
-    const result = authenticateClaudeBackend(f.tui, f.home, new AbortController().signal, f.executable)
+    const result = f.authenticate(new AbortController().signal)
     await expect.poll(async () => await f.terminal.snapshot()).toContain('Secure sign-in code')
     expect(await f.terminal.snapshot()).toContain('https://example.test/authorize')
+    expect(f.terminal.progress).toBe(false)
     f.terminal.send('fixture-private-code')
     await f.terminal.waitForFrame()
     expect(await f.terminal.snapshot({ includeScrollback: true })).not.toContain('fixture-private-code')
     f.terminal.send('\r')
     await expect(result).resolves.toBeUndefined()
+    // No new running status or tool event is needed to restore the installer footer.
+    await expect.poll(async () => await f.terminal.snapshot()).toContain(installationProgressLabel)
+    expect(f.terminal.progress).toBe(true)
+    f.activity.status('idle')
+    await expect.poll(async () => await f.terminal.snapshot()).not.toContain(installationProgressLabel)
+    expect(f.terminal.progress).toBe(false)
     expect(await readFile(join(profile, 'verified'), 'utf8')).toBe('fixture-private-code\n')
     expect(await readFile(join(f.home, 'installer-profile.json'), 'utf8')).toBe('{"provider":"independent"}')
   } finally { await f.close() }
@@ -49,11 +61,13 @@ it('cancels sign-in while awaiting the code and returns control to the terminal'
   vi.stubEnv('CLAUDE_CONFIG_DIR', '')
   const controller = new AbortController()
   try {
-    const result = authenticateClaudeBackend(f.tui, f.home, controller.signal, f.executable)
+    const result = f.authenticate(controller.signal)
     const rejected = expect(result).rejects.toThrow()
     await expect.poll(async () => await f.terminal.snapshot()).toContain('Secure sign-in code')
     controller.abort()
     await rejected
+    await expect.poll(async () => await f.terminal.snapshot()).toContain(installationProgressLabel)
+    expect(f.terminal.progress).toBe(true)
     await expect(readFile(join(f.home, '.claude/verified'))).rejects.toMatchObject({ code: 'ENOENT' })
     const answer = f.tui.ask({ message: 'Continue?' })
     f.terminal.send('yes'); f.terminal.send('\r')
@@ -65,10 +79,27 @@ it('requires authenticated status after the login process exits successfully', a
   const f = await fixture(false)
   vi.stubEnv('CLAUDE_CONFIG_DIR', '')
   try {
-    const result = authenticateClaudeBackend(f.tui, f.home, new AbortController().signal, f.executable)
+    const result = f.authenticate(new AbortController().signal)
     const rejected = expect(result).rejects.toThrow('did not report an authenticated')
     await expect.poll(async () => await f.terminal.snapshot()).toContain('Secure sign-in code')
     f.terminal.send('fixture-code'); f.terminal.send('\r')
     await rejected
+    await expect.poll(async () => await f.terminal.snapshot()).toContain(installationProgressLabel)
+    expect(f.terminal.progress).toBe(true)
+  } finally { await f.close() }
+})
+
+it('does not restart progress when the installer becomes idle during sign-in', async () => {
+  const f = await fixture()
+  vi.stubEnv('CLAUDE_CONFIG_DIR', '')
+  const controller = new AbortController()
+  try {
+    const rejected = expect(f.authenticate(controller.signal)).rejects.toThrow()
+    await expect.poll(async () => await f.terminal.snapshot()).toContain('Secure sign-in code')
+    f.activity.status('idle')
+    controller.abort()
+    await rejected
+    await expect.poll(async () => await f.terminal.snapshot()).not.toContain(installationProgressLabel)
+    expect(f.terminal.progress).toBe(false)
   } finally { await f.close() }
 })

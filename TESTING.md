@@ -408,6 +408,11 @@ credential-boundary gate also exercises the private Machtiani credential store.
 
 `packages/app/tests/backend-auth.spec.ts` exercises the trusted browser-link
 and masked-code interface with a fixture executable and real pipes/terminal.
+It also verifies that the enclosing installer progress resumes after success,
+failure, or cancellation, stays hidden during secure code entry, and stays idle
+when the installer stops during sign-in. The installer shares the concierge
+activity indicator and TUI glyph; activity and TUI tests cover stream speeds,
+interaction handoffs, styling, and reduced/no-motion rendering.
 The bridge and client suites cover disconnect/cancellation and safe results.
 This does not authenticate a real subscription account. Live human sign-in
 remains a separate IXE check; no host subscription session is copied.

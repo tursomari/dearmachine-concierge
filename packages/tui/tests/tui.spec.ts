@@ -257,7 +257,7 @@ describe('Machtiani Installer TUI', () => {
     await harness.terminal.waitForFrame()
     const firstProgress = await harness.terminal.snapshot()
     expect(firstProgress).toContain('Inspecting this computer')
-    expect(firstProgress).not.toMatch(/[◌◔◑◕●] Inspecting this computer/u)
+    expect(firstProgress).toMatch(/[⢆⢎⠎⠊⢈⢄][⡰⡠⡁⠑⠱⡱] Inspecting this computer/u)
     await new Promise(resolve => setTimeout(resolve, 650))
     await harness.terminal.waitForFrame()
     const nextProgress = await harness.terminal.snapshot()
@@ -273,7 +273,7 @@ describe('Machtiani Installer TUI', () => {
     expect(harness.terminal.progress).toBe(false)
   })
 
-  it('renders the two-cell activity glyph before a stable status label', async () => {
+  it.each([undefined, 'medium'] as const)('renders the shared activity glyph and styling (speed: %s)', async speed => {
     const terminal = new HeadlessTerminal()
     const tui = new InstallerTui({
       terminal,
@@ -283,7 +283,7 @@ describe('Machtiani Installer TUI', () => {
     const harness = { terminal, tui }
     opened.push(harness)
     tui.start()
-    tui.setProgress('Working through…', 'medium')
+    tui.setProgress('Working through…', speed)
     await terminal.waitForFrame()
     const active = await terminal.snapshot()
     expect(active).toContain('⢆⡰ Working through…')
@@ -322,7 +322,7 @@ describe('Machtiani Installer TUI', () => {
   })
 
   it.each([
-    ['reduced', 'Machtiani installation in progress...'],
+    ['reduced', '⢆⡰ Machtiani installation in progress'],
     ['none', 'Machtiani installation in progress'],
   ] as const)('renders %s motion as a stable status', async (motion, expected) => {
     const terminal = new HeadlessTerminal()

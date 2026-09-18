@@ -1,3 +1,4 @@
+import { ConciergeActivityIndicator } from './concierge-activity.ts'
 import { authenticateClaudeBackend } from './backend-auth.ts'
 import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -292,6 +293,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     onInterrupt: async () => { if (building) building.abort(); else await agent?.interrupt() },
     onExit: () => { void shell.submit('/quit') },
   })
+  const activity = new ConciergeActivityIndicator(tui, 200, installationProgressLabel)
   shell = new ConciergeShell({
     chooseSupervision: nativeSupervisionChoice,
     control: defaultConciergeControl(),
@@ -310,8 +312,9 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   })
   const credentials = new CredentialFileAdapter({ home })
   const socketPath = credentialSocketPath(paths.stateDirectory)
-  const bridge = new CredentialBridge({ socketPath, tui, credentials,
-    authenticateBackend: async (executable, signal) => { await authenticateClaudeBackend(tui, home, signal, executable) },
+  const bridge = new CredentialBridge({ socketPath, credentials,
+    tui: { askSecret: (message, signal) => activity.duringInteraction(() => tui.askSecret(message, signal)) },
+    authenticateBackend: (executable, signal) => activity.duringInteraction(() => authenticateClaudeBackend(tui, home, signal, executable)),
   })
   const credentialHelper = fileURLToPath(new URL('./credential-bin.mjs', import.meta.url))
   const outcomePath = join(paths.stateDirectory, 'installation-outcome.json')
@@ -375,8 +378,8 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
         ...(method === 'container' && distribution ? { MACHTIANI_DISTRIBUTION: distribution.manifestPath,
           PATH: `${dirname(distribution.binaries.dearmachine)}:${process.env.PATH ?? ''}` } : {}),
       },
-      onEvent: event => { renderAgentEvent(tui, tools, event) },
-      onStatus: status => { tui.setProgress(status === 'running' ? installationProgressLabel : undefined) },
+      onEvent: event => { activity.event(event); renderAgentEvent(tui, tools, event) },
+      onStatus: status => { activity.status(status) },
     })
     await agent.start()
     assistantState = 'ready'
@@ -397,10 +400,11 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     assistantState = 'unavailable'
     const retained = await retainInstallerAgentDiagnostic(diagnosticPath, error, agent?.privateDiagnostic() ?? { stderr: '' })
       .then(() => true, () => false)
-    tui.setProgress(undefined)
+    activity.status('idle')
     tui.addAssistant(`The installation assistant could not continue.${retained ? ` A private diagnostic was saved to ${diagnosticPath}.` : ''} Use /help for local controls and recovery commands, or /quit to close this interface.`)
     await exitRequested
   } finally {
+    activity.dispose()
     lifetime.abort()
     outcomeWait.abort()
     tui.setProgress(undefined)

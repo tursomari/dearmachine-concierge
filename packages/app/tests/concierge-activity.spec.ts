@@ -28,3 +28,39 @@ describe('concierge activity indicator', () => {
     expect(setProgress).toHaveBeenLastCalledWith(undefined)
   })
 })
+
+// Sign-in owns the footer while the enclosing installer turn can still change state.
+it.each(['running', 'idle', 'turn-end', 'disposed'] as const)(
+  'restores the current activity after a trusted interaction (%s)', async state => {
+    vi.useFakeTimers()
+    const setProgress = vi.fn()
+    const activity = new ConciergeActivityIndicator({ setProgress }, 200, 'Installing')
+    activity.status('running')
+    activity.event({ type: 'assistant-stream', channel: 'visible' })
+    let finish!: () => void
+    const result = activity.duringInteraction(() => new Promise<void>(resolve => { finish = resolve }))
+    setProgress.mockClear()
+    vi.advanceTimersByTime(500)
+    activity.event({ type: 'tool-end', id: 'login', failed: false })
+    if (state === 'idle') activity.status('idle')
+    if (state === 'turn-end') activity.event({ type: 'turn-end', outcome: 'completed' })
+    if (state === 'disposed') activity.dispose()
+    expect(setProgress).not.toHaveBeenCalled()
+    finish()
+    await result
+    if (state === 'running') expect(setProgress).toHaveBeenLastCalledWith('Installing', 'slow')
+    else expect(setProgress).toHaveBeenLastCalledWith(undefined)
+    activity.status('idle')
+    vi.advanceTimersByTime(500)
+    expect(setProgress).toHaveBeenLastCalledWith(undefined)
+  },
+)
+
+it('restores running activity when an interaction fails', async () => {
+  const setProgress = vi.fn()
+  const activity = new ConciergeActivityIndicator({ setProgress })
+  activity.status('running')
+  await expect(activity.duringInteraction(async () => { throw new Error('cancelled') })).rejects.toThrow('cancelled')
+  expect(setProgress).toHaveBeenLastCalledWith('Preparing…', 'slow')
+  activity.dispose()
+})

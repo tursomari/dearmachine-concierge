@@ -253,6 +253,7 @@ export class InstallerTui {
       this.progressTimer = undefined
       this.status.setText('')
     } else {
+      speed ??= 'slow'
       const nextMessage = displayText(message)
       const priorDelay = this.progressDelay()
       if (nextMessage !== this.progressMessage || speed !== this.progressSpeed) this.progressFrame = 0
@@ -587,28 +588,18 @@ export class InstallerTui {
   private renderProgress(): void {
     const message = this.progressMessage
     if (message === undefined) return
-    if (this.progressSpeed !== undefined) {
-      const frames = ['⢆⡰', '⢎⡠', '⢎⡁', '⢎⠑', '⠎⠱', '⠊⡱', '⢈⡱', '⢄⡱'] as const
-      const marker = this.motionMode === 'none'
-        ? ''
-        : `${this.theme.beauty(frames[this.motionMode === 'full' ? this.progressFrame % frames.length : 0]!)} `
-      this.status.setText(`${marker}${this.theme.dim(message)}`)
-      this.requestRender()
-      return
-    }
-    const frames = ['', '.', '..', '...'] as const
-    const marker = this.motionMode === 'full'
-      ? frames[this.progressFrame % frames.length]
-      : this.motionMode === 'reduced' ? '...' : ''
-    this.status.setText(this.theme.dim(`${message}${marker}`))
+    const frames = ['⢆⡰', '⢎⡠', '⢎⡁', '⢎⠑', '⠎⠱', '⠊⡱', '⢈⡱', '⢄⡱'] as const
+    const marker = this.motionMode === 'none'
+      ? ''
+      : `${this.theme.beauty(frames[this.motionMode === 'full' ? this.progressFrame % frames.length : 0]!)} `
+    this.status.setText(`${marker}${this.theme.dim(message)}`)
     this.requestRender()
   }
 
   private progressDelay(): number {
     if (this.progressSpeed === 'fast') return 20
     if (this.progressSpeed === 'medium') return 50
-    if (this.progressSpeed === 'slow') return 100
-    return 600
+    return 100
   }
 }
 

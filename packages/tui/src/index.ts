@@ -199,7 +199,7 @@ export class InstallerTui {
       }
       this.clearExitWarning()
       if (this.options.onLocalCommand !== undefined && this.pendingQuestion?.mode !== 'secret' &&
-        data.startsWith('/') && !this.localCommandActive && (this.choiceInput !== undefined || this.externalWaitLabel !== undefined)) {
+        data.startsWith('/') && !this.localCommandActive && (this.choiceInput?.filterIsEmpty || this.externalWaitLabel !== undefined)) {
         this.localCommandActive = true
         this.editor.setText('')
         this.inputSlot.addChild(this.editor)

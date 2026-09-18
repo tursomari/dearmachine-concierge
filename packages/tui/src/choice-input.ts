@@ -44,6 +44,8 @@ export class ChoiceInput implements Component, Focusable {
     this.list = this.buildList(selectedValue)
   }
 
+  get filterIsEmpty(): boolean { return this.filter.getValue() === '' }
+
   get focused(): boolean { return this.filter.focused }
   set focused(value: boolean) { this.filter.focused = value }
 

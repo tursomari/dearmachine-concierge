@@ -388,3 +388,19 @@ describe('Machtiani Installer TUI', () => {
       .toThrow('Open a terminal and run the installer again')
   })
 })
+
+it('keeps a slash inside a model ID in the active filter', async () => {
+  const terminal = new HeadlessTerminal(90, 30)
+  const commands: string[] = []
+  const tui = new InstallerTui({ terminal, color: false, onLocalCommand: text => { commands.push(text) } })
+  opened.push({ tui, terminal })
+  tui.start()
+  const answer = tui.choose('Choose a model', [
+    { value: 'vendor/older', label: 'Older model' },
+    { value: 'vendor/exact', label: 'Exact model' },
+  ])
+  for (const character of 'vendor/exact') terminal.send(character)
+  terminal.send('\r')
+  await expect(answer).resolves.toBe('vendor/exact')
+  expect(commands).toEqual([])
+})

@@ -30,7 +30,7 @@ class SignInCodeCancelledError extends Error {
   }
 }
 
-function authEvent(tui: WizardTui, event: InstallerAuthEvent): void {
+export function authEvent(tui: WizardTui, event: InstallerAuthEvent): void {
   switch (event.type) {
     case 'progress':
       tui.setProgress(event.message)
@@ -54,7 +54,7 @@ function mergedSignal(prompt: InstallerAuthPrompt, authentication: AbortSignal):
   return prompt.signal === undefined ? authentication : AbortSignal.any([prompt.signal, authentication])
 }
 
-async function authPrompt(tui: WizardTui, prompt: InstallerAuthPrompt, authentication: AbortSignal): Promise<string> {
+export async function authPrompt(tui: WizardTui, prompt: InstallerAuthPrompt, authentication: AbortSignal): Promise<string> {
   const signal = mergedSignal(prompt, authentication)
   if (prompt.type === 'secret') {
     tui.addAssistant(prompt.message)

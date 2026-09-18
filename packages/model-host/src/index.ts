@@ -22,7 +22,7 @@ import {
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { subscriptionDriver } from './subscription-drivers.ts'
 
-export { ANTHROPIC_SUBSCRIPTION_POLICY, subscriptionProviders } from './subscription-drivers.ts'
+export { ClaudeCliAuth, ANTHROPIC_SUBSCRIPTION_POLICY, subscriptionProviders } from './subscription-drivers.ts'
 
 export const MODEL_HOST_PROTOCOL_VERSION = 1 as const
 export const MODEL_HOST_PROVIDER = 'machtiani-model-host'

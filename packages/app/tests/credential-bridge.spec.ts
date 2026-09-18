@@ -254,3 +254,45 @@ describe('explicit credential actions', () => {
     } finally { await bridge.close(); await rm(f.home, { recursive: true, force: true }) }
   })
 })
+
+it('routes supported backend login without exposing credentials or private errors', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cb-auth-'))
+  const socketPath = join(root, 'credential.sock')
+  const calls: Array<string | undefined> = []
+  const bridge = new CredentialBridge({ socketPath, tui: { askSecret: async () => { throw new Error('not an API key') } },
+    credentials: {} as CredentialFileAdapter,
+    authenticateBackend: async executable => { calls.push(executable); if (executable?.endsWith('broken')) throw new Error('fixture-private-code') },
+  })
+  await bridge.start()
+  try {
+    expect(JSON.parse(await invoke(socketPath, {kind: 'backend-login', backend: 'claude', executable: '/fixture/claude'}))).toEqual({ok: true, authenticated: true})
+    expect(JSON.parse(await invoke(socketPath, {kind: 'backend-login', backend: 'other'})).ok).toBe(false)
+    expect(JSON.parse(await invoke(socketPath, {kind: 'backend-login', backend: 'claude', executable: 'relative'})).ok).toBe(false)
+    const failed = await invoke(socketPath, {kind: 'backend-login', backend: 'claude', executable: '/fixture/broken'})
+    expect(JSON.parse(failed).ok).toBe(false)
+    expect(failed).not.toContain('fixture-private-code')
+    expect(calls).toEqual(['/fixture/claude', '/fixture/broken'])
+  } finally { await bridge.close(); await rm(root, {recursive: true, force: true}) }
+})
+
+it('cancels backend sign-in when its tool disconnects', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'cb-auth-'))
+  const socketPath = join(root, 'credential.sock')
+  let opened!: () => void
+  const ready = new Promise<void>(resolve => { opened = resolve })
+  let aborted = false
+  const bridge = new CredentialBridge({ socketPath, tui: {askSecret: async () => ''}, credentials: {} as CredentialFileAdapter,
+    authenticateBackend: async (_executable, signal) => await new Promise<void>((_resolve, reject) => {
+      signal.addEventListener('abort', () => {aborted = true; reject(new Error('cancelled'))}, {once: true}); opened()
+    }),
+  })
+  await bridge.start()
+  const socket = createConnection(socketPath)
+  socket.on('error', () => {})
+  try {
+    socket.once('connect', () => socket.write(JSON.stringify({kind: 'backend-login', backend: 'claude'}) + '\n'))
+    await ready
+    socket.destroy()
+    await expect.poll(() => aborted).toBe(true)
+  } finally {socket.destroy(); await bridge.close(); await rm(root, {recursive: true, force: true})}
+})

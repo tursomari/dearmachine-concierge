@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { chmod, lstat, mkdir, unlink } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
 import { SecretInputCancelledError, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { messages } from '@dearmachine/machtiani-installer-workflow'
@@ -17,6 +17,7 @@ export interface CredentialBridgeOptions {
   socketPath: string
   tui: Pick<InstallerTui, 'askSecret'>
   credentials: CredentialFileAdapter
+  authenticateBackend?(executable: string | undefined, signal: AbortSignal): Promise<void>
   machtiani?: Pick<MachtianiCredentialTarget, 'check' | 'configure'>
 }
 
@@ -137,7 +138,18 @@ export class CredentialBridge {
     socket.once('close', () => { cancellation.abort() })
     let value = ''
     try {
-      const credential = request(JSON.parse(line))
+      const parsed: unknown = JSON.parse(line)
+      if (typeof parsed === 'object' && parsed !== null && 'kind' in parsed && parsed.kind === 'backend-login') {
+        const login = parsed as Record<string, unknown>
+        if (login.backend !== 'claude' || (login.executable !== undefined &&
+            (typeof login.executable !== 'string' || !isAbsolute(login.executable)))) throw new Error('Invalid backend sign-in request')
+        if (!this.options.authenticateBackend) throw new Error('Backend sign-in is unavailable in this interface')
+        try { await this.options.authenticateBackend(login.executable as string | undefined, cancellation.signal) }
+        catch { throw new Error('Claude Code sign-in did not complete. Retry the browser sign-in when ready.') }
+        if (!cancellation.signal.aborted && this.server !== undefined && !socket.destroyed) reply(socket, { ok: true, authenticated: true })
+        return
+      }
+      const credential = request(parsed)
       const readiness = await this.options.credentials.prepare(credential.kind, credential.selection)
       const reference = this.options.credentials.reference?.(credential.kind)
       if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return

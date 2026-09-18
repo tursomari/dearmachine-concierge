@@ -1,3 +1,4 @@
+import { authenticateClaudeBackend } from './backend-auth.ts'
 import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -309,7 +310,9 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
   })
   const credentials = new CredentialFileAdapter({ home })
   const socketPath = credentialSocketPath(paths.stateDirectory)
-  const bridge = new CredentialBridge({ socketPath, tui, credentials })
+  const bridge = new CredentialBridge({ socketPath, tui, credentials,
+    authenticateBackend: async (executable, signal) => { await authenticateClaudeBackend(tui, home, signal, executable) },
+  })
   const credentialHelper = fileURLToPath(new URL('./credential-bin.mjs', import.meta.url))
   const outcomePath = join(paths.stateDirectory, 'installation-outcome.json')
   const diagnosticPath = join(paths.stateDirectory, 'installation-assistant-diagnostic.json')

@@ -403,3 +403,11 @@ import and independent credentials. The product-adapter and concierge-entry test
 cover installation after standalone Machtiani; the managed Nix lifecycle suite
 checks preservation across takeover, update, and failed activation. The real
 credential-boundary gate also exercises the private Machtiani credential store.
+
+## Claude Code backend sign-in
+
+`packages/app/tests/backend-auth.spec.ts` exercises the trusted browser-link
+and masked-code interface with a fixture executable and real pipes/terminal.
+The bridge and client suites cover disconnect/cancellation and safe results.
+This does not authenticate a real subscription account. Live human sign-in
+remains a separate IXE check; no host subscription session is copied.

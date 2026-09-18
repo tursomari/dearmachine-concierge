@@ -1,3 +1,4 @@
+import { requestBackendLogin } from './backend-login.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { chmod, mkdir, rename, writeFile } from 'node:fs/promises'
@@ -32,6 +33,17 @@ export function apply(ctx: Context): void {
     order: ctx.systemPrompt.getSectionOrder('TOOL_GOAL'),
     text: 'When installation reaches a terminal success, partial, or blocked state, call finish_installation exactly once. Base every receipt on observed command evidence. Distinguish pre-existing software from installer changes. Do not place credentials or credential fragments in any field.',
   })
+  ctx.tools.register(defineTool({
+    name: 'authenticate_backend',
+    description: 'After the user chooses Claude Code subscription authentication, sign in through the trusted browser-link and masked-code interface. Never run claude auth login through bash. Does not change the installer model. Run the functional backend probe afterward.',
+    parameters: {
+      backend: { type: 'string', required: true, enum: ['claude'] },
+      executable: { type: 'string', description: 'Absolute path of the user-selected Claude Code executable, if it is not discoverable on PATH.' },
+    },
+    output: { schema: { type: 'object', additionalProperties: false, properties: { authenticated: { type: 'boolean', required: true } } }, render: () => [{ type: 'text', text: 'Backend account sign-in verified. Run the functional backend probe next.' }] },
+    async execute(args, exec) { await requestBackendLogin(args.executable, exec.signal); return { authenticated: true } },
+    presentCall: () => ({ card: 'generic', title: 'Sign in to Claude Code', kind: 'other' }),
+  }))
   ctx.tools.register(defineTool({
     name: 'finish_installation',
     description: 'Finish the guided installer with a structured, evidence-based outcome. This closes the installer session.',

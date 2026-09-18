@@ -37,7 +37,7 @@ Dear Machine needs one ready backend before installation can continue.
 Which installed agent would you like to configure?`
   },
   productInstallation: 'I have what I need. I’m installing Machtiani and Dear Machine now. This may take a few minutes.',
-  testEmail: (inboxAddress: string) => `Please send a short test email to ${inboxAddress}.
+  testEmail: (authorizedSender: string, inboxAddress: string) => `Please send a short test email from ${authorizedSender} to ${inboxAddress}.
 
 If you don’t see the reply in your inbox, check your spam folder and mark it as “Not spam.”
 

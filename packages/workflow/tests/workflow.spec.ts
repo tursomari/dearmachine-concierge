@@ -211,11 +211,46 @@ describe('complete installation', () => {
     }
     await expect(runCompleteInstallation(ports)).resolves.toEqual({ inboxAddress: 'machine@example.test' })
     expect(productEvents).toEqual(['install', 'baseline', 'verify:private-baseline'])
-    expect(test.asked).toEqual([messages.testEmail('machine@example.test')])
+    expect(test.asked).toEqual([expect.stringContaining('Please send a short test email from sender@example.test to machine@example.test.')])
     expect(test.events).toContain(`say:${messages.productInstallation}`)
     expect(test.events).toContain(`say:${messages.installationOutcome('Forge', 'machine@example.test')}`)
     expect(test.saved).toEqual(expect.objectContaining({ stage: 'success', inboxAddress: 'machine@example.test' }))
     expect(test.events.indexOf('save:installing')).toBeLessThan(test.events.indexOf('save:awaiting-test-email'))
+  })
+
+  it('uses the current confirmed sender and inbox when resuming the email question', async () => {
+    const test = fixture(['sent'], { ...ready, stage: 'awaiting-test-email',
+      authorizedSender: 'replacement@example.test', inboxAddress: 'current-inbox@example.test', liveEmailBaseline: 'saved-baseline' })
+    const ports: CompleteWorkflowPorts = {
+      ...test.ports,
+      backends: { discover: async () => [], check: async () => [] },
+      products: {
+        install: async () => { throw new Error('must not reinstall') },
+        captureLiveEmailBaseline: async () => { throw new Error('must preserve the baseline') },
+        waitForLiveEmail: async baseline => { expect(baseline).toBe('saved-baseline') },
+      },
+    }
+    await runCompleteInstallation(ports)
+    expect(test.asked).toEqual([expect.stringContaining(
+      'Please send a short test email from replacement@example.test to current-inbox@example.test.',
+    )])
+    expect(test.asked[0]).not.toContain('from sender@example.test')
+  })
+
+  it.each(['authorizedSender', 'inboxAddress'] as const)('does not give an email instruction with a missing %s', async missing => {
+    const test = fixture([], { ...ready, stage: 'awaiting-test-email',
+      inboxAddress: 'machine@example.test', liveEmailBaseline: 'saved-baseline', [missing]: undefined })
+    const ports: CompleteWorkflowPorts = {
+      ...test.ports,
+      backends: { discover: async () => [], check: async () => [] },
+      products: {
+        install: async () => { throw new Error('must not reinstall') },
+        captureLiveEmailBaseline: async () => 'unused',
+        waitForLiveEmail: async () => { throw new Error('must not verify an incomplete pairing') },
+      },
+    }
+    await expect(runCompleteInstallation(ports)).rejects.toThrow('saved live email verification state is incomplete')
+    expect(test.asked).toEqual([])
   })
 
   it('resumes live verification without reinstalling or repeating the email question', async () => {

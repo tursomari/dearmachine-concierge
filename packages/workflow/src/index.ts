@@ -302,10 +302,10 @@ export async function runCompleteInstallation(ports: CompleteWorkflowPorts): Pro
   }
 
   if (state.stage === 'awaiting-test-email') {
-    if (state.inboxAddress === undefined || state.liveEmailBaseline === undefined) {
+    if (!state.authorizedSender?.trim() || !state.inboxAddress?.trim() || state.liveEmailBaseline === undefined) {
       throw new Error('the saved live email verification state is incomplete')
     }
-    await ports.conversation.ask(messages.testEmail(state.inboxAddress))
+    await ports.conversation.ask(messages.testEmail(state.authorizedSender!, state.inboxAddress!))
     state = { ...state, stage: 'verifying-email' }
     await ports.checkpoint.save(state)
   }

@@ -19,6 +19,7 @@ import {
   type ThinkingLevel,
   type Tool,
 } from '@earendil-works/pi-ai'
+import { clampMaxTokensToContext } from '@earendil-works/pi-ai/api/simple-options'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { subscriptionDriver } from './subscription-drivers.ts'
 
@@ -130,6 +131,7 @@ export type ModelHostErrorCode =
   | 'RATE_LIMITED'
   | 'QUOTA_EXHAUSTED'
   | 'MODEL_UNAVAILABLE'
+  | 'CONTEXT_LENGTH_EXCEEDED'
   | 'UNSUPPORTED_CAPABILITY'
   | 'CANCELLED'
   | 'UPSTREAM_CHANGED'
@@ -575,6 +577,13 @@ export class ModelHost {
       ...(prompt === undefined ? {} : { systemPrompt: prompt }),
       messages: piMessages(request.messages),
       ...(request.tools === undefined ? {} : { tools: request.tools as unknown as Tool[] }),
+    }
+    // pi-ai silently clamps output to one token when its context estimate
+    // exceeds the window. Report this before streaming so callers can shrink
+    // their prompt instead of accepting an empty, length-limited completion.
+    const outputTokens = request.maxTokens ?? model.maxTokens
+    if (clampMaxTokensToContext(model, context, outputTokens) < outputTokens) {
+      throw new ModelHostError('CONTEXT_LENGTH_EXCEEDED', 'The prompt leaves insufficient context space for the model response. Reduce the input and retry.')
     }
     const options = {
       ...(request.reasoningEffort ?? this.profile.reasoningEffort) === undefined ? {} : { reasoning: (request.reasoningEffort ?? this.profile.reasoningEffort) as ThinkingLevel },

@@ -138,6 +138,35 @@ describe('shared model host profile', () => {
     expect(JSON.stringify(requests)).not.toContain('MACHTIANI_CUSTOM_OPENAI_LOCAL_API_KEY')
   })
 
+  it('rejects oversized context before the SDK can reduce the output limit to one token', async () => {
+    let requests = 0
+    const server = createServer((_request, response) => {
+      requests += 1
+      streamEvents(response, [{ id: 'short', choices: [{ index: 0, delta: { content: 'Ready.' }, finish_reason: 'stop' }] }])
+    })
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve) })
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('test server did not bind')
+      const host = new ModelHost({
+        version: 1, driver: 'openai-compatible', provider: 'custom-openai-local', authMethod: 'optional_api_key', model: 'context-test',
+        customProvider: {
+          kind: 'openai-compatible', scope: 'local', name: 'Context test', usesApiKey: false,
+          chatCompletionsEndpoint: `http://127.0.0.1:${address.port}/v1/chat/completions`,
+        },
+      })
+      const consume = async (content: string) => {
+        const events = []
+        for await (const event of host.generate({ caller: 'test', sessionId: 'context-test', messages: [{ role: 'user', content }] })) events.push(event)
+        return events
+      }
+      await expect(consume('x'.repeat(600_000))).rejects.toMatchObject({ code: 'CONTEXT_LENGTH_EXCEEDED' })
+      expect(requests).toBe(0)
+      await expect(consume('A reduced prompt.')).resolves.toContainEqual(expect.objectContaining({ type: 'text-delta', text: 'Ready.' }))
+      expect(requests).toBe(1)
+    } finally { await new Promise<void>((resolve, reject) => { server.close(error => { if (error === undefined) resolve(); else reject(error) }) }) }
+  })
+
   it('does not follow redirects from a custom endpoint', async () => {
     let requests = 0
     const server = createServer((_request, response) => {

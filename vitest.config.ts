@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import { resolve } from 'node:path'
+import { realpathSync } from 'node:fs'
 
 export default defineConfig({
   resolve: {
@@ -13,6 +14,9 @@ export default defineConfig({
     },
   },
   test: {
+    // macOS's per-user TMPDIR is too long for nested Unix socket fixtures.
+    // Canonicalize /tmp so realpath assertions and symlink guards agree.
+    env: process.platform === 'darwin' ? { TMPDIR: realpathSync('/tmp') } : {},
     include: ['packages/*/tests/**/*.spec.ts', 'packages/*/tests/**/*.snapshot.ts'],
     testTimeout: 10_000,
   },

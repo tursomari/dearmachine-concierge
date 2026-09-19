@@ -63,7 +63,10 @@
             version = "0.0.1";
             src = dependencySource;
             fetcherVersion = 4;
-            hash = "sha256-I6b7w/un7cfyWUuQb6uhh50iguqPIQuI2jYJiY47NSs=";
+            # --no-force fetches platform-specific optional native dependencies.
+            hash = if system == "x86_64-darwin" then "sha256-EUdyWiZQNUW324UnfnH1Z/hyJDOcYYiw66KpQvOKXpY="
+              else if system == "aarch64-darwin" then "sha256-36a0mmvkhOb59Tbq3Zjf+bx1UQVqZk1O+ITNOnJ65N0="
+              else "sha256-I6b7w/un7cfyWUuQb6uhh50iguqPIQuI2jYJiY47NSs=";
             prePnpmInstall = ''
               pnpm config set network-concurrency 1
               pnpm config set child-concurrency 1
@@ -128,6 +131,16 @@
             };
             meta.mainProgram = "dearmachine";
           };
+        });
+
+      checks = forAllSystems (system:
+        let pkgs = pkgsFor system; in {
+          node-worker-files = pkgs.runCommand "machtiani-installer-node-worker-files" {
+            nativeBuildInputs = [ pkgs.nodejs_24 ];
+          } ''
+            node ${./tests/node-worker-files.cjs}
+            touch "$out"
+          '';
         });
 
       devShells = forAllSystems (system:

@@ -45,6 +45,27 @@ Standard and Container build currently produce Linux runtimes, so the macOS
 wizard offers Nix only. The umbrella macOS guide tracks runtime verification
 and the remaining lifecycle limitations.
 
+Run `nix flake check` on the target Mac as well. Its Node worker file test
+catches the file-descriptor tracking corruption in older Darwin Node 24
+builds that can abort pnpm installation (NixOS/nixpkgs#536039). The Intel
+input includes the upstream fix; a successful evaluation alone cannot
+verify this runtime behavior.
+
+The dependency cache includes platform-specific optional binaries. Keep the
+Intel and Apple Silicon cache hashes separate from the Linux hash when
+updating the lockfile.
+
+On Intel macOS, `nix develop` can try to acquire Bash from the main unstable
+input before entering the selected development environment. If that fails
+and falls back to Apple's older Bash, use the packaged tool environment:
+
+```console
+nix shell .#build-dependencies -c pnpm install --frozen-lockfile \
+  --network-concurrency=1 --child-concurrency=1
+nix shell .#build-dependencies -c pnpm typecheck
+nix shell .#build-dependencies -c pnpm test
+```
+
 ## Maintained TypeScript suites
 
 | Entrypoint | Coverage | Safety and cost |

@@ -7,13 +7,11 @@ provider-runtime entrypoints, child execution, Git LFS, and offline cache reuse.
 This is not yet a verified install-to-live-email release; the human IXE and
 subsequent live QSE remain required.
 
-The current wizard offers **Nix** and **Container build**. Docker acquisition
-builds the pinned source using standard tooling and exports a host runtime;
-the paired umbrella documents its bootstrap in `docs/container-build-installation.md`.
-Historical prebuilt Standard manifests remain supported for existing runtimes.
-All acquisition paths share provider/model selection, private credentials,
-backend setup, verification, and the concierge lifecycle. Backend agents remain
-separately selected prerequisites.
+The wizard offers exactly **Nix** and **Standard** on Linux and macOS.
+Standard invokes the umbrella's `scripts/standard-build.py`: Docker builds on
+Linux x86-64, native Apple developer tools on macOS Intel/Apple Silicon.
+Both export a host runtime and use the same model, credential, backend and
+concierge flow. See the umbrella's `docs/standard-installation.md`.
 
 ## Launcher contract
 
@@ -37,18 +35,15 @@ These paths are relative to that release, not to the current working directory.
 Every binary must exist and be executable. Paths and symlinks may not escape
 the release. An invalid explicit manifest fails closed; it never triggers a
 silent Nix fallback. Without a distribution manifest, both wizard methods remain available;
-Container build acquires its own products rather than requiring a prebuilt bundle.
+Standard acquires its own products without requiring a prebuilt bundle.
 
-The wizard now offers **Nix** and **Container build**, with Container build
-selected by default. It no longer depends on prebuilt-product availability.
-Container build invokes the umbrella production builder before model setup,
-loads its validated distribution, and uses the shared configuration flow.
-Existing Standard manifests remain readable for previously acquired runtimes.
-A Container build manifest sets `method: container`; absent method metadata
-identifies the historical Standard format. Escape returns to installation consent;
-local exit remains available while the menu is pending. The chosen method and
-validated product paths are included in the agent's runtime context, separate
-from the system prompt and from the shared model profile.
+Standard is selected by default. Acquisition runs before model setup and loads
+its validated distribution. Existing `method: container` manifests remain
+readable as the legacy Linux implementation; they do not add a third menu
+choice. Native macOS manifests use `method: standard`. Absent method metadata
+continues to identify older Standard releases. Escape returns to installation
+consent; cancellation returns to method selection. The selected method and
+validated product paths are included in the agent's runtime context.
 
 The source snapshot contains the canonical documentation and source at the
 release revisions, without Git history, repository administration, or host

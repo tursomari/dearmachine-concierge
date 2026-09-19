@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { loadDistribution, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 
 /** The same production builder serves the wizard, bootstrap and acceptance gates. */
-export async function buildContainerDistribution(options: {
+export async function buildStandardDistribution(options: {
   sourceRoot: string
   diagnosticPath: string
   signal: AbortSignal
@@ -20,7 +20,7 @@ export async function buildContainerDistribution(options: {
   let output = ''
   try {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn('python3', [join(options.sourceRoot, 'scripts/container-build.py'),
+      const child = spawn('python3', [join(options.sourceRoot, 'scripts/standard-build.py'),
         '--source-root', options.sourceRoot, '--json'], {
         env: environment, stdio: ['ignore', 'pipe', 'pipe'], detached: true,
       })
@@ -44,8 +44,8 @@ export async function buildContainerDistribution(options: {
         finished = true
         clearTimeout(escalation)
         options.signal.removeEventListener('abort', stop)
-        if (options.signal.aborted) reject(new Error('Container build cancelled. Choose an installation method to continue.'))
-        else if (code !== 0 || logError) reject(new Error(`Container build failed. Check Docker and the build log at ${options.diagnosticPath}, then choose a method to retry.`))
+        if (options.signal.aborted) reject(new Error('Standard build cancelled. Choose an installation method to continue.'))
+        else if (code !== 0 || logError) reject(new Error(`Standard build failed. Check the prerequisites and build log at ${options.diagnosticPath}, then choose a method to retry.`))
         else resolve()
       })
     })
@@ -53,8 +53,11 @@ export async function buildContainerDistribution(options: {
     await new Promise<void>(resolve => { log.end(resolve) })
   }
   const receipt = JSON.parse(output) as { manifest?: unknown }
-  if (typeof receipt.manifest !== 'string') throw new Error('Container build returned no installation manifest.')
+  if (typeof receipt.manifest !== 'string') throw new Error('Standard build returned no installation manifest.')
   const distribution = await loadDistribution({ MACHTIANI_DISTRIBUTION: receipt.manifest })
-  if (distribution?.method !== 'container') throw new Error('Container build returned an invalid distribution.')
+  if (distribution === undefined || (distribution.method !== undefined && distribution.method !== 'standard' && distribution.method !== 'container')) throw new Error('Standard build returned an invalid distribution.')
   return distribution
 }
+
+/** Compatibility name for callers of the former Linux-only builder. */
+export const buildContainerDistribution = buildStandardDistribution

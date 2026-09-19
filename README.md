@@ -44,6 +44,14 @@ package. The live QSE may pass one exact pre-provisioned test inbox ID so its
 host-side transaction can journal ownership before the container mutates the
 resource; the normal installer still provisions a new inbox.
 
+## Installation methods
+
+The wizard offers **Nix** and **Standard** on Linux and macOS. Standard builds
+with Docker on Linux x86-64 and directly with Apple's Command Line Tools on
+macOS Intel/Apple Silicon. All products run on the host. The umbrella owns the
+bootstrap and platform build recipes; see its `docs/standard-installation.md`.
+Target availability and completed native/live verification are tracked separately.
+
 ## Development
 
 Use Node 24 and pnpm through the pinned Nix shell. The canonical commands,

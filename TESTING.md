@@ -41,8 +41,8 @@ separate pinned Nixpkgs 26.05 input because the main unstable input no longer
 supports that platform. Linux and Apple Silicon keep the existing input.
 Evaluating either derivation on Linux checks packaging expressions only; run
 `nix build` and the tests on the corresponding Mac before claiming support.
-Standard and Container build currently produce Linux runtimes, so the macOS
-wizard offers Nix only. The umbrella macOS guide tracks runtime verification
+The macOS wizard offers Nix and Standard; Standard uses a native build
+through the umbrella builder. The umbrella macOS guide tracks runtime verification
 and the remaining lifecycle limitations.
 
 Run `nix flake check` on the target Mac as well. Its Node worker file test
@@ -89,12 +89,12 @@ The active Vitest configuration collects `packages/*/tests/**/*.spec.ts` and
 Use Vitest's normal file or name filters after `pnpm build` for focused work;
 the full `pnpm test` remains the maintained aggregate suite.
 
-## Container build wizard and handoff
+## Standard build wizard and handoff
 
 The existing `installation-method.spec.ts` and `installation-wizard.spec.ts`
-suites cover Nix/Container build selection, back navigation, build failure,
-and exit before provider setup. macOS cases offer Nix only and reject stale
-Linux container selections. `container-build.spec.ts` exercises the real
+suites cover Nix/Standard selection, back navigation, build failure,
+and exit before provider setup. Both platforms offer exactly two choices and reject the retired third
+container selection. `container-build.spec.ts` exercises the real
 subprocess handoff with a fixture builder: validated manifest, paths containing
 spaces, retained diagnostics and cancellation. They run through `pnpm test`.
 

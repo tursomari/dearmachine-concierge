@@ -21,7 +21,7 @@ import { ConciergeShell, conciergeInterruptHint } from './concierge-shell.ts'
 import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-control.ts'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { resolveSourceReference, saveSourceReference, type SourceReference } from './source-reference.ts'
-import { buildContainerDistribution } from './container-build.ts'
+import { buildStandardDistribution } from './container-build.ts'
 import { runInstallationWizard } from './installation-wizard.ts'
 import { saveInterfacePreferences } from './interface-preferences.ts'
 import { submitInstallerMessage, type InstallerAssistantState } from './installer-conversation.ts'
@@ -338,17 +338,19 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       wizard = runInstallerModelWizard(tui, await modelSetup())
       return await wizard
     }, async method => {
-      if (method !== 'container' || distribution?.method === 'container') return
+      if (method !== 'standard' || distribution !== undefined) return
       building = new AbortController()
-      tui.setProgress('Building Dear Machine with Docker; the first build downloads its dependencies. Ctrl+C cancels.')
+      tui.setProgress(process.platform === 'darwin'
+        ? 'Building Dear Machine on this Mac; the first build downloads its dependencies. Ctrl+C cancels.'
+        : 'Building Dear Machine with Docker; the first build downloads its dependencies. Ctrl+C cancels.')
       try {
-        distribution = await buildContainerDistribution({ sourceRoot: source,
-          diagnosticPath: join(paths.stateDirectory, 'container-build.log'), signal: building.signal })
+        distribution = await buildStandardDistribution({ sourceRoot: source,
+          diagnosticPath: join(paths.stateDirectory, 'standard-build.log'), signal: building.signal })
       } finally { building = undefined; tui.setProgress(undefined) }
     })
     if (configured === undefined) return
     const { selection, method, showCommands } = configured
-    if (method === 'container' && distribution) source = distribution.sourceRoot
+    if (method === 'standard' && distribution) source = distribution.sourceRoot
     await saveInterfacePreferences(home, { showCommands }).catch(() => {
       tui.addAssistant('Your command-display choice applies to this installation, but could not be saved for future conversations.')
     })
@@ -375,7 +377,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
         MACHTIANI_INSTALLER_CONTRACT: join(source, 'INSTALL.md'),
         MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath,
         MACHTIANI_INSTALL_METHOD: method,
-        ...(method === 'container' && distribution ? { MACHTIANI_DISTRIBUTION: distribution.manifestPath,
+        ...(method === 'standard' && distribution ? { MACHTIANI_DISTRIBUTION: distribution.manifestPath,
           PATH: `${dirname(distribution.binaries.dearmachine)}:${process.env.PATH ?? ''}` } : {}),
       },
       onEvent: event => { activity.event(event); renderAgentEvent(tui, tools, event) },

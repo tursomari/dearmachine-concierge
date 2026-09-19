@@ -124,7 +124,7 @@ export async function openManagementAgent(ports: {
         provider: shared.provider, model: shared.model, profile: sharedModelPath(home),
         ...(shared.reasoningEffort === undefined ? {} : { reasoningEffort: shared.reasoningEffort }),
       } }),
-      ...(distribution === undefined ? {} : { installation: { method: distribution.method ?? 'standard', distribution } }),
+      ...(distribution === undefined ? {} : { installation: { method: 'standard', distribution } }),
     },
     start: () => session.start(), prompt: text => session.prompt(text), interrupt: () => session.interrupt(), pause: () => session.pause(),
     shutdown: async () => {

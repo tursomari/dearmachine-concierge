@@ -93,8 +93,7 @@ the full `pnpm test` remains the maintained aggregate suite.
 
 The existing `installation-method.spec.ts` and `installation-wizard.spec.ts`
 suites cover Nix/Standard selection, back navigation, build failure,
-and exit before provider setup. Both platforms offer exactly two choices and reject the retired third
-container selection. `container-build.spec.ts` exercises the real
+and exit before provider setup. Other Linux hosts and macOS offer two choices with Nix selected by default. NixOS skips the method menu; Back and prerequisite failures return to consent. The suites reject the retired third container selection. `nix-prerequisites.spec.ts` covers missing features, absent Nix, and private diagnostic handling. `container-build.spec.ts` exercises the real
 subprocess handoff with a fixture builder: validated manifest, paths containing
 spaces, retained diagnostics and cancellation. They run through `pnpm test`.
 

@@ -7,7 +7,7 @@ provider-runtime entrypoints, child execution, Git LFS, and offline cache reuse.
 This is not yet a verified install-to-live-email release; the human IXE and
 subsequent live QSE remain required.
 
-The wizard offers exactly **Nix** and **Standard** on Linux and macOS.
+The wizard automatically uses **Nix** on NixOS. Other Linux hosts and macOS offer **Nix** and **Standard**, with host-specific Standard descriptions.
 Standard invokes the umbrella's `scripts/standard-build.py`: Docker builds on
 Linux x86-64, native Apple developer tools on macOS Intel/Apple Silicon.
 Both export a host runtime and use the same model, credential, backend and
@@ -37,7 +37,7 @@ the release. An invalid explicit manifest fails closed; it never triggers a
 silent Nix fallback. Without a distribution manifest, both wizard methods remain available;
 Standard acquires its own products without requiring a prebuilt bundle.
 
-Standard is selected by default. Acquisition runs before model setup and loads
+Nix is recommended and selected by default. Acquisition runs before model setup and loads
 its validated distribution. Existing `method: container` manifests remain
 readable as the legacy Linux implementation; they do not add a third menu
 choice. Native macOS manifests use `method: standard`. Absent method metadata

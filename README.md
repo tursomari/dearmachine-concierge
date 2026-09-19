@@ -220,3 +220,10 @@ For an already-managed installation, explicitly inspect a superseded Nix profile
 entry with `machtiani-installer migrate-profile <entry> --check`, then omit
 `--check` to remove only that named entry. Its previous generation and profile
 manifest are retained privately for recovery. Unrelated profile packages remain.
+
+On NixOS, host detection selects Nix automatically and displays
+“Installation method: Nix.” Other Linux hosts and macOS offer Nix (recommended
+and selected by default) and Standard. Standard’s description matches the host.
+Having Nix installed does not classify an ordinary Linux or Mac host as NixOS.
+When Nix is selected, the installer checks its command/flakes features and
+provides configuration guidance only if needed; it does not rewrite Nix settings.

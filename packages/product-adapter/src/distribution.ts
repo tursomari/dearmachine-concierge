@@ -1,7 +1,7 @@
 import { hasPrivatePermissions } from '@dearmachine/machtiani-installer-credentials'
 import { access, lstat, readFile, realpath, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { dirname, isAbsolute, join, relative } from 'node:path'
+import { dirname, isAbsolute, join, relative, win32 } from 'node:path'
 
 export type InstallationMethod = 'standard' | 'nix' | 'container'
 export interface ProductDistribution {
@@ -52,4 +52,18 @@ export async function loadDistribution(environment: NodeJS.ProcessEnv): Promise<
       agentManager: await resolveMember(value.binaries.agentManager, true),
     },
   }
+}
+
+/** Saved model configuration must follow activation across Windows releases. */
+export function persistentModelHostCommand(distribution: ProductDistribution, environment: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'win32') return distribution.binaries.modelHost
+  const installation = environment.DEARMACHINE_INSTALL_ROOT
+  if (installation === undefined) return distribution.binaries.modelHost
+  const release = win32.dirname(distribution.manifestPath)
+  if (!win32.isAbsolute(installation) || !/^[a-f0-9]{32}$/u.test(win32.basename(release)) ||
+      win32.basename(win32.dirname(release)) !== 'releases' ||
+      win32.relative(installation, win32.dirname(win32.dirname(release))) !== '') {
+    throw new Error('Windows distribution does not belong to its installation root')
+  }
+  return win32.join(installation, 'bin', 'machtiani-model-host.exe')
 }

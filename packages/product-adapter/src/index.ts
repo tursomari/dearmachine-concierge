@@ -6,7 +6,7 @@ import { lstat, mkdir, readFile, readdir, readlink, rename, writeFile } from 'no
 import { delimiter, dirname, join } from 'node:path'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
 export { loadDistribution, type ProductDistribution, type InstallationMethod } from './distribution.ts'
-import type { ProductDistribution } from './distribution.ts'
+import { persistentModelHostCommand, type ProductDistribution } from './distribution.ts'
 
 export interface CommandRequest {
   label: string
@@ -397,7 +397,7 @@ export class NativeProductInstaller {
     }
     const sourceHasGit = distribution === undefined && await lstat(join(this.options.sourceRoot, '.git')).then(() => true, (error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return false; throw error })
     const machtianiConfigPath = join(this.options.home, '.config', 'dearmachine', 'machtiani', 'config.toml')
-    const modelHostCommand = distribution?.binaries.modelHost ?? join(this.options.home, '.local', 'bin', 'machtiani-model-host')
+    const modelHostCommand = distribution === undefined ? join(this.options.home, '.local', 'bin', 'machtiani-model-host') : persistentModelHostCommand(distribution, environment)
     const deviceConfig = join(this.options.home, '.dearmachine', 'config', 'dearmachine.toml')
     const entryPoint = join(this.options.home, '.dearmachine', 'entrypoint', 'main')
     environment.MACHTIANI_CONFIG = machtianiConfigPath

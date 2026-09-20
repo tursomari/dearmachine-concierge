@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
-import { loadDistribution } from '../src/distribution.ts'
+import { loadDistribution, persistentModelHostCommand } from '../src/distribution.ts'
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'machtiani-distribution-'))
@@ -48,4 +48,14 @@ it('rejects symlinks escaping the release and nonexecutable products', async () 
   await writeFile(test.path, JSON.stringify(test.manifest))
   await chmod(join(test.root, 'bin/dearmachine'), 0o644)
   await expect(loadDistribution({ MACHTIANI_DISTRIBUTION: test.path })).rejects.toThrow('executable')
+})
+
+it('keeps saved Windows model-host configuration valid across release activation', () => {
+  const installation = 'C:\\Users\\person\\Dear Machine'
+  const command = (release: string) => persistentModelHostCommand({
+    manifestPath: `${installation}\\releases\\${release}\\distribution.json`, sourceRoot: '',
+    binaries: { dearmachine: '', machtiani: '', agentManager: '', modelHost: `${release}/old-command.exe` },
+  }, { DEARMACHINE_INSTALL_ROOT: installation }, 'win32')
+  expect(command('a'.repeat(32))).toBe(`${installation}\\bin\\machtiani-model-host.exe`)
+  expect(command('b'.repeat(32))).toBe(command('a'.repeat(32)))
 })

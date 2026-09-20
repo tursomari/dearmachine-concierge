@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ConciergeShell, executeDaemonCommand, localHelp } from '../src/concierge-shell.ts'
+import { ConciergeShell, executeDaemonCommand, localHelpForPlatform } from '../src/concierge-shell.ts'
 import type { DaemonStatus } from '../src/concierge-control.ts'
 
+const localHelp = localHelpForPlatform('linux')
 const running: DaemonStatus = { installation: 'installed', supervisor: 'running', daemon: 'running', persistence: 'disabled' }
 const stopped: DaemonStatus = { ...running, supervisor: 'stopped', daemon: 'stopped' }
 
@@ -44,7 +45,7 @@ it('explains safe interface exit after a confirmed local start', async () => {
 })
 function fixture(status = running) {
   const control = { request: vi.fn().mockResolvedValue(status) }
-  const ports = { control, say: vi.fn(), ensureIndependent: vi.fn().mockResolvedValue(undefined), unsubscribe: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), converse: vi.fn().mockRejectedValue(new Error('provider offline')) }
+  const ports = { platform: 'linux' as const, control, say: vi.fn(), ensureIndependent: vi.fn().mockResolvedValue(undefined), unsubscribe: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), converse: vi.fn().mockRejectedValue(new Error('provider offline')) }
   return { control, ports, shell: new ConciergeShell(ports) }
 }
 describe('local slash commands', () => {

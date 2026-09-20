@@ -184,6 +184,12 @@ its absolute binary path (the suite skips when it is unset):
 DEARMACHINE_TEST_BIN=/absolute/path/to/test-dearmachine nix develop -c pnpm exec vitest run packages/app/tests/concierge-native.spec.ts
 ```
 
+The concierge consent suite also covers host-specific service controls:
+`/launchd` and login-only persistence on macOS, `/systemd` and lingering on
+Linux, no implicit mutation, and rejection of the other OS's service command.
+The native service lifecycle and real LaunchAgent test belong to DearMachine's
+`TESTING.md`; these UI tests do not configure host services.
+
 Increment 3 adds bootstrap/race/deadline, separate consent, lazy management agent,
 and failed-provider fallback coverage. Mock systemctl/loginctl runners never
 configure a real service. See [increment 3](docs/concierge-increment-3.md).

@@ -6,7 +6,7 @@ export const conciergeInterruptHint = 'Use /quit to leave. Press Ctrl+C again wi
 export const conciergeWelcome = 'Tell me what you need in plain language—for example, “What inbox is configured?”, “Check Dear Machine”, or “Stop Dear Machine”.\n\nUse /quit to leave this conversation; it does not stop Dear Machine. Use /help for local controls.'
 export const backgroundExitHint = 'Dear Machine is running in the background under its supervisor. You can use /quit to leave this conversation and keep it running. Reboot startup is a separate persistence setting.'
 
-export const localHelp = [
+const linuxHelp = [
   '## Local concierge commands',
   '',
   'These commands work without a model or provider.',
@@ -59,6 +59,27 @@ export const localHelp = [
   '`loginctl show-user --property=Linger` — Inspect account-wide lingering.',
   '`loginctl disable-linger` — Disable lingering only if no other service needs it.',
 ].join('\n')
+
+export function localHelpForPlatform(platform: NodeJS.Platform = process.platform): string {
+  if (platform !== 'darwin') return linuxHelp
+  return linuxHelp.slice(0, linuxHelp.indexOf('## Service and persistence choices')) + [
+    '## Service and persistence choices', '',
+    '`/launchd` — Explain macOS service management.',
+    '`/launchd on|off|status` — Choose service use or inspect its availability.',
+    '`/persistence` — Explain automatic startup at login.',
+    '`/persistence on|off|status` — Choose or inspect startup at login.', '',
+    'Service use and startup at login are separate choices.',
+    'Startup at login includes the next login after a reboot. It does not run before login or after logout.', '',
+    '## Native fallback CLI commands', '',
+    '`dearmachine --help` — Show native CLI help.',
+    '`dearmachine up`, `dearmachine down`, `dearmachine restart`, `dearmachine status` — Manage the client.',
+    '`dearmachine launchd on|off|status` — Choose or inspect macOS service use.',
+    '`dearmachine persistence on|off|status` — Choose or inspect startup at login.', '',
+    'To switch service ownership, stop the client with `/down` first. Enabling service use does not start it.',
+    'Disabling startup at login preserves the currently running client. Disable persistence before disabling service use.',
+  ].join('\n')
+}
+export const localHelp = localHelpForPlatform()
 
 export function formatDaemonStatus(status: DaemonStatus): string {
   const recovery = {
@@ -142,7 +163,8 @@ export class ConciergeShell {
     converse?(text: string): Promise<void>
     changeModel?(): Promise<void>
     update?(request: UpdateRequest): Promise<void>
-    chooseSupervision?(kind: 'systemd' | 'persistence', choice: 'on' | 'off' | 'status'): Promise<string>
+    platform?: NodeJS.Platform
+    chooseSupervision?(kind: 'systemd' | 'launchd' | 'persistence', choice: 'on' | 'off' | 'status'): Promise<string>
   }) {}
 
   async requestUpdate(request: UpdateRequest): Promise<void> {
@@ -170,7 +192,7 @@ export class ConciergeShell {
     if (this.closed) return
     const text = input.trim()
     if (text === '') return
-    if (text === '/help') { this.ports.say(localHelp); return }
+    if (text === '/help') { this.ports.say(localHelpForPlatform(this.ports.platform)); return }
     if (text === '/uninstall') {
       this.ports.say('To permanently remove DearMachine, run `dearmachine uninstall` in another terminal. That command shows the deletion paths and requires explicit confirmation. It stops DearMachine and closes its concierge sessions, then deletes owned binaries, configuration, credentials, databases, memory, logs and caches. Independent backends, personal Machtiani data, external projects and remote accounts are preserved. Nothing has been changed by /uninstall.')
       return
@@ -185,20 +207,32 @@ export class ConciergeShell {
       return
     }
     if (text === '/update') { await this.requestUpdate('install'); return }
-    if (text === '/systemd' || text === '/persistence') {
-      this.ports.say(text === '/systemd'
-        ? 'Use the systemd user manager for Dear Machine? This configures a service but does not enable reboot persistence. Answer /systemd on or /systemd off; inspect availability with /systemd status.'
-        : 'Enable Dear Machine after reboot, including account-wide loginctl enable-linger so the user manager survives logout? This is separate from service use. Answer /persistence on or /persistence off; inspect /persistence status.')
+    const mac = (this.ports.platform ?? process.platform) === 'darwin'
+    const service = mac ? 'launchd' : 'systemd'
+    if (text === '/systemd' || text.startsWith('/systemd ') || text === '/launchd' || text.startsWith('/launchd ')) {
+      if (!text.startsWith(`/${service}`)) {
+        this.ports.say(`Use /${service} on this operating system. No service change was requested.`)
+        return
+      }
+    }
+    if (text === `/${service}` || text === '/persistence') {
+      this.ports.say(mac
+        ? (text === '/launchd'
+          ? 'Use macOS service management for Dear Machine? This does not enable startup at login. Stop the client with /down before switching. Answer /launchd on or /launchd off; inspect /launchd status.'
+          : 'Start Dear Machine automatically when you log in, including after a reboot? It will stop at logout and will not run before login. Answer /persistence on or /persistence off; inspect /persistence status.')
+        : (text === '/systemd'
+          ? 'Use the systemd user manager for Dear Machine? This configures a service but does not enable reboot persistence. Answer /systemd on or /systemd off; inspect availability with /systemd status.'
+          : 'Enable Dear Machine after reboot, including account-wide loginctl enable-linger so the user manager survives logout? This is separate from service use. Answer /persistence on or /persistence off; inspect /persistence status.'))
       return
     }
-    const consent = /^\/(systemd|persistence) (on|off|status)$/u.exec(text)
+    const consent = /^\/(systemd|launchd|persistence) (on|off|status)$/u.exec(text)
     if (consent !== null) {
       const operation = this.operations.then(async () => {
         if (this.closed) return
         try {
           if (!this.ports.chooseSupervision) throw new Error('unavailable')
-          this.ports.say(await this.ports.chooseSupervision(consent[1] as 'systemd' | 'persistence', consent[2] as 'on' | 'off' | 'status'))
-        } catch { this.ports.say('Supervision choice was not confirmed. Inspect dearmachine systemd status and dearmachine persistence status. No lifecycle change is implied. Use /help.') }
+          this.ports.say(await this.ports.chooseSupervision(consent[1] as 'systemd' | 'launchd' | 'persistence', consent[2] as 'on' | 'off' | 'status'))
+        } catch { this.ports.say(`Supervision choice was not confirmed. Inspect dearmachine ${service} status and dearmachine persistence status. No lifecycle change is implied. Use /help.`) }
       })
       this.operations = operation.catch(() => {})
       await operation

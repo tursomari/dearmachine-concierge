@@ -1,4 +1,5 @@
-import { chmod, lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
+import { hasPrivatePermissions, protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
+import { lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 export interface SourceReference {
@@ -94,7 +95,7 @@ export async function saveSourceReference(home: string, reference: SourceReferen
   await mkdir(join(home, '.config', 'dearmachine'), { recursive: true, mode: 0o700 })
   const temporary = `${path}.${process.pid}.tmp`
   await writeFile(temporary, `${JSON.stringify(reference, undefined, 2)}\n`, { mode: 0o600 })
-  await chmod(temporary, 0o600)
+  await protectPrivatePath(temporary, 0o600)
   await rename(temporary, path)
   return path
 }
@@ -107,7 +108,7 @@ export async function loadSourceReference(home: string): Promise<SourceReference
     throw error
   }
   const owned = process.getuid === undefined || metadata.uid === process.getuid()
-  if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || (metadata.mode & 0o077) !== 0 || metadata.size > 16_384) {
+  if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || !await hasPrivatePermissions(path) || metadata.size > 16_384) {
     throw new Error('the retained source reference must be a small private regular file owned by the current user')
   }
   const value = JSON.parse(await readFile(path, 'utf8')) as Partial<SourceReference>

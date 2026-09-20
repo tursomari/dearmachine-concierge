@@ -1,8 +1,10 @@
+import { protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { InstallerModelSelection } from './model-setup.ts'
 import { MODEL_HOST_PROVIDER } from '@dearmachine/machtiani-model-host'
 
@@ -46,28 +48,32 @@ const profilePackage = `{
   }
 }\n`
 
+function pluginSpecifier(path: string): string {
+  return process.platform === 'win32' ? pathToFileURL(path).href : path
+}
+
 function modelHostPlugin(): string {
   const require = createRequire(import.meta.url)
-  return require.resolve('@dearmachine/machtiani-model-host/dsh-plugin')
+  return pluginSpecifier(require.resolve('@dearmachine/machtiani-model-host/dsh-plugin'))
 }
 
 function installerToolsPlugin(): string {
   const require = createRequire(import.meta.url)
-  return require.resolve('@dearmachine/machtiani-installer-dsh-adapter/installer-tools')
+  return pluginSpecifier(require.resolve('@dearmachine/machtiani-installer-dsh-adapter/installer-tools'))
 }
 
 function managementToolsPlugin(): string {
   const require = createRequire(import.meta.url)
-  return require.resolve('@dearmachine/machtiani-installer-dsh-adapter/management-tools')
+  return pluginSpecifier(require.resolve('@dearmachine/machtiani-installer-dsh-adapter/management-tools'))
 }
 
 function credentialPolicyPlugin(): string {
-  return createRequire(import.meta.url).resolve('@dearmachine/machtiani-installer-dsh-adapter/credential-policy')
+  return pluginSpecifier(createRequire(import.meta.url).resolve('@dearmachine/machtiani-installer-dsh-adapter/credential-policy'))
 }
 
 function roleSystemPromptPlugin(mode: 'installer' | 'management'): string {
   const require = createRequire(import.meta.url)
-  return require.resolve(`@dearmachine/machtiani-installer-dsh-adapter/${mode === 'installer' ? 'installer' : 'management'}-system-prompt`)
+  return pluginSpecifier(require.resolve(`@dearmachine/machtiani-installer-dsh-adapter/${mode === 'installer' ? 'installer' : 'management'}-system-prompt`))
 }
 
 type DshMode = 'installer' | 'management' | 'task'
@@ -80,10 +86,10 @@ function profilePatch(selection: InstallerModelSelection, mode: DshMode = 'insta
 - id: llm-pi-ai
   disabled: true
 - id: bash-sandbox
-  config:
+${process.platform === 'win32' ? '  disabled: false\n' : ''}  config:
     timeoutMs: 3600000
-- id: tool-bash
-  config:
+${process.platform === 'win32' ? '- id: pwsh-sandbox\n  disabled: true\n- id: tool-pwsh\n  disabled: true\n' : ''}- id: tool-bash
+${process.platform === 'win32' ? '  disabled: false\n' : ''}  config:
     enableRunInBackground: false
 - id: tool-jobs
   disabled: true
@@ -144,6 +150,8 @@ export async function prepareIsolatedDshHome(
 ): Promise<void> {
   const profile = join(dshHome, 'profiles', 'machtiani-installer')
   await mkdir(profile, { recursive: true, mode: 0o700 })
+  await protectPrivatePath(dshHome, 0o700)
+  await protectPrivatePath(profile, 0o700)
   await Promise.all([
     writeFile(join(profile, 'cordis.yml'), '[]\n', { mode: 0o600 }),
     writeFile(join(profile, 'cordis.patch.yml'), profilePatch(selection, mode), { mode: 0o600 }),

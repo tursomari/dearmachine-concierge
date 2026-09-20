@@ -1,3 +1,4 @@
+import { protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { randomUUID } from 'node:crypto'
 import { mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
@@ -24,6 +25,7 @@ export class InstallerAlreadyRunningError extends Error {
 
 export async function acquireInstallerLock(path: string): Promise<InstallerLock> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  await protectPrivatePath(dirname(path), 0o700)
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const token = randomUUID()
     try {

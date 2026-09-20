@@ -1,6 +1,7 @@
+import { protectPrivatePath, hasPrivatePermissions } from '@dearmachine/machtiani-installer-credentials'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
-import { chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   builtinModels,
@@ -209,14 +210,14 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   if (!metadata.isDirectory() || metadata.isSymbolicLink() || !owned) {
     throw new ModelHostError('INVALID_REQUEST', 'Model host state must use an owned regular directory.')
   }
-  await chmod(path, 0o700)
+  await protectPrivatePath(path, 0o700)
 }
 
 async function privateFile(path: string): Promise<string | undefined> {
   try {
     const metadata = await lstat(path)
     const owned = process.getuid === undefined || metadata.uid === process.getuid()
-    if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || (metadata.mode & 0o077) !== 0) {
+    if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || !await hasPrivatePermissions(path)) {
       throw new ModelHostError('INVALID_REQUEST', 'Model host credentials must be an owned private regular file.')
     }
     return await readFile(path, 'utf8')
@@ -249,7 +250,7 @@ async function writePrivate(path: string, content: string): Promise<void> {
   const temporary = join(dirname(path), `.model-host-${process.pid}-${randomUUID()}`)
   try {
     await writeFile(temporary, content, { mode: 0o600, flag: 'wx' })
-    await chmod(temporary, 0o600)
+    await protectPrivatePath(temporary, 0o600)
     await rename(temporary, path)
   } catch (error) {
     await unlink(temporary).catch(() => {})

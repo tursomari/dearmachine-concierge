@@ -1,3 +1,4 @@
+import { protectPrivatePath, hasPrivatePermissions } from '@dearmachine/machtiani-installer-credentials'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -99,7 +100,7 @@ async function privateRegularFile(path: string, label: string): Promise<void> {
   try {
     const metadata = await lstat(path)
     const owned = process.getuid === undefined || metadata.uid === process.getuid()
-    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || (metadata.mode & 0o077) !== 0 || !owned) {
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || !await hasPrivatePermissions(path) || !owned) {
       throw new Error(`${label} must be a nonempty private regular file owned by the current user`)
     }
   } catch (error) {
@@ -119,8 +120,10 @@ async function directoryHasEntries(path: string): Promise<boolean> {
 
 async function writePrivate(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  await protectPrivatePath(dirname(path), 0o700)
   const temporary = `${path}.${process.pid}.tmp`
   await writeFile(temporary, content, { mode: 0o600 })
+  await protectPrivatePath(temporary, 0o600)
   await rename(temporary, path)
 }
 
@@ -280,7 +283,7 @@ async function loadJournal(path: string): Promise<ProductJournal | undefined> {
   try {
     const metadata = await lstat(path)
     const owned = process.getuid === undefined || metadata.uid === process.getuid()
-    if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0 || !owned) {
+    if (!metadata.isFile() || metadata.isSymbolicLink() || !await hasPrivatePermissions(path) || !owned) {
       throw new Error('product installation journal must be a private regular file owned by the current user')
     }
     const value = JSON.parse(await readFile(path, 'utf8')) as Partial<ProductJournal>
@@ -361,7 +364,7 @@ export class NativeProductInstaller {
     const path = join(this.options.home, '.dearmachine', 'log', 'dearmachine.log')
     const metadata = await lstat(path)
     const owned = process.getuid === undefined || metadata.uid === process.getuid()
-    if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || (metadata.mode & 0o022) !== 0) {
+    if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || !await hasPrivatePermissions(path, 0o022)) {
       throw new Error('Dear Machine live verification requires an owned, non-writable-by-others regular log file.')
     }
     return metadata
@@ -459,7 +462,7 @@ export class NativeProductInstaller {
     }
 
     if (!atLeast(journal.stage, 'model-host-installed')) {
-      await run('Verify shared model host', ['sh', '-c', 'test -x "$1"', 'verify-model-host', modelHostCommand])
+      await run('Verify shared model host', process.platform === 'win32' ? [modelHostCommand, '--help'] : ['sh', '-c', 'test -x "$1"', 'verify-model-host', modelHostCommand])
       await advance('model-host-installed')
     }
 

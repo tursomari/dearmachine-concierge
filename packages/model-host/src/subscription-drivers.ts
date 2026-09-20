@@ -1,5 +1,6 @@
+import { protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { spawn, type ChildProcessByStdio, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { createInterface } from 'node:readline'
@@ -75,7 +76,7 @@ async function ensureRuntimeProfile(path: string): Promise<void> {
   if (!metadata.isDirectory() || metadata.isSymbolicLink() || !owned) {
     throw new ModelHostError('INVALID_REQUEST', 'Subscription runtime state must use an owned regular directory.')
   }
-  await chmod(path, 0o700)
+  await protectPrivatePath(path, 0o700)
 }
 
 export interface NativeConversationPrompt {

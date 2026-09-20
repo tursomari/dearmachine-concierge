@@ -1,3 +1,4 @@
+import { hasPrivatePermissions, protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { ConciergeActivityIndicator } from './concierge-activity.ts'
 import { authenticateClaudeBackend } from './backend-auth.ts'
 import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
@@ -165,7 +166,7 @@ async function waitForInstallationOutcome(path: string, signal: AbortSignal): Pr
     try {
       const metadata = await lstat(path)
       const owned = process.getuid === undefined || metadata.uid === process.getuid()
-      if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || (metadata.mode & 0o077) !== 0) {
+      if (!metadata.isFile() || metadata.isSymbolicLink() || !owned || !await hasPrivatePermissions(path)) {
         throw new Error('installer outcome must be an owned private regular file')
       }
       const value = JSON.parse(await readFile(path, 'utf8')) as Partial<InstallationOutcome>

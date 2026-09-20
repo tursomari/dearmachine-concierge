@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createConnection } from 'node:net'
+import { connectCredentialBridge } from '@dearmachine/machtiani-installer-credentials'
 
 const [kind, ...selectionParts] = process.argv.slice(2)
 const actions = selectionParts.filter(value => value === '--replace' || value === '--use-existing')
@@ -11,11 +11,11 @@ if ((kind !== 'backend-provider' && kind !== 'machtiani-provider' && kind !== 'e
   process.stderr.write('Usage: machtiani-installer-credential <backend-provider|machtiani-provider|email> <provider-or-transport> [--use-existing|--replace]\n')
   process.exitCode = 2
 } else {
-  const socket = createConnection(socketPath)
+  const { socket, token } = await connectCredentialBridge(socketPath).catch(() => { process.stderr.write('The Machtiani Installer credential field is unavailable.\n'); process.exit(1) })
   socket.setEncoding('utf8')
   let input = ''
   socket.once('connect', () => {
-    socket.write(`${JSON.stringify({ kind, selection, action })}\n`)
+    socket.write(`${JSON.stringify({ kind, selection, action, _bridgeToken: token })}\n`)
   })
   socket.on('data', chunk => {
     input += chunk

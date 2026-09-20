@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { ManagedNix, UnsupportedManagedInstallationError, launcherGuidance } from '@dearmachine/machtiani-installer-products'
 
 function writeJSON(value: object): void {
@@ -17,6 +18,17 @@ export async function runManagedCommand(action: 'install' | 'update' | 'migrate-
   if (action === '_launcher-check') {
     if (args.length) throw new Error('_launcher-check takes no arguments')
     await reportLaunchers(); return
+  }
+
+  if (process.platform === 'win32' && process.env.MACHTIANI_DISTRIBUTION && action === 'update') {
+    const native = process.env.DEARMACHINE_NATIVE_BIN
+    if (!native) throw new Error('Run update through the installed Windows launcher')
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(native, ['update', ...args], { stdio: 'inherit', windowsHide: true })
+      child.once('error', reject)
+      child.once('exit', code => code === 0 ? resolve() : reject(new Error(`Windows update exited with status ${code}`)))
+    })
+    return
   }
 
   const json = action === 'update' && args.includes('--json')

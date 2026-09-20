@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { createConnection } from 'node:net'
 import { isAbsolute, join } from 'node:path'
@@ -40,8 +41,12 @@ export function resolveSupervisorSocket(environment: NodeJS.ProcessEnv = process
     if (!isAbsolute(override)) throw new Error('The supervisor control socket path must be absolute.')
     return override
   }
-  const home = environment.HOME
+  const home = process.platform === 'win32' ? environment.USERPROFILE : environment.HOME
   if (!home || !isAbsolute(home)) throw new Error('An absolute HOME is required to locate the concierge control endpoint.')
+  if (process.platform === 'win32') {
+    const hash = createHash('sha256').update(join(home, '.dearmachine').toLowerCase()).digest('hex').slice(0, 32)
+    return `\\\\.\\pipe\\dearmachine-${hash}`
+  }
   return join(home, '.dearmachine', 'run', 'supervisor.sock')
 }
 
@@ -142,7 +147,7 @@ export class BootstrapDaemonControl implements DaemonControl {
 }
 
 export function nativeBootstrap(environment: NodeJS.ProcessEnv = process.env): Promise<void> {
-  const home = environment.HOME
+  const home = process.platform === 'win32' ? environment.USERPROFILE : environment.HOME
   if (!home || !isAbsolute(home) || resolveSupervisorSocket(environment) !== join(home, '.dearmachine', 'run', 'supervisor.sock')) {
     return Promise.reject(new Error('Bootstrap requires the native HOME socket. Start a custom owner explicitly.'))
   }
@@ -155,7 +160,7 @@ export function nativeBootstrap(environment: NodeJS.ProcessEnv = process.env): P
 }
 
 export function defaultConciergeControl(environment: NodeJS.ProcessEnv = process.env, progress?: (text: string) => void): DaemonControl {
-  const home = environment.HOME
+  const home = process.platform === 'win32' ? environment.USERPROFILE : environment.HOME
   const native = environment.DEARMACHINE_NATIVE_BIN
   const canInspectNative = home && isAbsolute(home) && native && isAbsolute(native) &&
     resolveSupervisorSocket(environment) === join(home, '.dearmachine', 'run', 'supervisor.sock')
@@ -166,7 +171,7 @@ export function defaultConciergeControl(environment: NodeJS.ProcessEnv = process
 /** Read installation and runtime independently, including when no supervisor is running. */
 export function nativeStatus(environment: NodeJS.ProcessEnv = process.env): Promise<DaemonStatus> {
   const binary = environment.DEARMACHINE_NATIVE_BIN
-  const home = environment.HOME
+  const home = process.platform === 'win32' ? environment.USERPROFILE : environment.HOME
   if (!binary || !isAbsolute(binary) || !home || !isAbsolute(home) ||
     resolveSupervisorSocket(environment) !== join(home, '.dearmachine', 'run', 'supervisor.sock')) {
     return Promise.reject(new Error('Native status requires an explicit native executable and HOME socket.'))
@@ -211,7 +216,7 @@ export function nativeStatusReport(environment: NodeJS.ProcessEnv = process.env)
   // into the installer compatibility CLI instead of reaching the Go command.
   const binary = environment.DEARMACHINE_NATIVE_BIN
   if (!binary || !isAbsolute(binary)) return Promise.reject(new Error('Native status executable unavailable.'))
-  const home = environment.HOME
+  const home = process.platform === 'win32' ? environment.USERPROFILE : environment.HOME
   if (!home || !isAbsolute(home) || resolveSupervisorSocket(environment) !== join(home, '.dearmachine', 'run', 'supervisor.sock')) {
     return Promise.reject(new Error('Native status requires the native HOME socket.'))
   }

@@ -31,7 +31,10 @@
       "default": "./dist/management-tools.mjs"
     }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsdown"
   },
@@ -44,6 +47,7 @@
     "@deepseek-ai/dsh-llm-pi-ai": "0.1.2-rc.1",
     "@deepseek-ai/dsh-sdk-jsonrpc-server": "0.1.2-rc.1",
     "@deepseek-ai/dsh-tools": "0.1.2-rc.1",
-    "@earendil-works/pi-ai": "0.84.4"
+    "@earendil-works/pi-ai": "0.84.4",
+    "@dearmachine/machtiani-installer-credentials": "workspace:*"
   }
 }

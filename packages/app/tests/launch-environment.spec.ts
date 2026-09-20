@@ -7,6 +7,17 @@ import { describe, expect, it } from 'vitest'
 import { launchEnvironment } from '../src/launch-environment.ts'
 
 describe('backend launch environment', () => {
+  it('finds Windows user installs with mixed-case Path and preserves caller precedence', () => {
+    const original = { Path: 'C:\\custom;C:\\Windows', USERPROFILE: 'C:\\Users\\Example', LOCALAPPDATA: 'C:\\Users\\Example\\AppData\\Local', KEEP: 'unchanged' }
+    const result = launchEnvironment(original, 'win32')
+    expect(result.PATH).toBe('C:\\custom;C:\\Windows;C:\\Users\\Example\\.local\\bin;C:\\Users\\Example\\AppData\\Local\\omp')
+    expect(result.Path).toBeUndefined()
+    expect(result.KEEP).toBe('unchanged')
+    expect(original.Path).toBe('C:\\custom;C:\\Windows')
+    expect(launchEnvironment(result, 'win32')).toEqual(result)
+    expect(launchEnvironment({ Path: 'C:\\Windows', USERPROFILE: 'relative' }, 'win32').PATH).toBe('C:\\Windows')
+  })
+
   it('preserves precedence and unrelated variables, appending the user bin only once', () => {
     const original = { HOME: '/home/example', PATH: '/custom/bin:/usr/bin', KEEP: 'unchanged' }
     const updated = launchEnvironment(original)

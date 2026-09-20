@@ -24,6 +24,10 @@ export async function chooseInstallationMethod(
   platform: NodeJS.Platform = process.platform,
   nixos = false,
 ): Promise<InstallationMethod | 'back' | undefined> {
+  if (platform === 'win32') {
+    tui.addAssistant('Installation method: native Windows')
+    return 'standard'
+  }
   if (platform === 'linux' && nixos) {
     tui.addAssistant('Installation method: Nix')
     return 'nix'

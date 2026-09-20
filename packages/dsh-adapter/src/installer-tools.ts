@@ -1,7 +1,8 @@
+import { protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { requestBackendLogin } from './backend-login.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { chmod, mkdir, rename, writeFile } from 'node:fs/promises'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 export const name = 'machtiani-installer-tools'
@@ -21,7 +22,7 @@ export async function saveInstallationOutcome(path: string, outcome: Installatio
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const temporary = `${path}.${process.pid}.tmp`
   await writeFile(temporary, `${JSON.stringify(outcome, undefined, 2)}\n`, { mode: 0o600 })
-  await chmod(temporary, 0o600)
+  await protectPrivatePath(temporary, 0o600)
   await rename(temporary, path)
 }
 

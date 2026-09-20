@@ -61,6 +61,16 @@ const linuxHelp = [
 ].join('\n')
 
 export function localHelpForPlatform(platform: NodeJS.Platform = process.platform): string {
+  if (platform === 'win32') return linuxHelp.slice(0, linuxHelp.indexOf('## Service and persistence choices')) + [
+    '## Startup after sign-in', '',
+    '`/persistence` — Explain automatic startup after signing in.',
+    '`/persistence on|off|status` — Choose or inspect startup after signing in.', '',
+    'Dear Machine can start when you sign in, including after a reboot. It does not run before sign-in.',
+    'Disabling startup preserves the currently running client. Use `/down` to stop it.', '',
+    '## Native fallback CLI commands', '',
+    '`dearmachine up`, `dearmachine down`, `dearmachine restart`, `dearmachine status` — Manage the client.',
+    '`dearmachine persistence on|off|status` — Choose or inspect startup after sign-in.',
+  ].join('\n')
   if (platform !== 'darwin') return linuxHelp
   return linuxHelp.slice(0, linuxHelp.indexOf('## Service and persistence choices')) + [
     '## Service and persistence choices', '',
@@ -207,15 +217,18 @@ export class ConciergeShell {
       return
     }
     if (text === '/update') { await this.requestUpdate('install'); return }
+    const windows = (this.ports.platform ?? process.platform) === 'win32'
     const mac = (this.ports.platform ?? process.platform) === 'darwin'
     const service = mac ? 'launchd' : 'systemd'
     if (text === '/systemd' || text.startsWith('/systemd ') || text === '/launchd' || text.startsWith('/launchd ')) {
+      if (windows) { this.ports.say('Use /persistence on|off|status to manage startup after Windows sign-in.'); return }
       if (!text.startsWith(`/${service}`)) {
         this.ports.say(`Use /${service} on this operating system. No service change was requested.`)
         return
       }
     }
     if (text === `/${service}` || text === '/persistence') {
+      if (windows) { this.ports.say('Start Dear Machine automatically when you sign in, including after a reboot? It will not run before sign-in. Answer /persistence on or /persistence off; inspect /persistence status.'); return }
       this.ports.say(mac
         ? (text === '/launchd'
           ? 'Use macOS service management for Dear Machine? This does not enable startup at login. Stop the client with /down before switching. Answer /launchd on or /launchd off; inspect /launchd status.'

@@ -35,6 +35,7 @@
     "@github/copilot-sdk": "1.0.11",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@openai/codex": "0.153.2",
-    "zod": "4.5.4"
+    "zod": "4.5.4",
+    "@dearmachine/machtiani-installer-credentials": "workspace:*"
   }
 }

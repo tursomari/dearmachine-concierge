@@ -1,4 +1,5 @@
-import { chmod, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { protectPrivatePath, hasPrivatePermissions } from '@dearmachine/machtiani-installer-credentials'
+import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import {
@@ -79,7 +80,7 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   if (!metadata.isDirectory() || metadata.isSymbolicLink() || !owned) {
     throw new Error('installer model directory must be an owned regular directory')
   }
-  await chmod(path, 0o700)
+  await protectPrivatePath(path, 0o700)
 }
 
 /** API-key provider catalogue and private credential handoff used before DSH starts. */
@@ -282,7 +283,7 @@ export async function loadInstallerModelSelection(dshHome: string): Promise<Inst
   try {
     const metadata = await lstat(filename)
     const owned = process.getuid === undefined || metadata.uid === process.getuid()
-    if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0 || !owned) {
+    if (!metadata.isFile() || metadata.isSymbolicLink() || !await hasPrivatePermissions(filename) || !owned) {
       throw new Error('installer model configuration must be a private regular file')
     }
     return parsedSelection(JSON.parse(await readFile(filename, 'utf8')))
@@ -300,7 +301,7 @@ export async function saveInstallerModelSelection(dshHome: string, selection: In
   const temporary = join(dshHome, `.installer-model-${process.pid}-${randomUUID()}`)
   try {
     await writeFile(temporary, `${JSON.stringify(parsed, undefined, 2)}\n`, { mode: 0o600, flag: 'wx' })
-    await chmod(temporary, 0o600)
+    await protectPrivatePath(temporary, 0o600)
     await rename(temporary, filename)
   } catch (error) {
     await unlink(temporary).catch(() => {})

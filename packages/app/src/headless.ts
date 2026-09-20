@@ -1,3 +1,4 @@
+import { hasPrivatePermissions, protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { lstat, readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { loadDistribution, NativeProductInstaller, type InstalledProducts } from '@dearmachine/machtiani-installer-products'
@@ -74,7 +75,7 @@ export async function loadHeadlessSelection(path: string): Promise<ReadyInstalla
   if (!isAbsolute(path)) throw new Error('--selection-file must be an absolute path.')
   const metadata = await lstat(path)
   const owned = process.getuid === undefined || metadata.uid === process.getuid()
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || metadata.size > 16_384 || (metadata.mode & 0o077) !== 0 || !owned) {
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || metadata.size > 16_384 || !await hasPrivatePermissions(path) || !owned) {
     throw new Error('Headless selection must be a small private regular file owned by the current user.')
   }
   return parseSelection(JSON.parse(await readFile(path, 'utf8')) as unknown)

@@ -1,4 +1,4 @@
-import { createConnection } from 'node:net'
+import { connectCredentialBridge } from '@dearmachine/machtiani-installer-credentials'
 
 /** The private bridge owns browser/code interaction; the model receives only the result. */
 export async function requestBackendLogin(executable?: string, signal?: AbortSignal): Promise<void> {
@@ -6,14 +6,14 @@ export async function requestBackendLogin(executable?: string, signal?: AbortSig
   if (!path) throw new Error('Interactive backend sign-in is unavailable')
   const lifetime = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(11 * 60_000)])
   lifetime.throwIfAborted()
+  const { socket, token } = await connectCredentialBridge(path)
   await new Promise<void>((resolve, reject) => {
-    const socket = createConnection(path)
     const abort = () => { socket.destroy(); reject(new Error('Backend sign-in cancelled')) }
     lifetime.addEventListener('abort', abort, { once: true })
     socket.once('close', () => { lifetime.removeEventListener('abort', abort); reject(new Error('Backend sign-in bridge disconnected')) })
     let data = ''
     socket.setEncoding('utf8')
-    socket.once('connect', () => socket.write(JSON.stringify({ kind: 'backend-login', backend: 'claude', ...(executable ? { executable } : {}) }) + '\n'))
+    socket.once('connect', () => socket.write(JSON.stringify({ _bridgeToken: token, kind: 'backend-login', backend: 'claude', ...(executable ? { executable } : {}) }) + '\n'))
     socket.on('data', chunk => {
       data += chunk
       if (data.length > 8192) { socket.destroy(); reject(new Error('Invalid backend sign-in reply')); return }

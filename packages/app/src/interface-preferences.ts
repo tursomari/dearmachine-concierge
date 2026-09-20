@@ -1,3 +1,4 @@
+import { hasPrivatePermissions, protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { constants } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -16,7 +17,7 @@ export async function loadInterfacePreferences(home: string): Promise<InterfaceP
     const file = await open(join(directory, 'interface.json'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     try {
       const metadata = await file.stat()
-      if (!metadata.isFile() || !owned(metadata.uid) || metadata.size > 4096 || (metadata.mode & 0o077) !== 0) return { ...defaults }
+      if (!metadata.isFile() || !owned(metadata.uid) || metadata.size > 4096 || !await hasPrivatePermissions(join(directory, 'interface.json'))) return { ...defaults }
       const value = JSON.parse(await file.readFile('utf8')) as Record<string, unknown> | null
       return value?.version === 1 && typeof value.showCommands === 'boolean'
         ? { showCommands: value.showCommands } : { ...defaults }
@@ -29,6 +30,7 @@ export async function saveInterfacePreferences(home: string, preferences: Interf
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const parent = await lstat(directory)
   if (!parent.isDirectory() || parent.isSymbolicLink() || !owned(parent.uid)) throw new Error('Invalid interface preference directory')
+  await protectPrivatePath(directory, 0o700)
   const path = join(directory, 'interface.json')
   try {
     const metadata = await lstat(path)

@@ -1,5 +1,7 @@
+import { protectPrivatePath, hasPrivatePermissions } from './platform.ts'
+export { protectPrivatePath, hasPrivatePermissions, connectCredentialBridge } from './platform.ts'
 import { constants } from 'node:fs'
-import { access, chmod, lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises'
+import { access, lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join, relative, sep } from 'node:path'
 
@@ -105,11 +107,12 @@ export class CredentialFileAdapter {
       const content = reference.format === 'environment'
         ? await updatedEnvironmentContent(reference.destination, reference.variable!, value)
         : `${value}\n`
+      await protectPrivatePath(temporary, 0o600)
       await handle.writeFile(content, 'utf8')
       await handle.sync()
       await handle.close()
       handle = undefined
-      await chmod(temporary, 0o600)
+      await protectPrivatePath(temporary, 0o600)
       await rename(temporary, reference.destination)
     } catch (error) {
       await handle?.close().catch(() => {})
@@ -121,7 +124,7 @@ export class CredentialFileAdapter {
   private async verifyReference(reference: CredentialReference): Promise<void> {
     await access(reference.destination, constants.R_OK)
     const metadata = await lstat(reference.destination)
-    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || (metadata.mode & 0o077) !== 0 || !ownedByCurrentUser(metadata.uid)) {
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0 || !await hasPrivatePermissions(reference.destination) || !ownedByCurrentUser(metadata.uid)) {
       throw new Error('credential input did not create a nonempty private credential file')
     }
     const content = await readFile(reference.destination, 'utf8')
@@ -138,7 +141,7 @@ export class CredentialFileAdapter {
   private async referenceExists(reference: CredentialReference): Promise<boolean> {
     try {
       const metadata = await lstat(reference.destination)
-      if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0 || !ownedByCurrentUser(metadata.uid)) {
+      if (!metadata.isFile() || metadata.isSymbolicLink() || !await hasPrivatePermissions(reference.destination) || !ownedByCurrentUser(metadata.uid)) {
         throw new Error('credential destination is not a private regular file')
       }
       const content = await readFile(reference.destination, 'utf8')
@@ -194,7 +197,7 @@ async function assertPrivateDestinationDirectory(home: string, destinationDirect
   if (!metadata.isDirectory() || metadata.isSymbolicLink() || !ownedByCurrentUser(metadata.uid)) {
     throw new Error('credential destination directory must be owned by the current user and must not be a symbolic link')
   }
-  if ((metadata.mode & 0o077) !== 0) await chmod(destinationDirectory, 0o700)
+  await protectPrivatePath(destinationDirectory, 0o700)
 }
 
 function ownedByCurrentUser(uid: number): boolean {

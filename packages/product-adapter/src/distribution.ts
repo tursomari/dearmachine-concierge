@@ -1,3 +1,4 @@
+import { hasPrivatePermissions } from '@dearmachine/machtiani-installer-credentials'
 import { access, lstat, readFile, realpath, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { dirname, isAbsolute, join, relative } from 'node:path'
@@ -16,7 +17,7 @@ export async function loadDistribution(environment: NodeJS.ProcessEnv): Promise<
   if (manifestPath === undefined) return undefined
   if (!isAbsolute(manifestPath)) throw new Error('the distribution manifest path must be absolute')
   const metadata = await lstat(manifestPath)
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 16_384 || (metadata.mode & 0o022) !== 0) {
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 16_384 || !await hasPrivatePermissions(manifestPath, 0o022)) {
     throw new Error('the distribution manifest must be a small, non-writable-by-others regular file')
   }
   const root = await realpath(dirname(manifestPath))
@@ -35,7 +36,7 @@ export async function loadDistribution(environment: NodeJS.ProcessEnv): Promise<
     if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('distribution path escapes its release')
     const info = await stat(path)
     if (executable) {
-      if (!info.isFile() || (info.mode & 0o111) === 0) throw new Error('distribution product is not executable')
+      if (!info.isFile() || (process.platform !== 'win32' && (info.mode & 0o111) === 0)) throw new Error('distribution product is not executable')
       await access(path, constants.X_OK)
     } else if (!info.isDirectory()) throw new Error('distribution source root is not a directory')
     return path

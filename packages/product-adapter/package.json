@@ -11,10 +11,16 @@
       "default": "./dist/index.mjs"
     }
   },
-  "files": ["dist", "src"],
-  "scripts": { "build": "tsdown" },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsdown"
+  },
   "dependencies": {
     "@dearmachine/machtiani-installer-backends": "workspace:*",
-    "@dearmachine/machtiani-installer-workflow": "workspace:*"
+    "@dearmachine/machtiani-installer-workflow": "workspace:*",
+    "@dearmachine/machtiani-installer-credentials": "workspace:*"
   }
 }

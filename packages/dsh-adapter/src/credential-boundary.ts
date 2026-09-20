@@ -1,3 +1,4 @@
+import { hasPrivatePermissions, protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { constants } from 'node:fs'
 import { open, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
@@ -44,7 +45,7 @@ export class CredentialBoundary {
         try {
           handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
           const metadata = await handle.stat()
-          if (!metadata.isFile() || metadata.size > 1_048_576 || (metadata.mode & 0o077) !== 0 ||
+          if (!metadata.isFile() || metadata.size > 1_048_576 || !await hasPrivatePermissions(path) ||
             (process.getuid && metadata.uid !== process.getuid())) throw new Error()
           const text = await handle.readFile('utf8')
           if (format === 'raw') this.remember(text.trim())

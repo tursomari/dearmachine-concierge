@@ -454,3 +454,19 @@ interaction handoffs, styling, and reduced/no-motion rendering.
 The bridge and client suites cover disconnect/cancellation and safe results.
 This does not authenticate a real subscription account. Live human sign-in
 remains a separate IXE check; no host subscription session is copied.
+
+## Native Windows development proof
+
+Inside a disposable Windows guest, run the credential adapter's
+`tests/windows.spec.ts` and the app's `credential-bridge-windows.spec.ts` and
+`concierge-windows.spec.ts`. They exercise private ACLs, bridge authentication,
+and Windows persistence help. Run the umbrella's `tests/standard-agent-smoke.mjs`
+against the relocated installed runtime to exercise plugin file URLs, the
+model-host bridge, and bundled Git Bash in both installer and management modes.
+This is separate from full interactive IXE and confined DSH task execution.
+
+After building `packages/backend-adapter`, run
+`node tests/backend-discovery-windows.mjs` with native Windows Node. This catches
+Windows `Path` casing lost by spreading `process.env`, verifies case-insensitive
+explicit overrides, and ensures an empty override suppresses discovery. The
+fixture creates executable-name placeholders but never launches them.

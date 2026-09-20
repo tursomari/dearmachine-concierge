@@ -67,6 +67,9 @@ importers:
 
   packages/backend-adapter:
     dependencies:
+      '@dearmachine/machtiani-installer-credentials':
+        specifier: workspace:*
+        version: link:../credential-adapter
       '@dearmachine/machtiani-installer-workflow':
         specifier: workspace:*
         version: link:../workflow
@@ -75,6 +78,9 @@ importers:
 
   packages/dsh-adapter:
     dependencies:
+      '@dearmachine/machtiani-installer-credentials':
+        specifier: workspace:*
+        version: link:../credential-adapter
       '@dearmachine/machtiani-model-host':
         specifier: workspace:*
         version: link:../model-host
@@ -120,6 +126,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 0.123.0
         version: 0.123.0(zod@4.5.4)
+      '@dearmachine/machtiani-installer-credentials':
+        specifier: workspace:*
+        version: link:../credential-adapter
       '@deepseek-ai/cordis':
         specifier: 4.0.2
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
@@ -150,9 +159,13 @@ importers:
       '@dearmachine/machtiani-installer-backends':
         specifier: workspace:*
         version: link:../backend-adapter
+      '@dearmachine/machtiani-installer-credentials':
+        specifier: workspace:*
+        version: link:../credential-adapter
       '@dearmachine/machtiani-installer-workflow':
         specifier: workspace:*
         version: link:../workflow
+
   packages/tui:
     dependencies:
       '@earendil-works/pi-tui':

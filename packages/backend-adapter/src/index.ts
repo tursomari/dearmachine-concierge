@@ -1,3 +1,4 @@
+import { hasPrivatePermissions, protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
 import { spawn } from 'node:child_process'
 import { access, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
@@ -13,24 +14,38 @@ const catalog = [
   { name: 'Claude Code', id: 'claude', command: 'claude' },
 ] as const
 
-const privateEnvironmentName = /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|ACCESS_KEY(?:_ID)?)$/u
+const privateEnvironmentName = /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?|ACCESS_KEY(?:_ID)?)$/iu
 
 function backendBaseEnvironment(overrides: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
   const environment = { ...process.env, ...overrides }
   for (const name of Object.keys(environment)) {
     if (privateEnvironmentName.test(name)) delete environment[name]
   }
+  if (process.platform === 'win32') {
+    const path = overriddenPath(overrides) ?? process.env.PATH ?? ''
+    for (const key of Object.keys(environment)) if (key.toUpperCase() === 'PATH') delete environment[key]
+    environment.PATH = path
+  }
   return environment
+}
+
+// Windows environment names are case-insensitive, including explicit overrides.
+// A spread of process.env becomes a plain object and loses that behavior.
+function overriddenPath(environment: NodeJS.ProcessEnv | undefined): string | undefined {
+  if (environment === undefined) return undefined
+  if (process.platform !== 'win32') return environment.PATH
+  const key = Object.keys(environment).find(name => name.toUpperCase() === 'PATH')
+  return key === undefined ? undefined : environment[key]
 }
 
 async function executableOnPath(command: string, pathValue: string): Promise<string | undefined> {
   for (const directory of pathValue.split(delimiter)) {
     if (directory === '') continue
-    const candidate = join(directory, command)
-    try {
-      await access(candidate, constants.X_OK)
-      return await realpath(candidate)
-    } catch { /* keep searching */ }
+    const names = process.platform === 'win32' ? [command + '.exe', command + '.com', command + '.cmd', command] : [command]
+    for (const name of names) {
+      const candidate = join(directory, name)
+      try { await access(candidate, constants.X_OK); return await realpath(candidate) } catch { /* keep searching */ }
+    }
   }
   return undefined
 }
@@ -38,7 +53,7 @@ async function executableOnPath(command: string, pathValue: string): Promise<str
 export async function loadPrivateEnvironment(path: string): Promise<NodeJS.ProcessEnv> {
   const metadata = await lstat(path)
   const owned = process.getuid === undefined || metadata.uid === process.getuid()
-  if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0 || !owned) {
+  if (!metadata.isFile() || metadata.isSymbolicLink() || !await hasPrivatePermissions(path) || !owned) {
     throw new Error('provider credential file must be a private regular file owned by the current user')
   }
   const content = await readFile(path, 'utf8')
@@ -65,8 +80,7 @@ export class AgentManagerBackendAdapter implements BackendPort {
   constructor(private readonly options: BackendAdapterOptions = {}) {}
 
   async discover(): Promise<readonly BackendCandidate[]> {
-    const environment = { ...process.env, ...this.options.environment }
-    const pathValue = environment.PATH ?? ''
+    const pathValue = overriddenPath(this.options.environment) ?? process.env.PATH ?? ''
     const candidates: BackendCandidate[] = []
     for (const entry of catalog) {
       const executable = await executableOnPath(entry.command, pathValue)
@@ -205,7 +219,7 @@ async function assertPrivateForgeCredentialStore(path: string): Promise<void> {
   try {
     const metadata = await lstat(path)
     const owned = process.getuid === undefined || metadata.uid === process.getuid()
-    if (!metadata.isFile() || metadata.isSymbolicLink() || (metadata.mode & 0o077) !== 0 || !owned) throw new Error()
+    if (!metadata.isFile() || metadata.isSymbolicLink() || !await hasPrivatePermissions(path) || !owned) throw new Error()
   } catch {
     throw new Error('Forge did not import the selected provider credential into its private credential store.')
   }
@@ -241,7 +255,7 @@ export async function prepareForge21321(options: ForgePreparationOptions): Promi
   const command = options.forgeCommand ?? 'forge'
   const execute = options.run ?? runBounded
   const environment = { ...backendBaseEnvironment(undefined), HOME: options.home, FORGE_TERM: 'false',
-    ...(options.customProvider === undefined ? {} : { FORGE_CONFIG: join(options.home, '.forge') }) }
+    ...(options.customProvider === undefined && process.platform !== 'win32' ? {} : { FORGE_CONFIG: join(options.home, '.forge') }) }
   const versionResult = await execute([command, '--version'], options.home, environment, 30_000)
   const version = /(?:^|\s)(2\.13\.21)(?:\s|$)/u.exec(`${versionResult.stdout}\n${versionResult.stderr}`)?.[1]
   if (versionResult.code !== 0 || version !== '2.13.21') {
@@ -262,14 +276,30 @@ export async function prepareForge21321(options: ForgePreparationOptions): Promi
   const probe = await mkdtemp(join(tmpdir(), 'machtiani-forge-prepare-'))
   let linked = false
   try {
+    await protectPrivatePath(probe, 0o700)
+    if (process.platform === 'win32') {
+      const directory = join(options.home, '.forge')
+      await mkdir(directory, { recursive: true })
+      await protectPrivatePath(directory, 0o700)
+    }
     let migrationPath = await realpath(options.providerEnvironmentPath)
     if (options.customProvider !== undefined) {
       await registerCustomForgeProvider(options)
       migrationPath = join(probe, 'credential.env')
       await writeFile(migrationPath, `${options.customProvider.credentialVariable}=${selectedEnvironment[options.customProvider.credentialVariable]}\n`, { mode: 0o600, flag: 'wx' })
     }
-    await symlink(migrationPath, compatibilityPath)
-    linked = true
+    if (process.platform === 'win32') {
+      // Ordinary Windows users cannot normally create file symlinks. Create an
+      // empty exclusive file, restrict its ACL, then copy through this trusted
+      // helper so no credential bytes ever enter an agent tool response.
+      await writeFile(compatibilityPath, '', { flag: 'wx', mode: 0o600 })
+      linked = true
+      await protectPrivatePath(compatibilityPath, 0o600)
+      await writeFile(compatibilityPath, await readFile(migrationPath))
+    } else {
+      await symlink(migrationPath, compatibilityPath)
+      linked = true
+    }
     // Forge 2.13.21 imports a provider key from its environment only while
     // entering direct mode. A closed stdin may make that command exit non-zero
     // after the import, so the private store is the authoritative postcondition.

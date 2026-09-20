@@ -1,5 +1,6 @@
-import { randomUUID } from 'node:crypto'
-import { chmod, lstat, mkdir, unlink } from 'node:fs/promises'
+import { protectPrivatePath } from '@dearmachine/machtiani-installer-credentials'
+import { randomUUID, randomBytes, timingSafeEqual } from 'node:crypto'
+import { chmod, lstat, mkdir, unlink, open } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { CredentialFileAdapter, CredentialKind } from '@dearmachine/machtiani-installer-credentials'
@@ -31,6 +32,7 @@ export function credentialSocketPath(
 ): string {
   const token = nonce.replace(/[^a-z0-9]/giu, '').slice(0, 8)
   const path = join(stateDirectory, `c-${pid.toString(36)}-${token}.sock`)
+  if (process.platform === 'win32') return path + '.json'
   if (Buffer.byteLength(path) > PORTABLE_UNIX_SOCKET_PATH_LIMIT) {
     throw new Error('The installer state path is too long for its private socket. Set XDG_STATE_HOME to a shorter path and try again.')
   }
@@ -66,6 +68,7 @@ export class CredentialBridge {
   private server: Server | undefined
   private active = false
   private bound = false
+  private readonly token = randomBytes(32).toString('hex')
   private readonly sockets = new Set<Socket>()
 
   constructor(private readonly options: CredentialBridgeOptions) {}
@@ -83,13 +86,22 @@ export class CredentialBridge {
     this.server = server
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)
-      server.listen(this.options.socketPath, () => {
+      server.listen(process.platform === 'win32' ? { host: '127.0.0.1', port: 0 } : this.options.socketPath, () => {
         server.removeListener('error', reject)
         resolve()
       })
     })
     this.bound = true
-    await chmod(this.options.socketPath, 0o600)
+    if (process.platform === 'win32') {
+      await protectPrivatePath(dirname(this.options.socketPath), 0o700)
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('Invalid credential bridge address')
+      const file = await open(this.options.socketPath, 'wx', 0o600)
+      try {
+        await protectPrivatePath(this.options.socketPath, 0o600)
+        await file.writeFile(JSON.stringify({ version: 1, port: address.port, token: this.token }))
+      } finally { await file.close() }
+    } else await chmod(this.options.socketPath, 0o600)
   }
 
   async close(): Promise<void> {
@@ -103,7 +115,7 @@ export class CredentialBridge {
     this.bound = false
     try {
       const metadata = await lstat(this.options.socketPath)
-      if (metadata.isSocket()) await unlink(this.options.socketPath)
+      if (metadata.isSocket() || (process.platform === 'win32' && metadata.isFile())) await unlink(this.options.socketPath)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
@@ -139,6 +151,12 @@ export class CredentialBridge {
     let value = ''
     try {
       const parsed: unknown = JSON.parse(line)
+      if (process.platform === 'win32') {
+        const supplied = typeof parsed === 'object' && parsed !== null && '_bridgeToken' in parsed && typeof parsed._bridgeToken === 'string' ? parsed._bridgeToken : ''
+        const expected = Buffer.from(this.token)
+        const actual = Buffer.from(supplied)
+        if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('Unauthorized credential request')
+      }
       if (typeof parsed === 'object' && parsed !== null && 'kind' in parsed && parsed.kind === 'backend-login') {
         const login = parsed as Record<string, unknown>
         if (login.backend !== 'claude' || (login.executable !== undefined &&

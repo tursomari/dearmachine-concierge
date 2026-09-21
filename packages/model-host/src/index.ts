@@ -259,30 +259,29 @@ async function writePrivate(path: string, content: string): Promise<void> {
   }
 }
 
+function serializeProviderEnvironment(values: Map<string, string>): string {
+  const supported = new Set(API_KEY_PROVIDERS.map(candidate => candidate.variable))
+  // backends.env is also owned by CredentialFileAdapter. Its custom backend
+  // references must survive assistant setup retries and assistant sign-out.
+  const backendVariable = /^MACHTIANI_BACKEND_[A-Z0-9_]{1,40}_[A-F0-9]{16}_API_KEY$/u
+  const unknown = [...values.keys()].filter(name => !supported.has(name as ApiKeyProviderDefinition['variable']) && !backendVariable.test(name))
+  if (unknown.length > 0) throw new ModelHostError('INVALID_REQUEST', `The provider environment contains unsupported assignments: ${unknown.join(', ')}`)
+  return [...values].map(([name, value]) => `${name}=${value}\n`).join('')
+}
+
 export async function writeApiKeyCredential(path: string, provider: string, key: string): Promise<void> {
   const definition = providerDefinition(provider)
   if (!validCredential(key)) throw new ModelHostError('INVALID_REQUEST', 'The API key must be one nonempty line without whitespace.')
   const values = parseEnvironment(await privateFile(path))
   values.set(definition.variable, key)
-  const supported = new Set(API_KEY_PROVIDERS.map(candidate => candidate.variable))
-  const unknown = [...values.keys()].filter(name => !supported.has(name as ApiKeyProviderDefinition['variable']))
-  if (unknown.length > 0) throw new ModelHostError('INVALID_REQUEST', `The provider environment contains unsupported assignments: ${unknown.join(', ')}`)
-  const content = API_KEY_PROVIDERS.flatMap(candidate => {
-    const value = values.get(candidate.variable)
-    return value === undefined ? [] : [`${candidate.variable}=${value}`]
-  }).join('\n') + '\n'
-  await writePrivate(path, content)
+  await writePrivate(path, serializeProviderEnvironment(values))
 }
 
 export async function removeApiKeyCredential(path: string, provider: string): Promise<void> {
   const definition = providerDefinition(provider)
   const values = parseEnvironment(await privateFile(path))
   values.delete(definition.variable)
-  const content = API_KEY_PROVIDERS.flatMap(candidate => {
-    const value = values.get(candidate.variable)
-    return value === undefined ? [] : [`${candidate.variable}=${value}`]
-  }).join('\n')
-  await writePrivate(path, content === '' ? '' : `${content}\n`)
+  await writePrivate(path, serializeProviderEnvironment(values))
 }
 
 export async function readApiKeyCredential(path: string, provider: string): Promise<string | undefined> {

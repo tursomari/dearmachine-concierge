@@ -461,6 +461,12 @@ remains a separate IXE check; no host subscription session is copied.
 
 ## Native Windows development proof
 
+Run `node tests/windows-model-credentials.mjs <absolute-built-installer-runtime>`
+with native Windows Node to verify assistant setup retry, key replacement and
+sign-out beside an existing custom backend credential. It uses counterfeit keys,
+checks native private permissions, and refuses unknown environment assignments
+without rewriting the shared store.
+
 Inside a disposable Windows guest, run the credential adapter's
 `tests/windows.spec.ts` and the app's `credential-bridge-windows.spec.ts` and
 `concierge-windows.spec.ts`. They exercise private ACLs, bridge authentication,

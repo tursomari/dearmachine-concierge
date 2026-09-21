@@ -4,12 +4,14 @@ import { join } from 'node:path'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
+import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credentials'
 import {
   API_KEY_PROVIDERS,
   loadModelHostProfile,
   ModelHost,
   ModelHostError,
   readApiKeyCredential,
+  removeApiKeyCredential,
   saveModelHostProfile,
   serveModelHost,
   validateCustomOpenAIEndpoint,
@@ -213,6 +215,33 @@ describe('shared model host profile', () => {
     const path = join(root, 'backends.env')
     for (const provider of API_KEY_PROVIDERS) await writeApiKeyCredential(path, provider.id, `${provider.id}-secret`)
     for (const provider of API_KEY_PROVIDERS) expect(await readApiKeyCredential(path, provider.id)).toBe(`${provider.id}-secret`)
+  })
+
+  it('preserves an existing backend credential when retrying assistant setup or removing its key', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'machtiani-model-backend-'))
+    const adapter = new CredentialFileAdapter({ home })
+    await adapter.prepare('backend-provider', 'Regional Gateway')
+    await adapter.save('backend-provider', 'counterfeit-backend-key')
+    const reference = adapter.reference('backend-provider')!
+    const original = await readFile(reference.destination, 'utf8')
+    await writeApiKeyCredential(reference.destination, 'custom-openai-remote', 'counterfeit-assistant-key')
+    expect(await readApiKeyCredential(reference.destination, 'custom-openai-remote')).toBe('counterfeit-assistant-key')
+    expect(await readFile(reference.destination, 'utf8')).toContain(original.trim())
+    await removeApiKeyCredential(reference.destination, 'custom-openai-remote')
+    expect(await readApiKeyCredential(reference.destination, 'custom-openai-remote')).toBeUndefined()
+    expect(await readFile(reference.destination, 'utf8')).toBe(original)
+    expect(await adapter.prepare('backend-provider', 'Regional Gateway')).toBe('ready')
+  })
+
+  it('refuses unsupported assignments without rewriting the shared credential store', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'machtiani-model-unknown-'))
+    const path = join(home, 'backends.env')
+    const original = 'OPENROUTER_API_KEY=counterfeit-key\nNODE_OPTIONS=--inspect\n'
+    await writeFile(path, original, { mode: 0o600 })
+    await expect(writeApiKeyCredential(path, 'openrouter', 'replacement')).rejects.toThrow('unsupported assignments')
+    expect(await readFile(path, 'utf8')).toBe(original)
+    await expect(removeApiKeyCredential(path, 'openrouter')).rejects.toThrow('unsupported assignments')
+    expect(await readFile(path, 'utf8')).toBe(original)
   })
 
   it('rejects public, symbolic, malformed, and whitespace-bearing credential files', async () => {

@@ -9,6 +9,7 @@ import {
   AnthropicClaudeDriver,
   claudeConversationInput,
   claudeConversationPrompt,
+  codexStartupError,
   ClaudeCliAuth,
   GitHubCopilotDriver,
   nativeConversationPrompt,
@@ -26,6 +27,15 @@ function profile(driver: string, provider: string, runtimeProfile: string): Mode
 function generation(messages: ModelHostGenerateRequest['messages']): ModelHostGenerateRequest {
   return { caller: 'machtiani', sessionId: 'stable-prefix', messages }
 }
+
+describe('Codex startup diagnostics', () => {
+  it('reports an incomplete native installation without exposing launcher diagnostics', () => {
+    const error = codexStartupError('private diagnostic\nError: Missing optional dependency @openai/codex-win32-x64. Reinstall Codex: npm install -g @openai/codex@latest\n at C:\\private\\profile\nNode.js v24.19.0')
+    expect(error).toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })
+    expect(error.message).toContain('Repair or reinstall Dear Machine')
+    expect(error.message).not.toMatch(/private|npm|latest|Node.js/u)
+  })
+})
 
 describe('provider-native conversation serialization', () => {
   it('keeps the complete previous prompt as an exact prefix when history is appended', () => {

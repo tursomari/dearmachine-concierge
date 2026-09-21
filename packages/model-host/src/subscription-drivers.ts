@@ -177,6 +177,14 @@ export interface CodexAppServerPort {
   close(): Promise<void>
 }
 
+export function codexStartupError(stderr: string, cause?: Error): Error {
+  if (/Missing optional dependency @openai\/codex-[a-z0-9-]+/u.test(stderr)) {
+    return new ModelHostError('RUNTIME_UNAVAILABLE', 'The installed OpenAI sign-in runtime is incomplete. Repair or reinstall Dear Machine, then try signing in again.')
+  }
+  const detail = stderr.trim().split(/\r?\n/u).at(-1)
+  return cause ?? new Error(`Codex app-server exited unexpectedly${detail === undefined || detail === '' ? '' : `: ${detail}`}`)
+}
+
 class CodexAppServer implements CodexAppServerPort {
   private readonly process: ChildProcessWithoutNullStreams
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>()
@@ -209,8 +217,7 @@ class CodexAppServer implements CodexAppServerPort {
     const failed = (cause?: Error) => {
       if (this.failed) return
       this.failed = true
-      const detail = this.stderr.trim().split(/\r?\n/u).at(-1)
-      const error = cause ?? new Error(`Codex app-server exited unexpectedly${detail === undefined || detail === '' ? '' : `: ${detail}`}`)
+      const error = codexStartupError(this.stderr, cause)
       for (const waiter of this.pending.values()) waiter.reject(error)
       this.pending.clear()
       for (const listener of this.listeners) listener({ method: 'transport/error', params: { message: error.message } })

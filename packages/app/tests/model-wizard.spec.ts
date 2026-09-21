@@ -9,6 +9,7 @@ import type {
 } from '@dearmachine/machtiani-installer-dsh-adapter'
 import { InstallerChoiceBackError, SecretInputCancelledError, type InstallerChoice } from '@dearmachine/machtiani-installer-tui'
 import { runInstallerModelWizard } from '../src/model-wizard.ts'
+import { ModelHostError } from '@dearmachine/machtiani-model-host'
 
 class ScriptedTui {
   readonly messages: string[] = []
@@ -340,6 +341,21 @@ describe('installer model setup wizard', () => {
     await runInstallerModelWizard(tui as never, setup)
     expect(attempts).toBe(2)
     expect(tui.messages).toContain('Device-code login is not enabled for this account yet. Enable it on the OpenAI page, then choose the sign-in method again.')
+  })
+
+  it('explains an incomplete sign-in runtime before allowing another attempt', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-wizard-runtime-'))
+    const { setup } = fakeSetup(root)
+    let attempts = 0
+    const message = 'The installed OpenAI sign-in runtime is incomplete. Repair or reinstall Dear Machine, then try signing in again.'
+    setup.authenticate = async () => {
+      if (++attempts === 1) throw new ModelHostError('RUNTIME_UNAVAILABLE', message)
+    }
+    const tui = new ScriptedTui(['openrouter', 'oauth', 'oauth', 'z-ai/glm-5.3-flash', 'high'])
+    await runInstallerModelWizard(tui as never, setup)
+    expect(attempts).toBe(2)
+    expect(tui.messages).toContain(message)
+    expect(tui.messages).not.toContain('Sign-in did not complete. Choose a sign-in method to try again, or press Ctrl+C to exit the installer.')
   })
 
   it('keeps Claude browser login inside the wizard and returns the pasted code only to Claude Code', async () => {

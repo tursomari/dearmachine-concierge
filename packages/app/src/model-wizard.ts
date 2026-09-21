@@ -8,7 +8,7 @@ import {
   type InstallerModelSelection,
   type InstallerModelSetup,
 } from '@dearmachine/machtiani-installer-dsh-adapter'
-import { validateCustomOpenAIEndpoint, type CustomOpenAIProviderScope } from '@dearmachine/machtiani-model-host'
+import { ModelHostError, validateCustomOpenAIEndpoint, type CustomOpenAIProviderScope } from '@dearmachine/machtiani-model-host'
 import { InstallerChoiceBackError, SecretInputCancelledError, type InstallerChoice, type InstallerTui } from '@dearmachine/machtiani-installer-tui'
 
 export type WizardTui = Pick<InstallerTui,
@@ -305,6 +305,8 @@ async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, provider
         tui.addAssistant('Key entry was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
       } else if (controller.signal.aborted) {
         tui.addAssistant('Sign-in was cancelled. You can choose how to connect again, or press Ctrl+C to exit the installer.')
+      } else if (error instanceof ModelHostError && error.code === 'RUNTIME_UNAVAILABLE') {
+        tui.addAssistant(error.message)
       } else if (error instanceof Error && /device code login is not enabled/iu.test(error.message)) {
         tui.addAssistant('Device-code login is not enabled for this account yet. Enable it on the OpenAI page, then choose the sign-in method again.')
       } else if (error instanceof Error && /timed out/iu.test(error.message)) {

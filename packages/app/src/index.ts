@@ -105,7 +105,7 @@ function conversation(tui: InstallerTui, preview = false) {
   }
 }
 
-export async function runMockInstaller(paths = defaultInstallerPaths(), requestedMethod?: InstallationMethod): Promise<void> {
+export async function runMockInstaller(paths = defaultInstallerPaths()): Promise<void> {
   assertInteractiveTerminal()
   await mkdir(paths.workspace, { recursive: true, mode: 0o700 })
   const lock = await acquireInstallerLock(join(paths.stateDirectory, 'installer.lock'))

@@ -47,7 +47,7 @@ async function cli(args: string[], env: NodeJS.ProcessEnv) {
   })
 }
 describe('headless concierge CLI', () => {
-  it.each([[], ['--concierge'], ['--help']])('prints help without a provider or endpoint for %j', async (...args) => {
+  it.each([[], ['--concierge'], ['--help'], ['quick-start', '--source-root', '/unused']])('prints help without a provider or endpoint for %j', async (...args) => {
     const { env } = await fixture()
     expect(await cli(args, env)).toMatchObject({ code: 0, output: expect.stringContaining('dearmachine --help') })
   })
@@ -127,12 +127,12 @@ fi
   })
 })
 
-it.each(['source-flag', 'source-env', 'install-flag'])('keeps consent and local help before provider setup via %s', async mode => {
+it.each(['source-flag', 'source-env', 'install-flag', 'quick-start'])('keeps consent and local help before provider setup via %s', async mode => {
   const { root, env } = await fixture()
   await mkdir(join(root, 'source', 'machtiani-harness'), { recursive: true })
   await mkdir(join(root, 'source', 'dearmachine'))
   if (mode === 'source-env') env.DEARMACHINE_SOURCE_ROOT = join(root, 'source')
-  const args = mode === 'source-env' ? ['--concierge'] : [mode === 'install-flag' ? '--install' : '--concierge', '--source-root', join(root, 'source')]
+  const args = mode === 'quick-start' ? ['quick-start', '--method', 'standard', '--source-root', join(root, 'source')] : mode === 'source-env' ? ['--concierge'] : [mode === 'install-flag' ? '--install' : '--concierge', '--source-root', join(root, 'source')]
   const result = await new Promise<{ code: number; output: string }>((resolveResult, reject) => {
     const child = pty.spawn('bash', ['--noprofile', '--norc', '-c', 'before=$(stty -g); "$@"; code=$?; after=$(stty -g); [ "$before" = "$after" ] || exit 90; exit "$code"', 'concierge-test', process.execPath, app, ...args], { env: env as Record<string, string>, cols: 100, rows: 30 })
     let output = ''

@@ -134,6 +134,10 @@ and tests both concierge and installer. It reproduces direct credential reads,
 symlink/hardlink aliases, copied keys, shell stdout/stderr and encoding, and
 credentials saved during a session. Every model request and decoded session
 artifact is checked. Ordinary backend configuration must remain readable.
+The scanner decodes every appended Zstandard frame and validates the JSONL
+records; Node's single-frame convenience decoder alone would inspect only the
+session header. Run `nix develop -c node --test tests/zstd-frames.test.mjs` for
+the decoder regression, including a counterfeit key in a later frame.
 Do not substitute real keys or a real home; a deliberately unsafe old runtime
 is expected to fail this gate. See [the security contract](docs/credential-security.md).
 

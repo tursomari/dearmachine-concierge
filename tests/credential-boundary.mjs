@@ -5,7 +5,7 @@ import { createServer } from 'node:http'
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, link } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { zstdDecompressSync } from 'node:zlib'
+import { decodeZstdFrames } from './zstd-frames.mjs'
 import { randomUUID } from 'node:crypto'
 
 const runtime = process.argv[2]
@@ -25,7 +25,10 @@ async function scan(path) {
     if (entry.isDirectory()) await scan(child)
     else if (entry.isFile()) {
       const bytes = await readFile(child)
-      clean(entry.name.endsWith('.zstd') ? zstdDecompressSync(bytes).toString() : bytes.toString())
+      const compressed = entry.name.endsWith('.zstd')
+      const text = (compressed ? decodeZstdFrames(bytes) : bytes).toString()
+      if (compressed) for (const line of text.split('\n').filter(Boolean)) JSON.parse(line)
+      clean(text)
     }
   }
 }

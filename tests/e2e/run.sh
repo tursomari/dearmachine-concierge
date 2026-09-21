@@ -126,6 +126,7 @@ flock -n 9 || fail 'another installer IXE/QSE holds the private lock'
 source "$transaction_lib"
 # shellcheck source=/dev/null
 source "$agentmail_lib"
+declare -F agentmail_discover_stable_inbox_address >/dev/null || fail 'shared stable-inbox discovery helper is missing'
 # shellcheck source=/dev/null
 source "$secrets_lib"
 
@@ -314,7 +315,7 @@ stable_address=$(agentmail_discover_host_client_address)
 if test -n "$stable_address"; then
   agentmail_snapshot_host_client "$host_client_snapshot" "$stable_address"
 else
-  stable_address=$(agentmail_discover_only_inbox_address)
+  stable_address=$(agentmail_discover_stable_inbox_address)
 fi
 agentmail_snapshot "$baseline_snapshot" "$stable_address"
 baseline_ready=true

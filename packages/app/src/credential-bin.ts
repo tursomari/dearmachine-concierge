@@ -4,18 +4,19 @@ import { connectCredentialBridge } from '@dearmachine/machtiani-installer-creden
 const [kind, ...selectionParts] = process.argv.slice(2)
 const actions = selectionParts.filter(value => value === '--replace' || value === '--use-existing')
 const action = actions[0] === '--replace' ? 'replace' : actions[0] === '--use-existing' ? 'use-existing' : 'ensure'
-const selection = selectionParts.filter(value => value !== '--replace' && value !== '--use-existing').join(' ').trim()
+const omp = selectionParts.includes('--omp')
+const selection = selectionParts.filter(value => value !== '--replace' && value !== '--use-existing' && value !== '--omp').join(' ').trim()
 const socketPath = process.env.MACHTIANI_INSTALLER_CREDENTIAL_SOCKET
 
-if ((kind !== 'backend-provider' && kind !== 'machtiani-provider' && kind !== 'email') || actions.length > 1 || selection === '' || socketPath === undefined || socketPath === '') {
-  process.stderr.write('Usage: machtiani-installer-credential <backend-provider|machtiani-provider|email> <provider-or-transport> [--use-existing|--replace]\n')
+if ((kind !== 'backend-provider' && kind !== 'machtiani-provider' && kind !== 'email') || (omp && kind !== 'backend-provider') || actions.length > 1 || selection === '' || socketPath === undefined || socketPath === '') {
+  process.stderr.write('Usage: machtiani-installer-credential <backend-provider|machtiani-provider|email> <provider-or-transport> [--use-existing|--replace] [--omp (backend-provider only)]\n')
   process.exitCode = 2
 } else {
   const { socket, token } = await connectCredentialBridge(socketPath).catch(() => { process.stderr.write('The Machtiani Installer credential field is unavailable.\n'); process.exit(1) })
   socket.setEncoding('utf8')
   let input = ''
   socket.once('connect', () => {
-    socket.write(`${JSON.stringify({ kind, selection, action, _bridgeToken: token })}\n`)
+    socket.write(`${JSON.stringify({ kind, selection, action, ...(omp ? { target: 'omp' } : {}), _bridgeToken: token })}\n`)
   })
   socket.on('data', chunk => {
     input += chunk
@@ -30,13 +31,15 @@ if ((kind !== 'backend-provider' && kind !== 'machtiani-provider' && kind !== 'e
         process.stdout.write('Machtiani provider now references the saved credential variable. Its runtime must load the referenced environment file. Authentication has not been tested; no client restart was performed.\n')
       } else if (response.ok === true && response.status === 'saved') {
         process.stdout.write('Credential saved securely.\n')
+      } else if (response.ok === true && response.status === 'omp-configured') {
+        process.stdout.write("OMP's default private .env now contains the selected provider credential; native permissions were verified. Reference the receipt's variable in models.yml. Re-run this helper with --omp after replacing that provider key. Custom OMP profiles require separate configuration. Authentication has not been tested; no client restart was performed.\n")
       } else if (response.ok === true && response.status === 'cancelled') {
         process.stdout.write("Credential entry was cancelled. Do not continue this credential step; wait for the human's next message.\n")
       } else {
         process.stderr.write(`${response.error ?? 'Credential entry failed.'}\n`)
         process.exitCode = 1
       }
-      if (response.ok === true && (response.status === 'configured' || response.status === 'saved' || response.status === 'already-present') && response.reference !== undefined) {
+      if (response.ok === true && (response.status === 'configured' || response.status === 'omp-configured' || response.status === 'saved' || response.status === 'already-present') && response.reference !== undefined) {
         process.stdout.write(`Credential reference (not a value): ${JSON.stringify(response.reference)}\n`)
       }
     } catch {

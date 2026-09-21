@@ -87,6 +87,24 @@ export class CredentialFileAdapter {
     return reference === undefined ? undefined : { ...reference }
   }
 
+  /** Copy only the selected saved provider into OMP's default private store.
+   * Values stay inside the trusted adapter; the caller receives only a reference.
+   */
+  async configureOmp(): Promise<CredentialReference> {
+    const source = this.references.get('backend-provider')
+    if (!source) throw new Error('the backend-provider credential destination has not been prepared')
+    await this.verifyReference(source)
+    const reference = { ...source, destination: join(this.options.home, '.omp', 'agent', '.env') }
+    // Refuse non-private files, symlinks and unsupported existing dotenv syntax.
+    // Never repair or overwrite a human's unrelated credential configuration.
+    await this.referenceExists(reference)
+    const value = parseEnvironment(await readFile(source.destination, 'utf8')).get(source.variable!)!
+    validateCredential(value)
+    await this.writeReference(reference, value)
+    await this.verifyReference(reference)
+    return reference
+  }
+
   private async writeReference(reference: CredentialReference, value: string): Promise<void> {
     const destinationDirectory = dirname(reference.destination)
     await mkdir(destinationDirectory, { recursive: true, mode: 0o700 })

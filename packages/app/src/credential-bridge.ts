@@ -12,6 +12,7 @@ interface CredentialRequest {
   kind: CredentialKind
   selection: string
   action: 'ensure' | 'use-existing' | 'replace'
+  target?: 'omp'
 }
 
 export interface CredentialBridgeOptions {
@@ -48,7 +49,8 @@ function request(value: unknown): CredentialRequest {
   const action = candidate.action ?? 'ensure'
   if (action !== 'ensure' && action !== 'use-existing' && action !== 'replace') throw new Error('invalid credential action')
   if (candidate.kind === 'machtiani-provider' && action === 'ensure') throw new Error('Machtiani credentials require --use-existing or --replace')
-  return { kind: candidate.kind, selection: candidate.selection.trim(), action }
+  if (candidate.target !== undefined && (candidate.target !== 'omp' || candidate.kind !== 'backend-provider')) throw new Error('invalid credential target')
+  return { kind: candidate.kind, selection: candidate.selection.trim(), action, ...(candidate.target === 'omp' ? { target: 'omp' as const } : {}) }
 }
 
 function credentialPrompt(credential: CredentialRequest): string {
@@ -178,6 +180,11 @@ export class CredentialBridge {
       if (credential.action === 'use-existing' && readiness !== 'ready') throw new Error('No saved credential is available; use --replace to enter one securely')
       if (readiness === 'ready' && credential.action !== 'replace') {
         if (target && reference) await target.configure(credential.selection, reference)
+        if (credential.target === 'omp') {
+          const ompReference = await this.options.credentials.configureOmp()
+          reply(socket, { ok: true, status: 'omp-configured', reference: ompReference })
+          return
+        }
         reply(socket, { ok: true, status: target ? 'configured' : 'already-present', reference })
         return
       }
@@ -185,6 +192,13 @@ export class CredentialBridge {
       if (cancellation.signal.aborted || this.server === undefined || socket.destroyed) return
       await this.options.credentials.save(credential.kind, value)
       value = ''
+      if (credential.target === 'omp') {
+        let ompReference
+        try { ompReference = await this.options.credentials.configureOmp() }
+        catch { throw new Error('Credential saved, but OMP credential configuration failed. Preserve its existing .env and resolve its privacy or format problem, then retry with --omp --use-existing. Authentication has not been verified.') }
+        reply(socket, { ok: true, status: 'omp-configured', reference: ompReference })
+        return
+      }
       if (target && reference) {
         try { await target.configure(credential.selection, reference) }
         catch { throw new Error('Credential saved, but Machtiani configuration failed. Use --use-existing to retry configuration; authentication has not been verified.') }

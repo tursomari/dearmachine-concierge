@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { isAbsolute, join } from 'node:path'
 import type { CredentialReference } from '@dearmachine/machtiani-installer-credentials'
+import { installedMachtianiCommand } from './machtiani-command.ts'
 
 /** Reuse the native configuration writer; no credential values enter argv or output. */
 export class MachtianiCredentialTarget {
@@ -20,15 +21,15 @@ export class MachtianiCredentialTarget {
     await this.run(['config', 'provider', 'set', provider, '--api-key-env', reference.variable, '--credentials-file', reference.destination, '--no-interactive'])
   }
 
-  private run(args: string[]): Promise<string> {
+  private async run(args: string[]): Promise<string> {
     const home = this.environment.HOME
     if (!home || !isAbsolute(home)) throw new Error('An absolute HOME is required for Machtiani credential configuration')
     // The public command belongs to the installation. Do not use an arbitrary
     // backend executable or a different project config selected by the shell.
-    const executable = join(home, '.local', 'bin', 'machtiani')
+    const executable = await installedMachtianiCommand(home, this.environment)
     return new Promise((resolve, reject) => {
       execFile(executable, args, {
-        cwd: home, env: { ...this.environment, MACHTIANI_CONFIG: join(home, '.config/dearmachine/machtiani/config.toml'), MACHTIANI_UPDATE_REEXEC: '1' }, timeout: 15_000, maxBuffer: 65_536,
+        cwd: home, env: { ...this.environment, MACHTIANI_CONFIG: join(home, '.config/dearmachine/machtiani/config.toml'), MACHTIANI_UPDATE_REEXEC: '1' }, timeout: 15_000, maxBuffer: 65_536, windowsHide: true,
       }, (error, stdout) => {
         // Native failures can contain private configuration. Never forward them.
         if (error) reject(new Error('Machtiani provider configuration failed; inspect the provider alias with machtiani config provider show with DearMachine’s MACHTIANI_CONFIG'))

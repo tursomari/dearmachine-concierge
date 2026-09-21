@@ -475,6 +475,12 @@ against the relocated installed runtime to exercise plugin file URLs, the
 model-host bridge, and bundled Git Bash in both installer and management modes.
 This is separate from full interactive IXE and confined DSH task execution.
 
+Set `MACHTIANI_TEST_DISTRIBUTION` to a prepared Windows distribution's absolute
+`distribution.json` path and run `packages/app/tests/machtiani-windows.spec.ts`
+with native Vitest. It exercises credential-reference changes and legacy config
+import through the actual native executable, using private disposable homes and
+counterfeit credentials. The standalone configuration must remain unchanged.
+
 Run `node tests/windows-console.mjs <absolute-built-installer-runtime>` with
 native Windows Node and the bundled Git Bash on PATH. A loopback model directs
 the real installer and concierge agents to launch PowerShell. Its native console

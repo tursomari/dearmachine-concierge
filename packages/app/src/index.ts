@@ -3,7 +3,7 @@ import { ConciergeActivityIndicator } from './concierge-activity.ts'
 import { authenticateClaudeBackend } from './backend-auth.ts'
 import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { dirname, isAbsolute, join } from 'node:path'
+import { delimiter, dirname, isAbsolute, join } from 'node:path'
 import { InstallerTui, assertInteractiveTerminal } from '@dearmachine/machtiani-installer-tui'
 import { messages, runFirstThreeStages, type CheckpointPort, type WorkflowCheckpoint } from '@dearmachine/machtiani-installer-workflow'
 import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credentials'
@@ -381,7 +381,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
         MACHTIANI_INSTALLER_CREDENTIAL_SOCKET: socketPath,
         MACHTIANI_INSTALL_METHOD: method,
         ...(method === 'standard' && distribution ? { MACHTIANI_DISTRIBUTION: distribution.manifestPath,
-          PATH: `${dirname(distribution.binaries.dearmachine)}:${process.env.PATH ?? ''}` } : {}),
+          PATH: `${dirname(distribution.binaries.dearmachine)}${delimiter}${process.env.PATH ?? ''}` } : {}),
       },
       onEvent: event => { activity.event(event); renderAgentEvent(tui, tools, event) },
       onStatus: status => { activity.status(status) },

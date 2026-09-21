@@ -465,6 +465,13 @@ against the relocated installed runtime to exercise plugin file URLs, the
 model-host bridge, and bundled Git Bash in both installer and management modes.
 This is separate from full interactive IXE and confined DSH task execution.
 
+Run `node tests/windows-console.mjs <absolute-built-installer-runtime>` with
+native Windows Node and the bundled Git Bash on PATH. A loopback model directs
+the real installer and concierge agents to launch PowerShell. Its native console
+handle must be zero while ordinary tool output still reaches the model. This
+guards against child progress displays repainting the parent terminal; redirected
+stdout alone does not prevent native console access. It uses no provider keys.
+
 After building `packages/backend-adapter`, run
 `node tests/backend-discovery-windows.mjs` with native Windows Node. This catches
 Windows `Path` casing lost by spreading `process.env`, verifies case-insensitive

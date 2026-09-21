@@ -376,6 +376,7 @@ export class DshAgentSession {
     await prepareIsolatedDshHome(this.options.dshHome, selection, this.options.mode)
     const child = spawn(process.execPath, [dshBin(), '--profile', 'machtiani-installer'], {
       cwd: this.options.workspace,
+      windowsHide: true,
       env: {
         ...process.env,
         ...this.options.environment,
@@ -560,6 +561,7 @@ export async function runDshTask(options: DshTaskOptions): Promise<DshTaskResult
   return await new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [dshBin(), '--profile', 'machtiani-installer', options.task], {
       cwd: options.workspace,
+      windowsHide: true,
       env: {
         ...process.env,
         ...options.environment,

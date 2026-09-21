@@ -1,3 +1,4 @@
+import type { InstallationMethod } from '@dearmachine/machtiani-installer-products'
 import { ManagementConversation, openManagementAgent } from './concierge-agent.ts'
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { nativeSupervisionChoice, defaultConciergeControl, type DaemonControl } from './concierge-control.ts'
@@ -84,7 +85,7 @@ export async function runLocalConcierge(control: DaemonControl, diagnosis: Insta
   }
 }
 
-export async function launchConcierge(sourceRoot?: string): Promise<'closed' | 'relaunch'> {
+export async function launchConcierge(sourceRoot?: string, method?: InstallationMethod): Promise<'closed' | 'relaunch'> {
   const home = process.env.HOME
   if (!home) throw new Error('HOME is required to locate installation state.')
   const control = defaultConciergeControl()
@@ -101,7 +102,7 @@ export async function launchConcierge(sourceRoot?: string): Promise<'closed' | '
         return
       }
       const { runInstaller } = await import('./index.ts')
-      await runInstaller(sourceRoot)
+      await runInstaller(sourceRoot, undefined, method)
     },
     manage: async diagnosis => { result = await runLocalConcierge(control, diagnosis, await managementReference()) },
     write: text => { process.stdout.write(text) },

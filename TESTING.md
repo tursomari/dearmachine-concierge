@@ -470,3 +470,13 @@ After building `packages/backend-adapter`, run
 Windows `Path` casing lost by spreading `process.env`, verifies case-insensitive
 explicit overrides, and ensures an empty override suppresses discovery. The
 fixture creates executable-name placeholders but never launches them.
+
+## Quick start entry
+
+The app's `concierge-entry.spec.ts` and `installation-wizard.spec.ts` cover
+`quick-start --source-root <checkout>` (Nix) and its explicit `--method standard`
+variant. These routes retain consent, skip the method menu, return to consent
+after preparation failure or provider Back, and use the existing installation
+diagnosis for configured or partial state. `install` remains acquisition-only
+for automation and the installation assistant. Non-TTY Quick start prints help
+without acquiring software or contacting a provider.

@@ -105,7 +105,7 @@ function conversation(tui: InstallerTui, preview = false) {
   }
 }
 
-export async function runMockInstaller(paths = defaultInstallerPaths()): Promise<void> {
+export async function runMockInstaller(paths = defaultInstallerPaths(), requestedMethod?: InstallationMethod): Promise<void> {
   assertInteractiveTerminal()
   await mkdir(paths.workspace, { recursive: true, mode: 0o700 })
   const lock = await acquireInstallerLock(join(paths.stateDirectory, 'installer.lock'))
@@ -269,7 +269,7 @@ export function installerTurnMessage(event: Extract<InstallerAgentEvent, { type:
 }
 
 /** Runs one DSH agent that conducts the published installation contract. */
-export async function runInstaller(sourceRoot: string, paths = defaultInstallerPaths()): Promise<void> {
+export async function runInstaller(sourceRoot: string, paths = defaultInstallerPaths(), requestedMethod?: InstallationMethod): Promise<void> {
   assertInteractiveTerminal()
   const dshHome = join(paths.stateDirectory, 'dsh')
   let source = await validatedSourceRoot(sourceRoot)
@@ -350,7 +350,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
         distribution = await buildStandardDistribution({ sourceRoot: source,
           diagnosticPath: join(paths.stateDirectory, 'standard-build.log'), signal: building.signal })
       } finally { building = undefined; tui.setProgress(undefined) }
-    })
+    }, process.platform, undefined, requestedMethod)
     if (configured === undefined) return
     const { selection, method, showCommands } = configured
     if (method === 'standard' && distribution) source = distribution.sourceRoot

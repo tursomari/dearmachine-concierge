@@ -13,15 +13,20 @@ export async function runInstallationWizard(
   prepare: (method: InstallationMethod) => Promise<void> = async () => {},
   platform: NodeJS.Platform = process.platform,
   nixos?: boolean,
+  requestedMethod?: InstallationMethod,
 ): Promise<{ selection: InstallerModelSelection; method: InstallationMethod; showCommands: boolean } | undefined> {
   let closed = false
   void exited.then(() => { closed = true })
   const automaticNix = platform === 'linux' && (nixos ?? await isNixOS(platform))
+  if (requestedMethod === 'standard' && automaticNix) throw new Error('Standard is unavailable on NixOS. Use the Nix Quick start.')
+  if (requestedMethod === 'nix' && platform === 'win32') throw new Error('Nix is unavailable for native Windows. Use the Windows Quick start.')
+  const fixedMethod = requestedMethod ?? (platform === 'win32' ? 'standard' : automaticNix ? 'nix' : undefined)
   while (!closed) {
     const consent = await installationConsent(tui, exited)
     if (consent === undefined) return
     while (true) {
-      const method = await chooseInstallationMethod(tui, prebuiltAvailable, exited, platform, automaticNix)
+      if (requestedMethod) tui.addAssistant(`Installation method: ${requestedMethod === 'nix' ? 'Nix' : 'Standard'}`)
+      const method = requestedMethod ?? await chooseInstallationMethod(tui, prebuiltAvailable, exited, platform, automaticNix)
       if (method === undefined) return
       if (method === 'back') break
       try {
@@ -29,7 +34,7 @@ export async function runInstallationWizard(
       } catch (error) {
         if (closed) return
         tui.addAssistant(error instanceof Error ? error.message : 'Software preparation failed. Choose a method to try again.')
-        if (automaticNix) break // Retry through consent, never a tight automatic loop.
+        if (fixedMethod) break // Retry through consent when there is no method menu.
         continue
       }
       if (closed) return
@@ -39,7 +44,7 @@ export async function runInstallationWizard(
         return { selection, method, showCommands: consent.showCommands }
       } catch (error) {
         if (!(error instanceof InstallerChoiceBackError)) throw error
-        if (automaticNix) break // There is no method menu to go back to on NixOS.
+        if (fixedMethod) break // A fixed route has no method menu to go back to.
       }
     }
   }

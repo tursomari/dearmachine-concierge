@@ -104,3 +104,41 @@ it('backs out of model setup to consent on NixOS', async () => {
   expect(choose).toHaveBeenCalledTimes(3)
   expect(model).toHaveBeenCalledTimes(1)
 })
+
+for (const method of ['nix', 'standard'] as const) {
+  it(`honors the ${method} Quick start after consent without another method choice`, async () => {
+    const choose = vi.fn().mockResolvedValueOnce('continue').mockResolvedValueOnce('no')
+    const prepare = vi.fn()
+    const selection = { provider: 'fixture', model: 'fixture' }
+    const result = await runInstallationWizard({ choose, addAssistant: vi.fn() }, false,
+      new Promise(() => {}), async () => selection, prepare, 'linux', false, method)
+    expect(result).toEqual({ selection, method, showCommands: false })
+    expect(prepare).toHaveBeenCalledExactlyOnceWith(method)
+    expect(choose).toHaveBeenCalledTimes(2)
+  })
+  it(`returns to consent after ${method} Quick start preparation fails`, async () => {
+    const choose = vi.fn().mockResolvedValueOnce('continue').mockResolvedValueOnce('no').mockResolvedValueOnce('not-now')
+    const prepare = vi.fn().mockRejectedValue(new Error('Unavailable'))
+    const model = vi.fn()
+    expect(await runInstallationWizard({ choose, addAssistant: vi.fn() }, false,
+      new Promise(() => {}), model, prepare, 'linux', false, method)).toBeUndefined()
+    expect(prepare).toHaveBeenCalledTimes(1)
+    expect(model).not.toHaveBeenCalled()
+  })
+  it(`returns from model selection to consent on the ${method} Quick start`, async () => {
+    const choose = vi.fn().mockResolvedValueOnce('continue').mockResolvedValueOnce('no').mockResolvedValueOnce('not-now')
+    const model = vi.fn().mockRejectedValue(new InstallerChoiceBackError())
+    expect(await runInstallationWizard({ choose, addAssistant: vi.fn() }, false,
+      new Promise(() => {}), model, undefined, 'darwin', false, method)).toBeUndefined()
+    expect(model).toHaveBeenCalledTimes(1)
+  })
+}
+it('rejects Standard on NixOS and Nix on native Windows before consent or preparation', async () => {
+  const tui = { choose: vi.fn(), addAssistant: vi.fn() }
+  const model = vi.fn()
+  const prepare = vi.fn()
+  await expect(runInstallationWizard(tui, false, new Promise(() => {}), model, prepare, 'linux', true, 'standard')).rejects.toThrow('NixOS')
+  await expect(runInstallationWizard(tui, false, new Promise(() => {}), model, prepare, 'win32', false, 'nix')).rejects.toThrow('Windows')
+  expect(tui.choose).not.toHaveBeenCalled()
+  expect(prepare).not.toHaveBeenCalled()
+})

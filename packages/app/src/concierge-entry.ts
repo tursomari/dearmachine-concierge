@@ -1,3 +1,4 @@
+import type { InstallationMethod } from '@dearmachine/machtiani-installer-products'
 import { lstat } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import type { DaemonCommand, DaemonControl, DaemonStatus, InstallationState } from './concierge-control.ts'
@@ -5,6 +6,7 @@ import type { DaemonCommand, DaemonControl, DaemonStatus, InstallationState } fr
 export const entryHelp = `Usage: dearmachine [--source-root /absolute/path/to/machtiani]
        dearmachine status|up|down|restart
        dearmachine update [--check | --recover] [--json]
+       machtiani-installer quick-start [--method nix|standard] --source-root /absolute/path/to/machtiani
        machtiani-installer install --source-root /absolute/path/to/machtiani
        machtiani-installer migrate-profile <entry> [--check]
        dearmachine --help
@@ -24,10 +26,27 @@ export type InstallerInvocation =
   | { mode: 'mock' }
   | { mode: 'help' }
   | { mode: 'install'; sourceRoot: string }
-  | { mode: 'concierge'; sourceRoot?: string }
+  | { mode: 'concierge'; sourceRoot?: string; method?: InstallationMethod }
   | { mode: 'control'; command: DaemonCommand }
 
 export function parseInvocation(args: readonly string[], environment: NodeJS.ProcessEnv = {}): InstallerInvocation {
+  if (args[0] === 'quick-start') {
+    let sourceRoot: string | undefined
+    let method: InstallationMethod = 'nix'
+    const seen = new Set<string>()
+    for (let index = 1; index < args.length; index += 2) {
+      const flag = args[index]!
+      const value = args[index + 1]
+      if (seen.has(flag) || !value) throw new Error(entryHelp)
+      seen.add(flag)
+      if (flag === '--source-root') sourceRoot = value
+      else if (flag === '--method' && (value === 'nix' || value === 'standard')) method = value
+      else throw new Error(entryHelp)
+    }
+    if (!sourceRoot) throw new Error(entryHelp)
+    if (!isAbsolute(sourceRoot)) throw new Error('--source-root must be absolute.')
+    return { mode: 'concierge', sourceRoot, method }
+  }
   if (args[0] === 'update' || args[0] === 'install' || args[0] === 'migrate-profile' || args[0] === '_launcher-check') return { mode: 'managed', action: args[0], args: args.slice(1) }
   if (args.length === 0 || (args.length === 1 && args[0] === '--concierge')) {
     const sourceRoot = environment.DEARMACHINE_SOURCE_ROOT

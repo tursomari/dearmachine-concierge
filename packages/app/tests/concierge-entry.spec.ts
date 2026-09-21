@@ -130,3 +130,12 @@ it('accepts the native source-root environment through the existing concierge mo
 it('rejects a relative explicit concierge source root before setup', () => {
   expect(() => parseInvocation(['--concierge', '--source-root', 'relative'])).toThrow('absolute')
 })
+
+it('routes Quick start through installation diagnosis with an explicit acquisition method', () => {
+  expect(parseInvocation(['quick-start', '--source-root', '/source'])).toEqual({ mode: 'concierge', sourceRoot: '/source', method: 'nix' })
+  expect(parseInvocation(['quick-start', '--method', 'standard', '--source-root', '/source with spaces'])).toEqual({ mode: 'concierge', sourceRoot: '/source with spaces', method: 'standard' })
+  expect(parseInvocation(['install', '--source-root', '/source'])).toEqual({ mode: 'managed', action: 'install', args: ['--source-root', '/source'] })
+  for (const args of [[], ['--method', 'other'], ['--source-root', '/a', '--source-root', '/b'], ['--source-root', '/a', '--method'], ['--source-root', 'relative']]) {
+    expect(() => parseInvocation(['quick-start', ...args])).toThrow()
+  }
+})

@@ -11,6 +11,8 @@ const runtime = process.argv[2]
 assert.ok(runtime && isAbsolute(runtime), 'Pass an absolute built installer runtime')
 const { DshAgentSession } = await import(pathToFileURL(join(runtime, 'packages/dsh-adapter/dist/index.mjs')))
 const { saveModelHostProfile } = await import(pathToFileURL(join(runtime, 'packages/model-host/dist/index.mjs')))
+const { runBounded } = await import(pathToFileURL(join(runtime, 'packages/backend-adapter/dist/index.mjs')))
+const { SpawnCommandRunner } = await import(pathToFileURL(join(runtime, 'packages/product-adapter/dist/index.mjs')))
 const root = await mkdtemp(join(tmpdir(), 'windows-console-'))
 try {
   for (const mode of ['installer', 'management']) {
@@ -24,6 +26,17 @@ Write-Progress -Activity 'WINDOWS_CONSOLE_PROGRESS_FIXTURE' -Status 'Synthetic w
 Write-Output 'CAPTURED_TOOL_OUTPUT'
 Write-Progress -Activity 'WINDOWS_CONSOLE_PROGRESS_FIXTURE' -Completed`
     const encoded = Buffer.from(script, 'utf16le').toString('base64')
+    if (mode === 'installer') {
+      const command = ['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded]
+      const backend = await runBounded(command, home, process.env, 30_000)
+      const product = await new SpawnCommandRunner().run({ label: 'Console fixture', command, cwd: home, environment: process.env })
+      for (const [name, result] of [['backend probe', backend], ['product command', product]]) {
+        assert.equal(result.code, 0)
+        assert.match(result.stdout, /CONSOLE_HANDLE=0(?:\r|\n|$)/, `${name} must not have a console handle`)
+        assert.match(result.stdout, /CAPTURED_TOOL_OUTPUT/)
+        console.log(`${name}: native console absent and output captured PASS`)
+      }
+    }
     let requests = 0
     let rejectTurn, resolveTurn
     const complete = new Promise((resolve, reject) => { resolveTurn = resolve; rejectTurn = reject })

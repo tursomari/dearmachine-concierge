@@ -363,7 +363,7 @@ export async function runBounded(command: readonly string[], cwd: string, enviro
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     return await new Promise((resolve, reject) => {
-      const child = spawn(command[0]!, command.slice(1), { cwd, env: environment, signal: controller.signal, stdio: ['ignore', 'pipe', 'pipe'] })
+      const child = spawn(command[0]!, command.slice(1), { cwd, env: environment, signal: controller.signal, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
       let stdout = ''
       let stderr = ''
       const append = (current: string, chunk: unknown): string => `${current}${String(chunk)}`.slice(-65_536)

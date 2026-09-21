@@ -53,7 +53,7 @@ export class LocalEnvironmentAdapter implements EnvironmentPort {
 
 async function run(command: readonly string[], environment: NodeJS.ProcessEnv): Promise<number | null> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(command[0]!, command.slice(1), { env: environment, stdio: ['ignore', 'ignore', 'pipe'] })
+    const child = spawn(command[0]!, command.slice(1), { env: environment, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'] })
     let diagnostic = ''
     child.stderr.setEncoding('utf8').on('data', chunk => { diagnostic = `${diagnostic}${String(chunk)}`.slice(-16_384) })
     child.once('error', reject)

@@ -233,7 +233,7 @@ export function nativeStatusReport(environment: NodeJS.ProcessEnv = process.env)
 /** Explicit choices use the native consent store and runtime probes. No provider. */
 export function nativeSupervisionChoice(kind: 'systemd' | 'launchd' | 'persistence', choice: 'on' | 'off' | 'status', environment = process.env): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(environment.DEARMACHINE_NATIVE_BIN || 'dearmachine', [kind, choice], { env: environment, timeout: 30_000, maxBuffer: 65_536 },
+    execFile(environment.DEARMACHINE_NATIVE_BIN || 'dearmachine', [kind, choice], { env: environment, windowsHide: true, timeout: 30_000, maxBuffer: 65_536 },
       (error, stdout) => { if (error) reject(new Error('Native supervision choice unconfirmed.')); else resolve(stdout.trim()) })
   })
 }

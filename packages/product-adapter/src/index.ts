@@ -54,6 +54,7 @@ export class SpawnCommandRunner implements CommandRunner {
           cwd: request.cwd,
           env: request.environment,
           signal: controller.signal,
+          windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe'],
         })
         let stdout = ''

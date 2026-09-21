@@ -480,7 +480,8 @@ native Windows Node and the bundled Git Bash on PATH. A loopback model directs
 the real installer and concierge agents to launch PowerShell. Its native console
 handle must be zero while ordinary tool output still reaches the model. This
 guards against child progress displays repainting the parent terminal; redirected
-stdout alone does not prevent native console access. It uses no provider keys.
+stdout alone does not prevent native console access. The same fixture checks
+direct backend probes and product commands. It uses no provider keys.
 
 After building `packages/backend-adapter`, run
 `node tests/backend-discovery-windows.mjs` with native Windows Node. This catches

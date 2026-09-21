@@ -23,7 +23,7 @@ export async function authenticateClaudeBackend(tui: InstallerTui, home: string,
     delete environment.ANTHROPIC_API_KEY
     delete environment.ANTHROPIC_AUTH_TOKEN
     delete environment.CLAUDE_CODE_OAUTH_TOKEN
-    return spawn(executable, [...args], { env: environment, signal: authentication, stdio: ['pipe', 'pipe', 'pipe'] })
+    return spawn(executable, [...args], { env: environment, signal: authentication, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
   })
   const scope = tui.beginCancellationScope(() => cancellation.abort())
   const interaction = tui.beginExternalWait('Complete Claude Code sign-in in your browser')

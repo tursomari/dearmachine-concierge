@@ -197,7 +197,7 @@ class CodexAppServer implements CodexAppServerPort {
     const require = createRequire(import.meta.url)
     const packagePath = require.resolve('@openai/codex/package.json')
     this.process = spawn(process.execPath, [join(dirname(packagePath), 'bin', 'codex.js'), 'app-server'], {
-      env: runtimeEnvironment({ CODEX_HOME: profile }), stdio: ['pipe', 'pipe', 'pipe'],
+      env: runtimeEnvironment({ CODEX_HOME: profile }), windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     })
     this.process.stderr.on('data', chunk => {
       this.stderr = `${this.stderr}${String(chunk)}`.slice(-8192)
@@ -398,6 +398,7 @@ function spawnCopilotLogin(profile: string): CopilotLoginProcess {
   const packagePath = require.resolve('@github/copilot/package.json')
   return spawn(process.execPath, [join(dirname(packagePath), 'npm-loader.js'), 'login', '--device-code'], {
     env: runtimeEnvironment({ COPILOT_HOME: profile }),
+    windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 }
@@ -529,6 +530,7 @@ function claudeNativeExecutable(): string {
 function spawnClaudeCli(profile: string, args: readonly string[]): ChildProcessWithoutNullStreams {
   return spawn(claudeNativeExecutable(), [...args], {
     env: runtimeEnvironment({ CLAUDE_CONFIG_DIR: profile, CLAUDE_AGENT_SDK_CLIENT_APP: 'machtiani-installer/0.1.0' }),
+    windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
 }

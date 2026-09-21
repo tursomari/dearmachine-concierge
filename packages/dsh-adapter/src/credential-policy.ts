@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tools'
-import { CredentialBoundary, CREDENTIAL_BLOCKED, CREDENTIAL_UNAVAILABLE } from './credential-boundary.ts'
+import { CredentialBoundary, CREDENTIAL_BLOCKED, CREDENTIAL_UNAVAILABLE, CREDENTIAL_RESULT_UNAVAILABLE } from './credential-boundary.ts'
 
 export const name = 'machtiani-credential-policy'
 export const inject = ['tools', 'llm']
@@ -29,13 +29,16 @@ export async function apply(ctx: Context): Promise<void> {
 
   ctx.on('tools/post-execute', async (_exec, result, next) => {
     try {
-      await boundary.refresh()
+      // A completed tool must not be replayed because an ACL helper or file
+      // read failed transiently. Retry only validation, never the tool or the
+      // downstream policy. Both failures still withhold the entire result.
+      try { await boundary.refresh() } catch { await boundary.refresh() }
       const decision = await next()
       if (!boundary.containsCredential(result) && !boundary.containsCredential(decision)) return decision
       // Block the entire result. Replacing content alone leaves raw value/meta
       // and errors available to session persistence and presentation plugins.
       return { kind: 'block', feedback: [{ type: 'text', text: CREDENTIAL_BLOCKED }] }
-    } catch { return { kind: 'block', feedback: [{ type: 'text', text: CREDENTIAL_UNAVAILABLE }] } }
+    } catch { return { kind: 'block', feedback: [{ type: 'text', text: CREDENTIAL_RESULT_UNAVAILABLE }] } }
   })
 
   ctx.on('llm/stream', async function* (options, next) {

@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 export const CREDENTIAL_BLOCKED = 'Credential access or output was blocked. Use the secure credential helper and its non-secret receipt; do not inspect or print saved credentials.'
 export const CREDENTIAL_UNAVAILABLE = 'Credential protection is unavailable. No tool or model request was permitted.'
+export const CREDENTIAL_RESULT_UNAVAILABLE = 'The tool may have run, but its result was withheld because credential protection could not be verified. Do not assume that nothing changed or repeat the command. Check the current state with a safe read-only tool once credential protection is available.'
 
 /** Trusted in-process inspection only. Values never leave this object as data. */
 export class CredentialBoundary {

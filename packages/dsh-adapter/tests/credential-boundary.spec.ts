@@ -2,11 +2,11 @@ import { mkdtemp, mkdir, writeFile, symlink, chmod, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CredentialBoundary } from '../src/credential-boundary.ts'
+import { CredentialBoundary, CREDENTIAL_RESULT_UNAVAILABLE } from '../src/credential-boundary.ts'
 import { apply } from '../src/credential-policy.ts'
 
 const roots: string[] = []
-afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
 async function fixture() {
   const home = await mkdtemp(join(tmpdir(), 'credential-boundary-'))
@@ -102,5 +102,39 @@ describe('credential tool boundary', () => {
     await chmod(path, 0o644)
     expect(await post({}, { content: [] }, accepted)).toMatchObject({ kind: 'block' })
     await expect(stream({ messages: [] }, transport).next()).rejects.toThrow('Credential protection is unavailable')
+  })
+
+  it('retries result validation after a transient failure without replaying the tool or downstream policy', async () => {
+    const { home, key } = await fixture()
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('MACHTIANI_MODEL_PROFILE', '')
+    const hooks = new Map<string, (...args: any[]) => any>()
+    await apply({ on: (name: string, fn: (...args: any[]) => any) => hooks.set(name, fn) } as never)
+    const refresh = vi.spyOn(CredentialBoundary.prototype, 'refresh')
+    refresh.mockRejectedValueOnce(new Error('temporary ACL helper failure'))
+    const next = vi.fn(async () => ({ kind: 'accept' }))
+    const post = hooks.get('tools/post-execute')!
+    expect(await post({}, { content: [{ text: 'Installed the backend.' }] }, next)).toEqual({ kind: 'accept' })
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(next).toHaveBeenCalledTimes(1)
+    // A successful retry must still scan the complete result for saved secrets.
+    refresh.mockRejectedValueOnce(new Error('temporary file access failure'))
+    expect(await post({}, { content: [{ text: 'safe' }], meta: { hidden: key } }, next)).toMatchObject({ kind: 'block' })
+  })
+
+  it('withholds unverifiable results and reports that the command may have changed state', async () => {
+    const { home, key } = await fixture()
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('MACHTIANI_MODEL_PROFILE', '')
+    const hooks = new Map<string, (...args: any[]) => any>()
+    await apply({ on: (name: string, fn: (...args: any[]) => any) => hooks.set(name, fn) } as never)
+    const refresh = vi.spyOn(CredentialBoundary.prototype, 'refresh').mockRejectedValue(new Error(key))
+    const next = vi.fn(async () => ({ kind: 'accept' }))
+    const result = await hooks.get('tools/post-execute')!({}, { content: [{ text: key }], meta: { hidden: key } }, next)
+    expect(result).toEqual({ kind: 'block', feedback: [{ type: 'text', text: CREDENTIAL_RESULT_UNAVAILABLE }] })
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(next).not.toHaveBeenCalled()
+    expect(JSON.stringify(result)).not.toContain(key)
+    expect(JSON.stringify(result)).not.toContain('No tool or model request was permitted')
   })
 })

@@ -103,6 +103,10 @@ if __name__ == '__main__':
             load(sys.argv[2])
         elif sys.argv[1] == 'stage':
             stage(load(sys.argv[2]), sys.argv[3])
+        elif sys.argv[1] == 'copy-key':
+            target = Path(sys.argv[3])
+            target.write_bytes(credential(sys.argv[2]) + b'\n')
+            target.chmod(0o600)
         elif sys.argv[1] == 'scan':
             scan(sys.argv[2], sys.argv[3:])
         else:

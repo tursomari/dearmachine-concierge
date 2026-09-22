@@ -299,8 +299,13 @@ docker run --rm --network=none --tmpfs /tmp:exec,size=2g --env HOME=/tmp/qse-pre
   '
 
 printf '==> Loading approved credentials into the private host transaction...\n'
-secrets_load "$agentmail_secrets_path"
-secrets_get AGENTMAIL_API_KEY agentmail_api_key
+if test -n "${AGENTMAIL_KEY_PATH:-}"; then
+  python3 "$script_dir/model-config.py" copy-key "$AGENTMAIL_KEY_PATH" "$run_root/agentmail.key"
+  IFS= read -r agentmail_api_key < "$run_root/agentmail.key"
+else
+  secrets_load "$agentmail_secrets_path"
+  secrets_get AGENTMAIL_API_KEY agentmail_api_key
+fi
 python3 "$script_dir/model-config.py" stage "$model_config" "$run_root"
 export AGENTMAIL_API_KEY=$agentmail_api_key
 TXN_AGENTMAIL_HELPER=$helper_path

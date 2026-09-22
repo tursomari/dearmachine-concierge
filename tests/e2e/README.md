@@ -38,7 +38,7 @@ credentials. The JSON contains credential **file references**, never key values:
 ```
 
 ```console
-AGENTMAIL_SECRETS_PATH=/private/agentmail.env \
+AGENTMAIL_KEY_PATH=/private/agentmail.key \
   tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani \
   --model-config /private/models.json
 ```
@@ -54,7 +54,10 @@ Choose a supported backend selection or explicitly request default reasoning.
 
 Configuration and credential sources must be absolute, owned regular non-symlink
 files with mode `0600`. Model credentials contain one nonempty key, optionally
-followed by a newline. AgentMail uses the existing environment-file format.
+followed by a newline. `AGENTMAIL_KEY_PATH` accepts the same raw-key format.
+The legacy `AGENTMAIL_SECRETS_PATH` still accepts the existing IPE environment
+file, which requires both AgentMail and DeepSeek entries; new runs need no
+unrelated provider credential.
 The runner validates configuration before building, then reads and stages keys
 only after the image and offline source checks pass. Sanitized model receipts
 record both selections and Forge's functional probe. Credential copies are

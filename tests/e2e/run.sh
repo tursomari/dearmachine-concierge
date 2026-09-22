@@ -280,7 +280,7 @@ for qse_command in docker go; do
 done
 
 printf '==> Building the source-only installer IXE image...\n'
-docker build --progress plain --file "$context_dir/machtiani-installer/tests/e2e/Dockerfile" \
+DOCKER_BUILDKIT=1 docker build --progress plain --file "$context_dir/machtiani-installer/tests/e2e/Dockerfile" \
   --tag "$image_name" "$context_dir"
 test "$(docker run --rm --entrypoint /usr/local/bin/forge "$image_name" --version)" = 'forge 2.13.21' || \
   fail 'IXE image has the wrong Forge version'

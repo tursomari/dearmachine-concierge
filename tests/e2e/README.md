@@ -4,6 +4,17 @@ This is the detailed operating contract for the harness. Start with the
 repository-wide [`TESTING.md`](../../TESTING.md) to select the appropriate
 Installer test and understand its safety class.
 
+The host runner requires Python 3.11+, Git 2.28+, Go, and Docker with BuildKit.
+When host defaults are older, enter the umbrella harness's pinned toolchain:
+
+```console
+nix develop /absolute/path/to/machtiani/machtiani-harness#smoke
+```
+
+Python and Git compatibility are checked before building an image or loading
+keys. Use a disk-backed `TMPDIR` if the host's default temporary filesystem
+cannot hold the source archives and recursive fixture clones.
+
 `run.sh` builds an isolated source container, runs the installer snapshot and PTY
 tests in that sparse environment, then exercises the guarded product adapter
 against a pre-provisioned pair of disposable AgentMail inboxes. The live gate

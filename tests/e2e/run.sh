@@ -51,6 +51,12 @@ done
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 installer_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+# Shared AgentMail discovery uses tomllib; recursive fixture tests use Git's
+# --initial-branch. Reject old host defaults before image builds or key loading.
+python3 -c 'import tomllib' >/dev/null 2>&1 || \
+  fail 'QSE requires Python 3.11+; select the documented Nix toolchain in PATH'
+python3 -c 'import re,subprocess; v=re.search(r"git version ([0-9]+)\.([0-9]+)", subprocess.check_output(["git", "--version"], text=True)); raise SystemExit(0 if v and tuple(map(int, v.groups())) >= (2, 28) else 1)' >/dev/null 2>&1 || \
+  fail 'QSE requires Git 2.28+; select the documented Nix toolchain in PATH'
 dockerfile=$script_dir/Dockerfile
 installer_flake=$installer_root/flake.nix
 transaction_lib=$umbrella_root/tests/e2e-installation-procedure/lib/txn.sh

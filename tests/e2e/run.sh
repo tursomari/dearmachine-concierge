@@ -272,6 +272,7 @@ if test "$self_test" = true; then
     fail 'AgentMail credential path accepted a relative override'
   fi
   python3 "$script_dir/model-config-test.py"
+  node --test "$script_dir/prepare-omp-test.mjs"
   python3 "$script_dir/git-fixture-test.py"
   mkdir "$run_root/git-home"
   HOME="$run_root/git-home" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$run_root/git-home/.gitconfig" \
@@ -290,6 +291,8 @@ DOCKER_BUILDKIT=1 docker build --progress plain --file "$context_dir/machtiani-i
   --tag "$image_name" "$context_dir"
 test "$(docker run --rm --entrypoint /usr/local/bin/forge "$image_name" --version)" = 'forge 2.13.21' || \
   fail 'IXE image has the wrong Forge version'
+test "$(docker run --rm --entrypoint /usr/local/bin/omp "$image_name" --version)" = 'omp/18.1.16' || \
+  fail 'IXE image has the wrong OMP version'
 docker run --rm --entrypoint /bin/sh "$image_name" -eu -c '
   bad=$(find /workspace/machtiani \( -name .git -o -name .ssh -o -name .secrets -o -name ".env*" \
     -o -name .forge -o -name .credentials.json \) -print -quit)

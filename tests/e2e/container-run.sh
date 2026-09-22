@@ -48,6 +48,8 @@ cp "$agentmail_secret" "$HOME/.config/dearmachine/agentmail-api-key"
 chmod 0600 "$HOME/.config/dearmachine/agentmail-api-key"
 node /workspace/machtiani/machtiani-installer/tests/e2e/prepare-model.mjs
 selection=$runtime/selection.json
+backend=$(cat "$runtime/backend-id")
+case "$backend" in forge|omp) ;; *) fail 'unsupported backend ID' ;; esac
 reasoning=$(cat "$runtime/reasoning-effort")
 reasoning_args=()
 if test "$reasoning" != default; then
@@ -74,9 +76,9 @@ PY
 
 dearmachine status > "$runtime/dearmachine.status"
 (cd "$HOME/.dearmachine/entrypoint/main" && \
-  DEARMACHINE_BACKENDS='["forge"]' agent-manager backend health forge) > "$runtime/backend.status"
+  DEARMACHINE_BACKENDS="[\"$backend\"]" agent-manager backend health "$backend") > "$runtime/backend.status"
 grep -Eq '^(DearMachine is running([ .(]|$)|Dear Machine: running$)' "$runtime/dearmachine.status" || fail 'Dear Machine is not running'
-grep -Eq '(^|[[:space:]])result=ok([[:space:]]|$)' "$runtime/backend.status" || fail 'Forge backend health failed'
+grep -Eq '(^|[[:space:]])result=ok([[:space:]]|$)' "$runtime/backend.status" || fail 'selected backend health failed'
 git -C "$umbrella" status --porcelain=v2 --untracked-files=all --ignore-submodules=none > "$runtime/source.status"
 python3 - "$runtime/source.before" "$runtime/source.status" <<'PY'
 from pathlib import Path

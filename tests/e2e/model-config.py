@@ -58,11 +58,16 @@ def load(path):
                      credentialFile=os.environ.get('OPENROUTER_KEY_PATH', str(Path.home() / '.secrets/openrouter/work-api-key.txt')))
     if not isinstance(value, dict):
         raise ValueError('model configuration must be an object')
-    shared = selection({k: v for k, v in value.items() if k != 'backend'})
+    backend_id = value.get('backendId', 'forge')
+    if backend_id not in ('forge', 'omp'):
+        raise ValueError('backendId must be forge or omp')
+    shared = selection({k: v for k, v in value.items() if k not in ('backend', 'backendId')})
     backend = selection(value.get('backend', shared))
-    if 'endpoint' in backend and backend['reasoningEffort'] != 'default':
+    if backend_id == 'forge' and 'endpoint' in backend and backend['reasoningEffort'] != 'default':
         raise ValueError('Forge 2.13.21 cannot forward custom-provider reasoning; explicitly configure a supported backend selection or provider-default reasoning')
-    return {'shared': shared, 'backend': backend}
+    if backend_id == 'omp' and 'endpoint' in backend and not backend['endpoint'].endswith('/chat/completions'):
+        raise ValueError('OMP custom endpoint must end with /chat/completions')
+    return {'shared': shared, 'backend': backend, 'backendId': backend_id}
 
 
 def credential(path):
@@ -77,8 +82,9 @@ def stage(config, root):
     root = Path(root)
     secrets = root / 'model-secrets'
     secrets.mkdir(mode=0o700)
-    sanitized = {}
-    for role, value in config.items():
+    sanitized = {'backendId': config['backendId']}
+    for role in ('shared', 'backend'):
+        value = config[role]
         (secrets / role).write_bytes(credential(value['credentialFile']) + b'\n')
         (secrets / role).chmod(0o600)
         sanitized[role] = {k: v for k, v in value.items() if k != 'credentialFile'}

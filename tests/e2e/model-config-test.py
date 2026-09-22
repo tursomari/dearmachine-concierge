@@ -55,6 +55,22 @@ class ModelConfigTest(unittest.TestCase):
             self.load(value)
         self.assertEqual(self.load(dict(value, reasoningEffort='default'))['backend']['reasoningEffort'], 'default')
 
+    def test_omp_shares_custom_provider_and_high_reasoning(self):
+        value = dict(self.value, backendId='omp', provider='example', endpoint='https://models.example.test/v1/chat/completions')
+        result = self.load(value)
+        self.assertEqual(result['shared'], result['backend'])
+        config.stage(result, self.root)
+        staged = json.loads((self.root / 'model-config.json').read_text())
+        self.assertEqual(staged['backendId'], 'omp')
+        self.assertEqual(staged['backend']['reasoningEffort'], 'high')
+        self.assertNotIn(str(self.key), json.dumps(staged))
+
+    def test_rejects_unknown_backend_and_unrepresentable_omp_endpoint(self):
+        with self.assertRaisesRegex(ValueError, 'backendId'):
+            self.load(dict(self.value, backendId='unknown'))
+        with self.assertRaisesRegex(ValueError, 'endpoint'):
+            self.load(dict(self.value, backendId='omp', provider='example', endpoint='https://models.example.test/other'))
+
     def test_rejects_unsafe_inputs(self):
         for patch in [dict(apiKey='secret'), dict(credentialFile='relative'), dict(provider='unknown'),
                       dict(reasoningEffort='invented'), dict(model='model\nsecret'),

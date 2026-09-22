@@ -4,7 +4,7 @@ This is the detailed operating contract for the harness. Start with the
 repository-wide [`TESTING.md`](../../TESTING.md) to select the appropriate
 Installer test and understand its safety class.
 
-The host runner requires Python 3.11+, Git 2.28+, Go, and Docker with BuildKit.
+The host runner requires Python 3.11+, Node 24+, Git 2.28+, Go, and Docker with BuildKit.
 When host defaults are older, enter the umbrella harness's pinned toolchain:
 
 ```console
@@ -18,7 +18,7 @@ cannot hold the source archives and recursive fixture clones.
 `run.sh` builds an isolated source container, runs the installer snapshot and PTY
 tests in that sparse environment, then exercises the guarded product adapter
 against a pre-provisioned pair of disposable AgentMail inboxes. The live gate
-sends a real message, requires a reply through Forge, and restores the exact
+sends a real message, requires a reply through the selected backend, and restores the exact
 pre-run AgentMail baseline.
 
 The harness never mounts a host checkout, Git directory, credential directory,
@@ -34,17 +34,12 @@ credentials. The JSON contains credential **file references**, never key values:
 
 ```json
 {
+  "backendId": "omp",
   "provider": "example_provider",
   "endpoint": "https://models.example.test/v1/chat/completions",
   "model": "example/model",
   "reasoningEffort": "high",
-  "credentialFile": "/private/shared-provider.key",
-  "backend": {
-    "provider": "openai",
-    "model": "example-backend-model",
-    "reasoningEffort": "high",
-    "credentialFile": "/private/backend-provider.key"
-  }
+  "credentialFile": "/private/shared-provider.key"
 }
 ```
 
@@ -56,8 +51,14 @@ AGENTMAIL_KEY_PATH=/private/agentmail.key \
 
 `openrouter`, `openai`, and `deepseek` use their built-in adapters without an
 `endpoint`. Other provider IDs require their exact HTTPS Chat Completions
-endpoint. The optional complete `backend` selection configures Forge separately;
-when absent, Forge uses the shared selection. There is no automatic provider or
+endpoint. `backendId` selects `omp` or `forge` (the compatibility default).
+The optional complete `backend` selection configures its model separately;
+when absent, the backend uses the shared selection. For one provider throughout,
+select `omp` and omit `backend`. OMP 18.1.16 receives persistent provider, model
+and reasoning settings, and its functional probe verifies session metadata as
+well as the reply. Its light and slow model roles use the same selection.
+Custom OMP endpoints must end with `/chat/completions`; the fixture uses a
+128 Ki-token context and 8192-token output limit for custom models. There is no automatic provider or
 reasoning fallback. `reasoningEffort: "default"` explicitly selects provider
 defaults. Pinned Forge 2.13.21 cannot forward reasoning settings for custom
 providers; the runner rejects that combination before building or provisioning.
@@ -71,10 +72,10 @@ file, which requires both AgentMail and DeepSeek entries; new runs need no
 unrelated provider credential.
 The runner validates configuration before building, then reads and stages keys
 only after the image and offline source checks pass. Sanitized model receipts
-record both selections and Forge's functional probe. Credential copies are
+record the backend ID, both selections and the selected backend's functional probe. Credential copies are
 removed even when `TXN_KEEP_RUNTIME=1` retains diagnostics.
 
-For compatibility, omitting `--model-config` retains the previous OpenRouter
+For compatibility, omitting `--model-config` retains Forge and the previous OpenRouter
 `z-ai/glm-5.3-flash` / high selection for both roles, using `OPENROUTER_KEY_PATH`
 or `~/.secrets/openrouter/work-api-key.txt`. The uncredentialed self-test also
 runs configuration, endpoint, private-file and artifact-redaction regressions;
@@ -104,3 +105,7 @@ The live clone and its local origins use a dedicated 2 GiB tmpfs at
 `/run/machtiani-qse-git`. Nix build scratch uses the container's ordinary `/tmp`
 on disk; it must not share the clone's bounded tmpfs. The installer dependency
 and package builds require several GiB of scratch space.
+
+Backend selection changes only this evaluation fixture. It does not change the
+installer interface or the user's backend choices. OMP and Forge are downloaded
+from their official releases with fixed versions and SHA-256 checksums.

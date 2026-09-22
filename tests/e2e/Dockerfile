@@ -62,6 +62,20 @@ COPY . /workspace/machtiani
 RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
       pnpm --dir /workspace/machtiani/machtiani-installer test
 
+# Pinned OMP is an alternative backend; configuration selects the live backend.
+ARG TARGETARCH
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) omp_target=x64; omp_sha256=73eeef0bf5a42b80bb5e6f1251ddbe9096f0630093c78a671ec7f41ca6dcbf5d ;; \
+      arm64) omp_target=arm64; omp_sha256=f219439bc19ad95d0ee9caa595bae16ab309015b3b2561fe184cc9b7207b6736 ;; \
+      *) exit 1 ;; \
+    esac; \
+    curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 --max-time 180 \
+      "https://github.com/can1357/oh-my-pi/releases/download/v18.1.16/omp-linux-musl-${omp_target}" -o /tmp/omp; \
+    printf '%s  /tmp/omp\n' "$omp_sha256" | sha256sum -c -; \
+    install -Dm0755 /tmp/omp /usr/local/bin/omp; rm /tmp/omp; \
+    test "$(/usr/local/bin/omp --version)" = 'omp/18.1.16'
+
 RUN install -d -m 0700 /run/machtiani-installer-qse/secrets
 
 ENTRYPOINT ["/workspace/machtiani/machtiani-installer/tests/e2e/container-run.sh"]

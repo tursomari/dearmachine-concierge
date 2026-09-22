@@ -63,6 +63,7 @@ RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
       pnpm --dir /workspace/machtiani/machtiani-installer test
 
 # Pinned OMP is an alternative backend; configuration selects the live backend.
+# glibc.out supplies the loader; the default profile selection installs only its tools.
 ARG TARGETARCH
 RUN set -eu; \
     case "$TARGETARCH" in \
@@ -75,7 +76,7 @@ RUN set -eu; \
     printf '%s  /tmp/omp\n' "$omp_sha256" | sha256sum -c -; \
     install -Dm0755 /tmp/omp /usr/local/bin/omp; rm /tmp/omp; \
     omp_runtime=$(nix build --out-link /opt/omp-runtime --print-out-paths --impure --expr \
-      'let f = builtins.getFlake "path:/opt/machtiani-qse-harness"; p = import f.inputs.nixpkgs { system = builtins.currentSystem; }; in p.buildEnv { name = "qse-omp-runtime"; paths = [ p.glibc p.stdenv.cc.cc.lib p.patchelf ]; }'); \
+      'let f = builtins.getFlake "path:/opt/machtiani-qse-harness"; p = import f.inputs.nixpkgs { system = builtins.currentSystem; }; in p.buildEnv { name = "qse-omp-runtime"; paths = [ p.glibc.out p.stdenv.cc.cc.lib p.patchelf ]; }'); \
     "$omp_runtime/bin/patchelf" --set-interpreter "$omp_runtime/lib/$omp_loader" \
       --force-rpath --set-rpath "$omp_runtime/lib" /usr/local/bin/omp; \
     test "$(/usr/local/bin/omp --version)" = 'omp/18.1.16'

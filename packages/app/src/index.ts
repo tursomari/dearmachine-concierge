@@ -28,7 +28,7 @@ import { runInstallationWizard } from './installation-wizard.ts'
 import { saveInterfacePreferences } from './interface-preferences.ts'
 import { submitInstallerMessage, type InstallerAssistantState } from './installer-conversation.ts'
 import { assistantModelPath, changeAssistantModel } from './assistant-model.ts'
-import { loadDistribution, type InstallationMethod, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
+import { loadDistribution, persistentModelHostCommand, type InstallationMethod, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 
 export interface InstallerPaths { stateDirectory: string; workspace: string }
 
@@ -143,9 +143,17 @@ export function installerAgentPrompt(
   modelProfilePath: string,
   sourceReference: SourceReference,
   installation: { method: InstallationMethod; distribution?: ProductDistribution } = { method: 'nix' },
+  runtime = { platform: process.platform, environment: process.env },
 ): string {
+  const distribution = installation.distribution
+  // The agent saves this command in model configuration. Match ProductAdapter's
+  // stable Windows launcher so later activation also updates the model host.
+  const persistentDistribution = runtime.platform === 'win32' && distribution !== undefined
+    ? { ...distribution, binaries: { ...distribution.binaries,
+      modelHost: persistentModelHostCommand(distribution, runtime.environment, runtime.platform) } }
+    : distribution
   const runtimeContext = {
-    installation: { ...installation, ...(installation.method === 'nix' ? {
+    installation: { ...installation, ...(persistentDistribution === undefined ? {} : { distribution: persistentDistribution }), ...(installation.method === 'nix' ? {
       acquisitionCommand: [process.execPath, fileURLToPath(new URL('./bin.mjs', import.meta.url)),
         'install', '--source-root', sourceReference.sourceRoot],
     } : {}) },

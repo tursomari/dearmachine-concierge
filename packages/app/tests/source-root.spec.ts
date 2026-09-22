@@ -106,6 +106,28 @@ describe('installer source root', () => {
     expect(context.sharedModelSelection.model).toBe('test-model')
   })
 
+  it('gives guided Windows setup the stable model host across release changes', () => {
+    const root = 'C:\\Users\\person\\Dear Machine'
+    const commands: string[] = []
+    for (const release of ['a'.repeat(32), 'b'.repeat(32)]) {
+      const current = `${root}\\releases\\${release}`
+      const distribution = {
+        manifestPath: `${current}\\distribution.json`, sourceRoot: `${current}\\source`,
+        binaries: { dearmachine: `${current}\\bin\\dearmachine.exe`, machtiani: `${current}\\bin\\machtiani.exe`,
+          modelHost: `${current}\\bin\\machtiani-model-host.exe`, agentManager: `${current}\\bin\\agent-manager.exe` },
+      }
+      const prompt = installerAgentPrompt('helper.mjs', { provider: 'openrouter', model: 'test-model' }, 'profile.json', {
+        version: 1, sourceRoot: distribution.sourceRoot, documentationEntryPoint: `${current}\\source\\docs\\README.md`,
+        umbrellaRevision: 'c'.repeat(40),
+      }, { method: 'standard', distribution }, { platform: 'win32', environment: { DEARMACHINE_INSTALL_ROOT: root } })
+      const context = JSON.parse(prompt.split('<runtime_context_json>')[1]!.split('</runtime_context_json>')[0]!)
+      commands.push(context.installation.distribution.binaries.modelHost)
+      expect(distribution.binaries.modelHost).toBe(`${current}\\bin\\machtiani-model-host.exe`)
+      expect(context.installation.distribution.binaries.machtiani).toBe(distribution.binaries.machtiani)
+    }
+    expect(commands).toEqual([`${root}\\bin\\machtiani-model-host.exe`, `${root}\\bin\\machtiani-model-host.exe`])
+  })
+
   it('turns safe DSH failure codes into actionable installer messages', () => {
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'completed' })).toBeUndefined()
     expect(installerTurnMessage({ type: 'turn-end', outcome: 'error', failureCode: 'EMPTY_RESPONSE' })).toContain('no answer after several attempts')

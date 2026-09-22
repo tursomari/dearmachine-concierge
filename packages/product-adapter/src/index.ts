@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readFile, readdir, readlink, rename, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, join } from 'node:path'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
-export { loadDistribution, type ProductDistribution, type InstallationMethod } from './distribution.ts'
+export { loadDistribution, persistentModelHostCommand, type ProductDistribution, type InstallationMethod } from './distribution.ts'
 import { persistentModelHostCommand, type ProductDistribution } from './distribution.ts'
 
 export interface CommandRequest {

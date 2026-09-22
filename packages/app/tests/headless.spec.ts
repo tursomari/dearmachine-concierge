@@ -68,4 +68,31 @@ describe('headless product gate', () => {
       },
     })
   })
+  it('preserves a custom endpoint, credential reference and requested reasoning', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-headless-custom-'))
+    const custom = { ...selection, provider: 'custom-openai-remote', model: 'example/model', customProvider: {
+      kind: 'openai-compatible' as const, scope: 'remote' as const, name: 'Example',
+      chatCompletionsEndpoint: 'https://models.example.test/v1/chat/completions', usesApiKey: true,
+    } }
+    const selectionPath = join(root, 'selection.json')
+    await writeFile(selectionPath, JSON.stringify(custom), { mode: 0o600 })
+    const loaded = await loadHeadlessSelection(selectionPath)
+    const path = await saveHeadlessModelProfile(root, join(root, 'state'), loaded, 'high', {})
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({
+      version: 1, driver: 'openai-compatible', provider: custom.provider, model: custom.model,
+      authMethod: 'optional_api_key', reasoningEffort: 'high', customProvider: custom.customProvider,
+      credential: { kind: 'environment-file', path: join(root, '.config/dearmachine/backends.env'),
+        variable: 'MACHTIANI_CUSTOM_OPENAI_REMOTE_API_KEY' },
+    })
+    for (const invalid of [
+      { ...custom, customProvider: { ...custom.customProvider, apiKey: 'forbidden' } },
+      { ...custom, customProvider: { ...custom.customProvider, chatCompletionsEndpoint: 'https://models.example.test?key=forbidden' } },
+      { ...custom, provider: 'openai' },
+      { ...custom, customProvider: undefined },
+    ]) {
+      await writeFile(selectionPath, JSON.stringify(invalid), { mode: 0o600 })
+      await expect(loadHeadlessSelection(selectionPath)).rejects.toThrow()
+    }
+  })
+
 })

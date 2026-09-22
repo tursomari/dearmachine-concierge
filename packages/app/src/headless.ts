@@ -4,12 +4,14 @@ import { isAbsolute, join } from 'node:path'
 import { loadDistribution, NativeProductInstaller, type InstalledProducts } from '@dearmachine/machtiani-installer-products'
 import type { ReadyInstallationSelection } from '@dearmachine/machtiani-installer-workflow'
 import { InstallerModelSetup } from '@dearmachine/machtiani-installer-dsh-adapter'
-import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
+import { saveModelHostProfile, validateCustomOpenAIEndpoint, type CustomOpenAIProviderConfig } from '@dearmachine/machtiani-model-host'
 import { acquireInstallerLock } from './lock.ts'
 import { defaultInstallerPaths, validatedSourceRoot } from './index.ts'
 import { resolveSourceReference, saveSourceReference } from './source-reference.ts'
 
 const selectionKeys = ['authorizedSender', 'backend', 'detectedBackends', 'model', 'provider', 'transport'] as const
+export type HeadlessSelection = ReadyInstallationSelection & { customProvider?: CustomOpenAIProviderConfig }
+
 const backendKeys = ['executable', 'id', 'name', 'status', 'summary'] as const
 
 export interface HeadlessInvocation { sourceRoot: string; selectionFile: string; existingInboxId?: string; reasoningEffort?: string }
@@ -37,10 +39,10 @@ function nonempty(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '' && !/[\r\n\0]/u.test(value)
 }
 
-function parseSelection(value: unknown): ReadyInstallationSelection {
+function parseSelection(value: unknown): HeadlessSelection {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Headless selection is not a valid object.')
   const selection = value as Record<string, unknown>
-  if (!exactKeys(selection, selectionKeys)) throw new Error('Headless selection has unexpected or missing fields.')
+  if (!exactKeys(selection, selection.customProvider === undefined ? selectionKeys : [...selectionKeys, 'customProvider'])) throw new Error('Headless selection has unexpected or missing fields.')
   if (!nonempty(selection.provider) || !nonempty(selection.model) || !nonempty(selection.transport) || !nonempty(selection.authorizedSender)) {
     throw new Error('Headless selection contains an invalid product choice.')
   }
@@ -55,7 +57,27 @@ function parseSelection(value: unknown): ReadyInstallationSelection {
     backend.status !== 'ready' || !nonempty(backend.summary)) {
     throw new Error('Headless selection requires one explicitly checked, ready backend.')
   }
+  let customProvider: CustomOpenAIProviderConfig | undefined
+  if (selection.customProvider !== undefined) {
+    const value = selection.customProvider
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid custom provider settings.')
+    const custom = value as Record<string, unknown>
+    if (!exactKeys(custom, ['kind', 'scope', 'name', 'chatCompletionsEndpoint', 'usesApiKey']) ||
+      custom.kind !== 'openai-compatible' || (custom.scope !== 'remote' && custom.scope !== 'local') ||
+      selection.provider !== `custom-openai-${custom.scope}` || !nonempty(custom.name) ||
+      typeof custom.chatCompletionsEndpoint !== 'string' || typeof custom.usesApiKey !== 'boolean') {
+      throw new Error('Invalid custom provider settings.')
+    }
+    customProvider = {
+      kind: custom.kind, scope: custom.scope, name: custom.name,
+      chatCompletionsEndpoint: validateCustomOpenAIEndpoint(custom.chatCompletionsEndpoint, custom.scope),
+      usesApiKey: custom.usesApiKey,
+    }
+  } else if (selection.provider === 'custom-openai-remote' || selection.provider === 'custom-openai-local') {
+    throw new Error('Custom provider settings are required.')
+  }
   return {
+    ...(customProvider === undefined ? {} : { customProvider }),
     provider: selection.provider,
     model: selection.model,
     transport: selection.transport,
@@ -71,7 +93,7 @@ function parseSelection(value: unknown): ReadyInstallationSelection {
   }
 }
 
-export async function loadHeadlessSelection(path: string): Promise<ReadyInstallationSelection> {
+export async function loadHeadlessSelection(path: string): Promise<HeadlessSelection> {
   if (!isAbsolute(path)) throw new Error('--selection-file must be an absolute path.')
   const metadata = await lstat(path)
   const owned = process.getuid === undefined || metadata.uid === process.getuid()
@@ -84,7 +106,7 @@ export async function loadHeadlessSelection(path: string): Promise<ReadyInstalla
 export async function saveHeadlessModelProfile(
   home: string,
   stateDirectory: string,
-  selection: Pick<ReadyInstallationSelection, 'provider' | 'model'>,
+  selection: Pick<HeadlessSelection, 'provider' | 'model' | 'customProvider'>,
   reasoningEffort?: string,
   environment: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
@@ -95,6 +117,7 @@ export async function saveHeadlessModelProfile(
     await saveModelHostProfile(modelProfilePath, setup.profileFor({
       provider: selection.provider,
       model: selection.model,
+      ...(selection.customProvider === undefined ? {} : { customProvider: selection.customProvider }),
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     }))
   } finally {

@@ -1,6 +1,7 @@
+import { hasPrivatePermissions } from '@dearmachine/machtiani-installer-credentials'
 import { lstat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { effectiveModelProfile, loadModelHostProfile, saveModelHostProfile, type ModelComponent, type ModelHostProfile } from '@dearmachine/machtiani-model-host'
+import { effectiveModelProfile, loadModelHostProfile, ModelHostError, saveModelHostProfile, type ModelComponent, type ModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { upgradeManagedModelConfig } from '@dearmachine/machtiani-installer-products'
 
 export const assistantModelPath = (home: string): string => join(home, '.config', 'dearmachine', 'assistant-model.json')
@@ -11,18 +12,28 @@ async function optionalProfile(path: string): Promise<ModelHostProfile | undefin
 }
 
 /** Reading does not migrate or freeze inheritance. A legacy Concierge choice is retained. */
-export async function loadModelSettings(home: string): Promise<ModelHostProfile | undefined> {
+export async function loadModelSettings(home: string, repairLegacyAssistant = false): Promise<ModelHostProfile | undefined> {
   const shared = await optionalProfile(sharedModelPath(home))
   if (shared?.selectionVersion === 1) return shared
-  const assistant = await optionalProfile(assistantModelPath(home))
+  let assistant: ModelHostProfile | undefined
+  try { assistant = await optionalProfile(assistantModelPath(home)) }
+  catch (error) {
+    // Only the explicit legacy Concierge replacement flow may bypass damaged
+    // metadata. Shared settings and unsafe credential-file permissions still fail.
+    if (!repairLegacyAssistant || !(error instanceof ModelHostError) || error.code !== 'INVALID_REQUEST') throw error
+    const path = assistantModelPath(home)
+    const metadata = await lstat(path)
+    if (!metadata.isFile() || metadata.isSymbolicLink() || (process.getuid && metadata.uid !== process.getuid()) || !await hasPrivatePermissions(path)) throw error
+  }
   const fallback = shared ?? assistant
   if (fallback === undefined) return undefined
   return { ...fallback, selectionVersion: 1, overrides: assistant === undefined || shared === undefined ? {} : { concierge: assistant } }
 }
 
 export type ModelTarget = 'default' | 'all' | ModelComponent
-export async function saveModelSettings(home: string, target: ModelTarget, profile?: ModelHostProfile): Promise<void> {
-  const current = await loadModelSettings(home)
+export async function saveModelSettings(home: string, target: ModelTarget, profile?: ModelHostProfile, repairLegacyAssistant = false): Promise<void> {
+  if (repairLegacyAssistant && (target !== 'concierge' || profile === undefined)) throw new Error('Choose a replacement Concierge model.')
+  const current = await loadModelSettings(home, repairLegacyAssistant)
   if (current === undefined && profile === undefined) throw new Error('Choose a Default first.')
   const base = effectiveModelProfile(profile ?? current!, 'planner')
   const next: ModelHostProfile = target === 'all' || current === undefined

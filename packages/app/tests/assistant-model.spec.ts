@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InstallerModelSetup } from '@dearmachine/machtiani-installer-dsh-adapter'
@@ -81,13 +81,18 @@ it.each(['cancel', 'catalogue failure', 'exit'])('keeps the selection and creden
   expect(await readdir(join(options.home, '.config', 'dearmachine', 'assistant-models')).catch(() => [])).toEqual([])
 })
 
-it('retains corrupt legacy data rather than silently dropping selections', async () => {
+it('can explicitly replace corrupt legacy Concierge metadata while preserving Default', async () => {
   const options = await fixture()
   await writeFile(assistantModelPath(options.home), 'invalid', { mode: 0o600 })
-  const tui = interaction([])
-  await changeAssistantModel(tui, options)
+  const cancelled = interaction([new InstallerChoiceBackError()])
+  await changeAssistantModel(cancelled, options)
   expect(await readFile(assistantModelPath(options.home), 'utf8')).toBe('invalid')
-  expect(tui.messages.join('\n')).toContain('Existing settings were kept')
+  expect((await loadModelHostProfile(sharedModelPath(options.home))).model).toBe('first-model')
+  const tui = interaction(['openrouter', 'second-model', 'high'])
+  await changeAssistantModel(tui, options)
+  expect(tui.messages.join('\n')).toContain('Choose a replacement')
+  expect((await loadModelSettings(options.home))!.model).toBe('first-model')
+  expect((await ensureAssistantModel(options.home)).model).toBe('second-model')
 })
 
 it('discards a newly entered API key when the user backs out after authentication', async () => {
@@ -155,4 +160,17 @@ it('shows the empty state and can save a first Default', async () => {
   await changeAssistantModel(tui, options)
   expect(tui.messages.join('\n')).toContain('Default: not configured')
   expect((await loadModelSettings(options.home))!).toMatchObject({ model: 'first-model', overrides: {} })
+})
+
+
+it('does not treat unsafe legacy profile permissions as recoverable metadata', async () => {
+  const options = await fixture()
+  await writeFile(assistantModelPath(options.home), 'invalid', { mode: 0o600 })
+  await chmod(assistantModelPath(options.home), 0o644)
+  const before = await readFile(sharedModelPath(options.home), 'utf8')
+  const tui = interaction([])
+  await changeAssistantModel(tui, options)
+  expect(tui.messages.join('\n')).toContain('Existing settings were kept')
+  expect(await readFile(sharedModelPath(options.home), 'utf8')).toBe(before)
+  expect(await readFile(assistantModelPath(options.home), 'utf8')).toBe('invalid')
 })

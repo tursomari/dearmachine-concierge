@@ -38,16 +38,23 @@ export async function changeAssistantModel(tui: WizardTui, options: {
   const { home, signal } = options
   let current: ModelHostProfile | undefined
   let target: ModelTarget
+  let repairLegacyAssistant = false
   try {
-    const settings = await loadModelSettings(home)
+    let settings: ModelHostProfile | undefined
+    try { settings = await loadModelSettings(home) }
+    catch {
+      settings = await loadModelSettings(home, true)
+      repairLegacyAssistant = true
+      tui.addAssistant('The saved Concierge model could not be read. Choose a replacement to recover; Default and the other components will be preserved.')
+    }
     tui.addAssistant(settings === undefined ? 'Default: not configured.' : `Default: ${describe(effectiveModelProfile(settings, 'planner', settings))}.`)
     for (const component of modelComponents) {
-      tui.addAssistant(`${labels[component]}: ${settings === undefined ? 'not configured' : `${settings.overrides?.[component] === undefined ? 'inherits Default' : 'override'} — ${describe(effectiveModelProfile(settings, component))}`}.`)
+      tui.addAssistant(`${labels[component]}: ${repairLegacyAssistant && component === 'concierge' ? 'unreadable' : settings === undefined ? 'not configured' : `${settings.overrides?.[component] === undefined ? 'inherits Default' : 'override'} — ${describe(effectiveModelProfile(settings, component))}`}.`)
     }
     const backends = await configuredBackendModels(home, options.environment ?? process.env).catch(() => ['The configured backend list could not be read. Inspect dearmachine.toml.'])
     tui.addAssistant(`Configured backends (read-only)\n${backends.length === 0 ? 'None configured.' : backends.join('\n')}`)
     await options.pause()
-    target = await tui.choose('Models', [
+    target = repairLegacyAssistant ? 'concierge' : await tui.choose('Models', [
       { value: 'default', label: 'Change Default', description: 'Keep component overrides.' },
       { value: 'all', label: 'Set all', description: 'Change Default and clear every override.' },
       ...modelComponents.map(component => ({ value: component, label: labels[component], description: 'Override or inherit Default.' })),
@@ -57,7 +64,7 @@ export async function changeAssistantModel(tui: WizardTui, options: {
     if (!['default', 'all', ...modelComponents].includes(target)) throw new Error('Invalid model target.')
     current = settings === undefined ? undefined : effectiveModelProfile(settings, target === 'default' || target === 'all' ? 'planner' : target,
       target === 'default' || target === 'all' ? settings : undefined)
-    if (target !== 'default' && target !== 'all' && settings !== undefined) {
+    if (!repairLegacyAssistant && target !== 'default' && target !== 'all' && settings !== undefined) {
       const action = await tui.choose(labels[target], [
         { value: 'override', label: 'Choose override' },
         { value: 'inherit', label: 'Use Default' },
@@ -112,7 +119,7 @@ export async function changeAssistantModel(tui: WizardTui, options: {
     const selection = await runInstallerModelWizard(interaction, setup, true)
     signal.throwIfAborted()
     const profile = setup.profileFor(selection)
-    await saveModelSettings(home, target, profile)
+    await saveModelSettings(home, target, profile, repairLegacyAssistant)
     committed = true
     tui.addAssistant(`${target === 'default' ? 'Default' : target === 'all' ? 'Set all' : labels[target]} saved: ${describe(profile)}. New requests will use the saved selections.`)
   } catch (error) {

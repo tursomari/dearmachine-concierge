@@ -19,7 +19,9 @@ explicit Concierge override. Without that legacy file, Concierge inherits Defaul
 An assistant-only installation seeds Default from its assistant profile. Migration
 is idempotent, retains old credential/runtime references and leaves the legacy
 assistant file available; once migrated, the shared profile is authoritative.
-Malformed or unknown schemas are retained and reported, never silently reset.
+Malformed or unknown shared schemas are retained and reported, never silently reset.
+A damaged legacy Concierge profile can be explicitly replaced through the picker
+without changing Default; cancelling retains the damaged file for repair.
 
 The installer-generated private Machtiani config uses model-host aliases:
 

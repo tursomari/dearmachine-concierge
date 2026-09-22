@@ -181,7 +181,7 @@ export class InstallerModelSetup {
 
   async close(): Promise<void> {}
 
-  async verifyCustomProvider(selection: InstallerModelSelection, apiKey: string | undefined, signal?: AbortSignal): Promise<void> {
+  async prepareCustomProvider(selection: InstallerModelSelection, apiKey: string | undefined): Promise<void> {
     const customProvider = selection.customProvider
     const scope = customProvider?.scope
     if (customProvider === undefined || scope === undefined || (selection.provider !== CUSTOM_OPENAI_REMOTE_PROVIDER && selection.provider !== CUSTOM_OPENAI_LOCAL_PROVIDER)) {
@@ -191,6 +191,13 @@ export class InstallerModelSetup {
     if (selection.customProvider?.usesApiKey === false && apiKey !== undefined) throw new Error('a keyless custom provider cannot receive an API key')
     if (apiKey === undefined) await removeApiKeyCredential(this.credentialPath, selection.provider)
     else await writeApiKeyCredential(this.credentialPath, selection.provider, apiKey)
+    validateCustomOpenAIEndpoint(customProvider.chatCompletionsEndpoint, scope)
+  }
+
+  async verifyCustomProvider(selection: InstallerModelSelection, apiKey: string | undefined, signal?: AbortSignal): Promise<void> {
+    await this.prepareCustomProvider(selection, apiKey)
+    const customProvider = selection.customProvider!
+    const scope = customProvider.scope
     await verifyCustomOpenAIProfile(this.profileFor({
       ...selection,
       customProvider: {

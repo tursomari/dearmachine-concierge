@@ -41,7 +41,13 @@ export interface CustomOpenAIProviderConfig {
   usesApiKey: boolean
 }
 
+export const modelComponents = ['concierge', 'planner', 'shell-agent', 'sync'] as const
+export type ModelComponent = typeof modelComponents[number]
+
 export interface ModelHostProfile {
+  /** Optional extension: the root selection is Default; missing overrides inherit it. */
+  selectionVersion?: 1
+  overrides?: Partial<Record<ModelComponent, ModelHostProfile>>
   version: 1
   driver: string
   provider: string
@@ -294,6 +300,16 @@ export async function readApiKeyCredential(path: string, provider: string): Prom
   return value
 }
 
+/** Whole-profile overrides keep provider, credentials, model and reasoning together. */
+export function effectiveModelProfile(settings: ModelHostProfile, component: ModelComponent, oneRun?: ModelHostProfile): ModelHostProfile {
+  const { selectionVersion: _version, overrides: _overrides, ...profile } = oneRun ?? settings.overrides?.[component] ?? settings
+  validateProfile(profile)
+  return profile
+}
+
+/** Generated aliases carry selectors, never stale copies of model/reasoning defaults. */
+export function modelComponentSelector(component: ModelComponent): string { return `@machtiani/${component}` }
+
 export async function saveModelHostProfile(path: string, profile: ModelHostProfile): Promise<void> {
   validateProfile(profile)
   await writePrivate(path, `${JSON.stringify(profile, undefined, 2)}\n`)
@@ -308,12 +324,20 @@ export async function loadModelHostProfile(path: string): Promise<ModelHostProfi
   return value
 }
 
-function validateProfile(value: unknown): asserts value is ModelHostProfile {
+export function validateProfile(value: unknown): asserts value is ModelHostProfile {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new ModelHostError('INVALID_REQUEST', 'The shared model profile is invalid.')
   const profile = value as Partial<ModelHostProfile>
   if (profile.version !== 1 || typeof profile.driver !== 'string' || typeof profile.provider !== 'string' ||
     (profile.authMethod !== 'api_key' && profile.authMethod !== 'optional_api_key' && profile.authMethod !== 'subscription') || typeof profile.model !== 'string' || profile.model === '') {
     throw new ModelHostError('INVALID_REQUEST', 'The shared model profile is invalid.')
+  }
+  if (profile.selectionVersion !== undefined && profile.selectionVersion !== 1) throw new ModelHostError('INVALID_REQUEST', 'Unsupported model selection version.')
+  if (profile.overrides !== undefined) {
+    if (profile.selectionVersion !== 1 || !profile.overrides || typeof profile.overrides !== 'object' || Array.isArray(profile.overrides)) throw new ModelHostError('INVALID_REQUEST', 'Invalid model overrides.')
+    for (const [component, override] of Object.entries(profile.overrides)) {
+      if (!modelComponents.includes(component as ModelComponent) || !override || typeof override !== 'object' || override.selectionVersion !== undefined || override.overrides !== undefined) throw new ModelHostError('INVALID_REQUEST', 'Invalid model component override.')
+      validateProfile(override)
+    }
   }
   if (profile.reasoningEffort !== undefined && (typeof profile.reasoningEffort !== 'string' || profile.reasoningEffort.trim() === '' || /[\r\n\0]/u.test(profile.reasoningEffort))) {
     throw new ModelHostError('INVALID_REQUEST', 'The reasoning level in the shared model profile is invalid.')
@@ -534,8 +558,9 @@ function mappedError(message: string): ModelHostError {
 export class ModelHost {
   constructor(readonly profile: ModelHostProfile) { validateProfile(profile) }
 
-  static async open(profilePath: string): Promise<ModelHost> {
-    return new ModelHost(await loadModelHostProfile(profilePath))
+  static async open(profilePath: string, component?: ModelComponent): Promise<ModelHost> {
+    const profile = await loadModelHostProfile(profilePath)
+    return new ModelHost(component === undefined ? profile : effectiveModelProfile(profile, component))
   }
 
   async authenticated(): Promise<boolean> {
@@ -733,7 +758,7 @@ export async function serveModelHost(
   profilePath: string,
   input: NodeJS.ReadableStream = process.stdin,
   output: NodeJS.WritableStream = process.stdout,
-  openHost: (path: string) => Promise<HostSession> = ModelHost.open,
+  openHost: (path: string, component?: ModelComponent) => Promise<HostSession> = ModelHost.open,
 ): Promise<void> {
   const active = new Map<string | number, AbortController>()
   const tasks = new Set<Promise<void>>()
@@ -748,7 +773,9 @@ export async function serveModelHost(
       continue
     }
     try {
-      const host = await openHost(profilePath)
+      const generation = request.method === 'generation/start' ? request.params as ModelHostGenerateRequest : undefined
+      const component = modelComponents.find(value => generation?.model === modelComponentSelector(value))
+      const host = await openHost(profilePath, component)
       if (request.method === 'initialize') send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { protocolVersion: MODEL_HOST_PROTOCOL_VERSION, capabilities: ['models', 'auth', 'generate', 'stream', 'cancel', 'usage'] } })
       else if (request.method === 'models/list') send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { provider: host.profile.provider, models: await host.models() } })
       else if (request.method === 'auth/status') send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, result: { authenticated: await host.authenticated(), method: host.profile.authMethod } })
@@ -776,6 +803,7 @@ export async function serveModelHost(
         const controller = new AbortController()
         active.set(request.id, controller)
         const params = { ...(request.params as ModelHostGenerateRequest), signal: controller.signal }
+        if (component !== undefined) delete params.model
         const task = (async () => {
           try {
             for await (const event of host.generate(params)) send({ v: MODEL_HOST_PROTOCOL_VERSION, id: request.id, event })

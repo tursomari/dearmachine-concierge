@@ -1,3 +1,5 @@
+import { managedModelAliases, upgradeManagedModelConfig } from './model-config.ts'
+export { upgradeManagedModelConfig } from './model-config.ts'
 import { protectPrivatePath, hasPrivatePermissions } from '@dearmachine/machtiani-installer-credentials'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
@@ -154,7 +156,7 @@ function parseInbox(status: string, sender: string, transport: string): string {
   throw new Error('Dear Machine started, but its registered inbox could not be verified.')
 }
 
-async function verifiedMachtianiConfig(path: string, profilePath: string, modelHostCommand: string, model: string, reasoningEffort?: string): Promise<boolean> {
+async function verifiedMachtianiConfig(path: string, profilePath: string, modelHostCommand: string): Promise<boolean> {
   let content: string
   try { content = await readFile(path, 'utf8') } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
@@ -163,7 +165,7 @@ async function verifiedMachtianiConfig(path: string, profilePath: string, modelH
   const lines = new Set(content.split(/\r?\n/gu).map(line => line.trim()))
   const expected = [
     'default_model = "dearmachine"',
-    `model = ${JSON.stringify(model)}`,
+    'model = "@machtiani/planner"',
     'provider = "dearmachine-host"',
     'transport = "model-host"',
     `profile = ${JSON.stringify(profilePath)}`,
@@ -174,15 +176,15 @@ async function verifiedMachtianiConfig(path: string, profilePath: string, modelH
     'cache_trigger_threshold = 4096',
     'cache_lookback_offset = 1',
   ]
-  if (reasoningEffort !== undefined) expected.push(`effort = ${JSON.stringify(reasoningEffort)}`)
+
   if (!expected.every(line => lines.has(line))) {
     throw new Error('The installer-owned Machtiani configuration does not match the saved provider and model choices.')
   }
   return true
 }
 
-async function requireMachtianiConfig(path: string, profilePath: string, modelHostCommand: string, model: string, reasoningEffort?: string): Promise<void> {
-  if (!await verifiedMachtianiConfig(path, profilePath, modelHostCommand, model, reasoningEffort)) {
+async function requireMachtianiConfig(path: string, profilePath: string, modelHostCommand: string): Promise<void> {
+  if (!await verifiedMachtianiConfig(path, profilePath, modelHostCommand)) {
     throw new Error('Machtiani configuration was not created.')
   }
 }
@@ -468,11 +470,12 @@ export class NativeProductInstaller {
     }
 
     if (!atLeast(journal.stage, 'machtiani-configured')) {
-      if (!await verifiedMachtianiConfig(machtianiConfigPath, modelProfilePath, modelHostCommand, selection.model, reasoningEffort)) {
-        const config = `default_model = "dearmachine"\nshell_agent_model = "dearmachine"\nanswer_model = "dearmachine"\nfile_discovery_model = "dearmachine"\n\n[model_defaults]\ncache_enabled = true\ncache_key_name = "cache_control"\ncache_control = { type = "ephemeral" }\ncache_trigger_threshold = 4096\ncache_lookback_offset = 1\n\n[providers.dearmachine-host]\ntransport = "model-host"\nprofile = ${JSON.stringify(modelProfilePath)}\ncommand = ${JSON.stringify(modelHostCommand)}\n\n[models.dearmachine]\nprovider = "dearmachine-host"\nmodel = ${JSON.stringify(selection.model)}\ncontext_length = 131072\n${reasoningEffort === undefined ? '' : `\n[models.dearmachine.params.reasoning]\neffort = ${JSON.stringify(reasoningEffort)}\n`}`
+      await upgradeManagedModelConfig(this.options.home, modelProfilePath)
+      if (!await verifiedMachtianiConfig(machtianiConfigPath, modelProfilePath, modelHostCommand)) {
+        const config = `default_model = "dearmachine"\nshell_agent_model = "dearmachine-shell-agent"\nanswer_model = "dearmachine"\nfile_discovery_model = "dearmachine"\n\n[model_defaults]\ncache_enabled = true\ncache_key_name = "cache_control"\ncache_control = { type = "ephemeral" }\ncache_trigger_threshold = 4096\ncache_lookback_offset = 1\n\n[providers.dearmachine-host]\ntransport = "model-host"\nprofile = ${JSON.stringify(modelProfilePath)}\ncommand = ${JSON.stringify(modelHostCommand)}\n\n${managedModelAliases()}`
         await writePrivate(machtianiConfigPath, config)
         await run('Check Machtiani configuration', ['machtiani', 'config', 'check'], this.options.workspace)
-        await requireMachtianiConfig(machtianiConfigPath, modelProfilePath, modelHostCommand, selection.model, reasoningEffort)
+        await requireMachtianiConfig(machtianiConfigPath, modelProfilePath, modelHostCommand)
       }
       await advance('machtiani-configured')
     }

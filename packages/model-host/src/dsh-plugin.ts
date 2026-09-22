@@ -64,13 +64,13 @@ class MachtianiModelHostAdapter extends LlmAdapter {
   }
 
   override async listModels() {
-    const host = await ModelHost.open(this.profilePath)
+    const host = await ModelHost.open(this.profilePath, this.caller === 'task' ? undefined : 'concierge')
     return (await host.models()).map(model => ({ provider: MODEL_HOST_PROVIDER, id: model.id, name: model.name }))
   }
 
   override async resolveModel(_provider: string, model: string): Promise<LlmResolvedModelInfo> {
     if (this.caller !== 'task') return { provider: MODEL_HOST_PROVIDER, id: model, name: 'Assistant' }
-    const host = await ModelHost.open(this.profilePath)
+    const host = await ModelHost.open(this.profilePath, this.caller === 'task' ? undefined : 'concierge')
     const entry = (await host.models()).find(candidate => candidate.id === model)
     return {
       provider: MODEL_HOST_PROVIDER,
@@ -88,8 +88,8 @@ class MachtianiModelHostAdapter extends LlmAdapter {
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     try {
       let hasAnswer = false
-      const host = await ModelHost.open(this.profilePath)
-      // Interactive assistants own one profile. Reload its entire selection for
+      const host = await ModelHost.open(this.profilePath, this.caller === 'task' ? undefined : 'concierge')
+      // Reload the effective Concierge selection from shared settings for
       // each request so /model can preserve DSH history, including tool results.
       // Task callers still supply explicit per-role model and reasoning choices.
       const selection = this.caller === 'task' ? options : host.profile

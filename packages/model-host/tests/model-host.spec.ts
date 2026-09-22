@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { PassThrough } from 'node:stream'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credentials'
 import {
   API_KEY_PROVIDERS,
@@ -383,4 +383,26 @@ describe('shared model host profile', () => {
     expect(captured).toContain('"code":"INTERNAL"')
     expect(captured).not.toContain('test-secret-value')
   })
+})
+
+it('resolves generated component selectors on the wire and keeps explicit per-run model and reasoning', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'model-selectors-'))
+  const profilePath = join(root, 'profile.json')
+  const base = { version: 1 as const, driver: 'openai-codex-app-server', provider: 'openai-codex', authMethod: 'subscription' as const, model: 'default', reasoningEffort: 'high', runtimeProfile: '/fixture' }
+  await saveModelHostProfile(profilePath, { ...base, selectionVersion: 1, overrides: { 'shell-agent': { ...base, model: 'shell', reasoningEffort: 'low' }, sync: { ...base, model: 'sync' } } })
+  const observed: Array<{ model: string; reasoning: string | undefined }> = []
+  const input = new PassThrough()
+  const output = new PassThrough()
+  output.resume()
+  const generate = vi.spyOn(ModelHost.prototype, 'generate').mockImplementation(async function* (this: ModelHost, request) {
+    observed.push({ model: request.model ?? this.profile.model, reasoning: request.reasoningEffort ?? this.profile.reasoningEffort })
+    yield { type: 'finish' as const, reason: 'stop' as const }
+  })
+  const serving = serveModelHost(profilePath, input, output)
+  for (const [model, reasoningEffort] of [['@machtiani/planner', undefined], ['@machtiani/shell-agent', undefined], ['@machtiani/sync', 'medium'], ['cli-model', 'low']]) {
+    input.write(JSON.stringify({ v: 1, id: model, method: 'generation/start', params: { caller: 'machtiani', sessionId: 'fixture', model, reasoningEffort, messages: [] } }) + '\n')
+  }
+  input.end()
+  try { await serving } finally { generate.mockRestore() }
+  expect(observed).toEqual([{ model: 'default', reasoning: 'high' }, { model: 'shell', reasoning: 'low' }, { model: 'sync', reasoning: 'medium' }, { model: 'cli-model', reasoning: 'low' }])
 })

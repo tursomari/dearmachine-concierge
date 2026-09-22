@@ -66,14 +66,18 @@ RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
 ARG TARGETARCH
 RUN set -eu; \
     case "$TARGETARCH" in \
-      amd64) omp_target=x64; omp_sha256=73eeef0bf5a42b80bb5e6f1251ddbe9096f0630093c78a671ec7f41ca6dcbf5d ;; \
-      arm64) omp_target=arm64; omp_sha256=f219439bc19ad95d0ee9caa595bae16ab309015b3b2561fe184cc9b7207b6736 ;; \
+      amd64) omp_target=x64; omp_loader=ld-linux-x86-64.so.2; omp_sha256=efebefb74359d20362e07341f01a65fc0a259e7bc79454ef08b0ebf5232ab897 ;; \
+      arm64) omp_target=arm64; omp_loader=ld-linux-aarch64.so.1; omp_sha256=d8612389c7af3cf3b69609c9149bff3cf07dcb65774b231d9dc4966b176b9720 ;; \
       *) exit 1 ;; \
     esac; \
     curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 --max-time 180 \
-      "https://github.com/can1357/oh-my-pi/releases/download/v18.1.16/omp-linux-musl-${omp_target}" -o /tmp/omp; \
+      "https://github.com/can1357/oh-my-pi/releases/download/v18.1.16/omp-linux-${omp_target}" -o /tmp/omp; \
     printf '%s  /tmp/omp\n' "$omp_sha256" | sha256sum -c -; \
     install -Dm0755 /tmp/omp /usr/local/bin/omp; rm /tmp/omp; \
+    omp_runtime=$(nix build --out-link /opt/omp-runtime --print-out-paths --impure --expr \
+      'let f = builtins.getFlake "path:/opt/machtiani-qse-harness"; p = import f.inputs.nixpkgs { system = builtins.currentSystem; }; in p.buildEnv { name = "qse-omp-runtime"; paths = [ p.glibc p.stdenv.cc.cc.lib p.patchelf ]; }'); \
+    "$omp_runtime/bin/patchelf" --set-interpreter "$omp_runtime/lib/$omp_loader" \
+      --force-rpath --set-rpath "$omp_runtime/lib" /usr/local/bin/omp; \
     test "$(/usr/local/bin/omp --version)" = 'omp/18.1.16'
 
 RUN install -d -m 0700 /run/machtiani-installer-qse/secrets

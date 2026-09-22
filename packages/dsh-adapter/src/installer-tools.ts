@@ -32,7 +32,7 @@ export function apply(ctx: Context): void {
   ctx.systemPrompt.section({
     name: 'tool:machtiani-installer-finish',
     order: ctx.systemPrompt.getSectionOrder('TOOL_GOAL'),
-    text: 'When installation reaches a terminal success, partial, or blocked state, call finish_installation exactly once. Base every receipt on observed command evidence. Distinguish pre-existing software from installer changes. Do not place credentials or credential fragments in any field.',
+    text: 'Call finish_installation exactly once only after verified completion or when the human explicitly chooses to end the installation. A failed check, partial progress, or a blocker does not authorize closing the session. Explain the problem, recover within existing authorization, or ask for the choice or action needed to continue. Keep the conversation open while waiting. Use partial or blocked outcomes only when the human chooses to stop before completion. Base every receipt on observed command evidence. Distinguish pre-existing software from installer changes. Do not place credentials or credential fragments in any field.',
   })
   ctx.tools.register(defineTool({
     name: 'authenticate_backend',
@@ -47,7 +47,7 @@ export function apply(ctx: Context): void {
   }))
   ctx.tools.register(defineTool({
     name: 'finish_installation',
-    description: 'Finish the guided installer with a structured, evidence-based outcome. This closes the installer session.',
+    description: 'Close the installer session with an evidence-based outcome only after verified completion or the human explicitly chooses to stop. Do not call merely because a command failed or progress is blocked; explain the problem and continue the recovery conversation.',
     parameters: {
       outcome: { type: 'string', required: true, enum: ['success', 'partial', 'blocked'] },
       summary: { type: 'string', required: true, description: 'Short plain-language outcome.' },

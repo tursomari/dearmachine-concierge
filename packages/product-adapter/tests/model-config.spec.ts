@@ -60,3 +60,13 @@ it('refuses custom provider routing and role assignments without rewriting files
     expect(await readFile(f.path, 'utf8')).toBe(content)
   }
 })
+it('also refuses role and parameter edits made after migration', async () => {
+  const f = await fixture()
+  await upgradeManagedModelConfig(f.home, f.profile)
+  const migrated = await readFile(f.path, 'utf8')
+  for (const customized of [migrated.replace('shell_agent_model = "dearmachine-shell-agent"', 'shell_agent_model = "personal"'), migrated + '\n[models.dearmachine-sync.params.reasoning]\neffort = "low"\n']) {
+    await writeFile(f.path, customized)
+    await expect(upgradeManagedModelConfig(f.home, f.profile)).rejects.toThrow('customized')
+    expect(await readFile(f.path, 'utf8')).toBe(customized)
+  }
+})

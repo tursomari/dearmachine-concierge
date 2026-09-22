@@ -26,9 +26,14 @@ export async function upgradeManagedModelConfig(home: string, profilePath: strin
   }
   const header = sections[0] ?? ''
   for (const key of ['default_model', 'answer_model', 'file_discovery_model']) {
-    if (!header.includes(`${key} = "dearmachine"`)) throw new Error('The managed model roles are customized.')
+    if (!header.split(/\r?\n/u).includes(`${key} = "dearmachine"`)) throw new Error('The managed model roles are customized.')
   }
-  if (content.includes('model = "@machtiani/planner"') && content.includes('model = "@machtiani/shell-agent"') && content.includes('model = "@machtiani/sync"')) return
+  const generated = managedModelAliases().trim().split('\n\n')
+  if (generated.every(block => sections.some(section => section.trim() === block))) {
+    if (!/^shell_agent_model = "dearmachine-shell-agent"$/mu.test(header)) throw new Error('The shell-agent model role is customized.')
+    if (sections.some(section => /^\[models\.dearmachine(?:-shell-agent|-sync)?\./u.test(section))) throw new Error('The managed model parameters are customized.')
+    return
+  }
   if (!/^shell_agent_model = "dearmachine"$/mu.test(header)) throw new Error('The shell-agent model role is customized.')
   const owned = sections.filter(section => /^\[models\.dearmachine(?:\]|\.)/u.test(section))
   for (const section of owned) {

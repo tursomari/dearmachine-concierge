@@ -72,6 +72,11 @@ class ModelConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.load(dict(self.value, credentialFile=str(link)))
 
+    def test_accepts_key_with_or_without_one_final_newline(self):
+        for data in (b'test-key', b'test-key\n'):
+            self.key.write_bytes(data)
+            self.assertEqual(config.credential(self.key), b'test-key')
+
     def test_rejects_multiline_credentials_without_echoing_them(self):
         self.key.write_text('first-secret\nsecond-secret\n')
         with self.assertRaisesRegex(ValueError, '^credential file must'):

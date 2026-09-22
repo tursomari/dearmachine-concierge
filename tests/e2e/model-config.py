@@ -67,7 +67,7 @@ def load(path):
 
 def credential(path):
     data = private_file(str(path)).read_bytes()
-    key = data.removesuffix(b'\n')
+    key = data[:-1] if data.endswith(b'\n') else data
     if not key or any(c < 33 or c > 126 for c in key):
         raise ValueError('credential file must contain one nonempty printable ASCII key, optionally followed by a newline')
     return key

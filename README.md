@@ -130,21 +130,23 @@ without stopping Dear Machine. A confirmed start or restart uses the native
 supervisor to run the daemon in the background. Login and reboot persistence
 remain separate settings.
 
-Use `/model` during an installer or concierge conversation to see the current
-provider, model, and reasoning level and open the model picker. Existing sign-ins
-are reused; subscription model lists come from the selected runtime. Escape
-goes back a step and cancels from the provider menu. A successful selection
-applies to your next message and is remembered when you reopen the concierge.
-The current turn is interrupted before selection; completed operations remain
-completed, and the conversation history is preserved.
+Use `/model` during an installer or concierge conversation to manage a shared
+Default provider, model, and reasoning level. Concierge (the thing you are looking
+at right now), Machtiani planner, Machiani shell-agent, and Machtiani sync inherit
+Default unless they have an override. Changing Default preserves overrides;
+**Set all** changes Default and clears them. **Use Default** removes one override.
+Existing sign-ins are reused, and the conversation history is preserved.
 
-The initial installation wizard still creates the shared Machtiani profile.
-Subsequent `/model` changes save the assistant's own private profile at
-`~/.config/dearmachine/assistant-model.json`. They leave Machtiani's configured
-planner, shell-agent, answer, and file-discovery models in place. Older
-installations inherit `~/.config/machtiani/model-profile.json` until a separate
-assistant selection is saved. `/model` also works when the current provider is
-unavailable or no assistant model is configured; no reinstall is required.
+The separate configured-backend section is read-only and explains how to change
+backend-owned defaults. It does not run verification or display activity or usage
+statistics. Custom endpoint selections are saved without a live probe in `/model`;
+the initial installation wizard retains its compatibility check.
+
+Shared settings live in `~/.config/machtiani/model-profile.json`. Existing
+`~/.config/dearmachine/assistant-model.json` choices migrate to a Concierge
+override. Explicit per-run Machtiani CLI choices take precedence. See
+[model settings and migration](docs/model-settings.md) for the schema, generated
+configuration, legacy fallback, and handling of customized configurations.
 
 Run the live DSH recursion smoke test only with a disposable or explicitly
 authorized OpenRouter credential already present in the environment:

@@ -77,17 +77,16 @@ machine and remains outside these mock-only tests.
 ## Conversation above the local shell
 
 Management opens the existing DSH session adapter lazily, on the first natural
-language message. It uses the private assistant profile at
-`$HOME/.config/dearmachine/assistant-model.json`, inheriting the old shared
-`$HOME/.config/machtiani/model-profile.json` when no assistant choice is saved.
-Only the model host resolves credential references. `/model` explicitly opens
-the provider, authentication, model, and reasoning picker and saves a separate
-assistant selection; ordinary chat does not reopen that wizard. The next turn
-uses the selection with the DSH conversation preserved. Machtiani's shared
-profile and per-role model configuration remain independent.
-Missing/invalid profiles and provider failures leave `/model`, `/help`, and local controls
-usable. Each management session has a disposable DSH home under installer state,
-uses the shared model-host plugin, and omits installer mutation tools.
+language message. The model host reloads Concierge's effective shared selection
+for each request, keeping the DSH conversation. `/model` manages Default and
+component overrides; ordinary chat does not reopen that wizard. Existing assistant
+profiles migrate without losing authentication references. See
+[model settings](model-settings.md) for the current schema and migration rules.
+
+Provider failures leave `/model`, `/help`, and local controls usable. Malformed
+saved settings are retained for repair. Each management session has a disposable
+DSH home under installer state, uses the shared model-host plugin, and omits
+installer mutation tools.
 
 Management instructions route lifecycle actions through the native CLI, require
 read-only status questions, clarification for ambiguous requests, actual observed

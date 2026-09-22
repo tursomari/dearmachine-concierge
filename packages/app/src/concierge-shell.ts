@@ -12,7 +12,7 @@ const linuxHelp = [
   'These commands work without a model or provider.',
   '',
   '`/help` — Show this help.',
-  '`/model` — Choose the assistant provider, model, and reasoning level.',
+  '`/model` — Set Default or component overrides for provider, model, and reasoning.',
   '`/update` — Check for an update and ask before installing it.',
   '`/uninstall` — Show the terminal command for confirmed permanent removal.',
   '`/status` — Inspect Dear Machine without changing it.',

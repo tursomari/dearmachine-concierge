@@ -366,7 +366,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       tui.addAssistant('Your command-display choice applies to this installation, but could not be saved for future conversations.')
     })
     const configuredSetup = await modelSetup()
-    await saveModelHostProfile(modelProfilePath, configuredSetup.profileFor(selection))
+    await saveModelHostProfile(modelProfilePath, { ...configuredSetup.profileFor(selection), selectionVersion: 1, overrides: {} })
     await saveModelHostProfile(assistantModelPath(home), configuredSetup.profileFor(selection))
     const sourceReference = await resolveSourceReference(source)
     await saveSourceReference(home, sourceReference)
@@ -382,7 +382,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       dshHome,
       workspace: source,
       selection,
-      modelProfilePath: assistantModelPath(home),
+      modelProfilePath,
       outcomePath,
       environment: {
         MACHTIANI_INSTALLER_CONTRACT: join(source, 'INSTALL.md'),

@@ -114,12 +114,12 @@ export async function saveHeadlessModelProfile(
   const modelProfilePath = join(home, '.config', 'machtiani', 'model-profile.json')
   const setup = await InstallerModelSetup.open(join(stateDirectory, 'dsh'), environment, { credentialPath, home })
   try {
-    await saveModelHostProfile(modelProfilePath, setup.profileFor({
+    await saveModelHostProfile(modelProfilePath, { ...setup.profileFor({
       provider: selection.provider,
       model: selection.model,
       ...(selection.customProvider === undefined ? {} : { customProvider: selection.customProvider }),
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-    }))
+    }), selectionVersion: 1, overrides: {} })
   } finally {
     await setup.close()
   }

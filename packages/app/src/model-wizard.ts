@@ -21,7 +21,7 @@ export type WizardTui = Pick<InstallerTui,
   | 'setProgress'
 >
 type WizardSetup = Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'> &
-  Partial<Pick<InstallerModelSetup, 'verifyCustomProvider'>>
+  Partial<Pick<InstallerModelSetup, 'verifyCustomProvider' | 'prepareCustomProvider'>>
 
 class SignInCodeCancelledError extends Error {
   constructor() {
@@ -221,6 +221,12 @@ async function runCustomProviderWizard(
         usesApiKey,
       },
     }
+    if (assistantOnly) {
+      if (setup.prepareCustomProvider === undefined) throw new Error('Custom provider setup is unavailable.')
+      await setup.prepareCustomProvider(selection, apiKey)
+      await saveInstallerModelSelection(setup.dshHome, selection)
+      return selection
+    }
     tui.addAssistant('I’ll send a tiny live request now to verify streaming, tool calling, and continuation after a tool result. This confirms the configuration works now; it cannot guarantee the provider will never change.')
     while (true) {
       const controller = new AbortController()
@@ -329,7 +335,7 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
   let selectedProvider = preliminary?.provider
   while (true) {
     const providerId = await tui.choose(
-        assistantOnly ? 'Choose the AI service for this assistant. Press Escape here to cancel.' : 'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
+        assistantOnly ? 'Choose the AI service. Press Escape here to cancel.' : 'First, choose the AI service for the installation assistant and Machtiani. Dear Machine’s backend agent is a separate choice later.',
         providers,
         selectedProvider,
       )
@@ -349,7 +355,7 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
         let modelId: string
         try {
           modelId = await tui.choose(
-            assistantOnly ? `Choose a ${provider?.name ?? providerId} model for this assistant. Type to filter the model list.` : `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
+            assistantOnly ? `Choose a ${provider?.name ?? providerId} model. Type to filter the model list.` : `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
             models.map(model => ({
               value: model.id,
               label: model.name,
@@ -369,16 +375,17 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
         if (model.reasoningEfforts.length > 0) {
           try {
             reasoningEffort = await tui.choose(
-              assistantOnly ? 'How much reasoning should this assistant use?' : 'How much reasoning should the installation assistant use?',
-              model.reasoningEfforts.map(effort => ({
+              assistantOnly ? 'How much reasoning should this model use?' : 'How much reasoning should the installation assistant use?',
+              [ ...(assistantOnly ? [{ value: 'default', label: 'Provider default' }] : []), ...model.reasoningEfforts.map(effort => ({
                 value: effort,
                 label: effort === 'off' ? 'Off' : `${effort[0]?.toLocaleUpperCase()}${effort.slice(1)}`,
                 ...(effort === 'high' ? { description: assistantOnly ? 'Recommended' : 'Recommended for installation' } : {}),
-              })),
+              })) ],
               preferredEffort(model.reasoningEfforts, current?.provider === providerId && current.model === modelId
                 ? current.reasoningEffort
                 : undefined),
             )
+            if (reasoningEffort === 'default') reasoningEffort = undefined
           } catch (error) {
             if (error instanceof InstallerChoiceBackError) continue
             throw error

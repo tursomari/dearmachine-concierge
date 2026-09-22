@@ -55,7 +55,7 @@ describe('headless product gate', () => {
     const path = await saveHeadlessModelProfile(home, join(root, 'state'), selection, 'high', {})
 
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({
-      version: 1,
+      version: 1, selectionVersion: 1, overrides: {},
       driver: 'pi-ai',
       provider: 'openrouter',
       authMethod: 'api_key',
@@ -79,7 +79,7 @@ describe('headless product gate', () => {
     const loaded = await loadHeadlessSelection(selectionPath)
     const path = await saveHeadlessModelProfile(root, join(root, 'state'), loaded, 'high', {})
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({
-      version: 1, driver: 'openai-compatible', provider: custom.provider, model: custom.model,
+      version: 1, selectionVersion: 1, overrides: {}, driver: 'openai-compatible', provider: custom.provider, model: custom.model,
       authMethod: 'optional_api_key', reasoningEffort: 'high', customProvider: custom.customProvider,
       credential: { kind: 'environment-file', path: join(root, '.config/dearmachine/backends.env'),
         variable: 'MACHTIANI_CUSTOM_OPENAI_REMOTE_API_KEY' },

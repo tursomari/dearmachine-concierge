@@ -6,7 +6,7 @@ import { CredentialFileAdapter } from '@dearmachine/machtiani-installer-credenti
 import type { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { loadDistribution, type ProductDistribution } from '@dearmachine/machtiani-installer-products'
 import { loadInterfacePreferences } from './interface-preferences.ts'
-import { assistantModelPath, ensureAssistantModel, sharedModelPath } from './assistant-model.ts'
+import { ensureAssistantModel, sharedModelPath } from './assistant-model.ts'
 
 interface ManagementRuntimeContext extends CredentialRuntimeContext {
   sharedModelSelection?: { provider: string; model: string; reasoningEffort?: string; profile: string }
@@ -90,7 +90,7 @@ export async function openManagementAgent(ports: {
   ])
   const home = process.env.HOME
   if (!home) throw new Error('HOME is required.')
-  const modelProfilePath = assistantModelPath(home)
+  const modelProfilePath = sharedModelPath(home)
   // This validates profile metadata; the model host alone resolves referenced secrets.
   const profile = await ensureAssistantModel(home)
   const shared = await loadModelHostProfile(sharedModelPath(home)).catch(() => undefined)

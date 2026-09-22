@@ -321,11 +321,13 @@ credentials.
 ### Live QSE
 
 ```console
-tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani
+tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani --model-config /private/models.json
 ```
 
-Run the live form only with the approved OpenRouter and AgentMail credentials
-in their documented private locations. It provisions and journals exactly two
+Run the live form only with approved model-provider and AgentMail credentials.
+The [QSE configuration contract](tests/e2e/README.md) accepts provider, model,
+reasoning effort and private credential-file references, with an optional
+independent Forge selection. It provisions and journals exactly two
 disposable AgentMail inboxes, conducts the installer path in an isolated
 container with freshly reconstructed local Git origins, verifies the installed native client receives a real email, invokes
 Forge, replies successfully, and restores the pre-run remote baseline. It

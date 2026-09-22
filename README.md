@@ -227,3 +227,9 @@ and selected by default) and Standard. Standard’s description matches the host
 Having Nix installed does not classify an ordinary Linux or Mac host as NixOS.
 When Nix is selected, the installer checks its command/flakes features and
 provides configuration guidance only if needed; it does not rewrite Nix settings.
+
+The live installer QSE accepts provider, model, reasoning effort, and private
+credential-file references through `--model-config`. Compatible remote providers
+can specify their Chat Completions endpoint; Forge can use an independent model
+selection when its capabilities differ. See the [QSE runbook](tests/e2e/README.md)
+for the configuration format and live-test command.

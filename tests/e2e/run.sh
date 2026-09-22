@@ -8,18 +8,24 @@ fail() {
 
 usage() {
   printf '%s\n' \
-    'usage: tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani [--self-test]' \
+    'usage: tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani [--model-config /private/models.json] [--self-test]' \
     '' \
     'The live form creates and deletes exactly two disposable AgentMail inboxes.'
 }
 
 umbrella_root=
 self_test=false
+model_config=
 while test "$#" -gt 0; do
   case "$1" in
     --umbrella-root)
       test "$#" -ge 2 || { usage >&2; exit 2; }
       umbrella_root=$2
+      shift 2
+      ;;
+    --model-config)
+      test "$#" -ge 2 || { usage >&2; exit 2; }
+      model_config=$2
       shift 2
       ;;
     --self-test)
@@ -102,6 +108,10 @@ qse_agentmail_secrets_path() {
 agentmail_secrets_path=$(qse_agentmail_secrets_path "$umbrella_root") || \
   fail 'AGENTMAIL_SECRETS_PATH must be absolute'
 
+if test "$self_test" != true; then
+  python3 "$script_dir/model-config.py" validate "$model_config"
+fi
+
 lock_file=${TMPDIR:-/var/tmp}/machtiani-installer-qse-$(id -u).lock
 umask 077
 if test ! -e "$lock_file" && test ! -L "$lock_file"; then
@@ -182,6 +192,7 @@ cleanup() {
       mkdir "$retained_runtime/installer-state"
       docker cp "$container_id:/home/installer/.local/state/machtiani-installer/." \
         "$retained_runtime/installer-state" 2>/dev/null || true
+      rm -rf -- "$retained_runtime/secrets"
       chmod -R go-rwx "$retained_runtime"
     fi
     inspected_label=$(docker inspect --format "{{ index .Config.Labels \"$container_label\" }}" "$container_id" 2>/dev/null) || cleanup_safe=false
@@ -212,6 +223,8 @@ cleanup() {
   if test "$cleanup_safe" != true; then
     cleanup_status=1
   fi
+  rm -rf -- "$run_root/model-secrets"
+  rm -f -- "$run_root/agentmail.key"
   if test "${TXN_KEEP_RUNTIME:-0}" != 1 && test -d "$run_root" && test ! -L "$run_root"; then
     rm -rf -- "$run_root"
   fi
@@ -252,6 +265,7 @@ if test "$self_test" = true; then
   if AGENTMAIL_SECRETS_PATH=relative/path qse_agentmail_secrets_path /source >/dev/null 2>&1; then
     fail 'AgentMail credential path accepted a relative override'
   fi
+  python3 "$script_dir/model-config-test.py"
   python3 "$script_dir/git-fixture-test.py"
   mkdir "$run_root/git-home"
   HOME="$run_root/git-home" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL="$run_root/git-home/.gitconfig" \
@@ -287,22 +301,7 @@ docker run --rm --network=none --tmpfs /tmp:exec,size=2g --env HOME=/tmp/qse-pre
 printf '==> Loading approved credentials into the private host transaction...\n'
 secrets_load "$agentmail_secrets_path"
 secrets_get AGENTMAIL_API_KEY agentmail_api_key
-openrouter_path=${OPENROUTER_KEY_PATH:-$HOME/.secrets/openrouter/work-api-key.txt}
-python3 - "$openrouter_path" <<'PY'
-from pathlib import Path
-import os
-import stat
-import sys
-
-path = Path(sys.argv[1])
-metadata = path.lstat()
-if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.geteuid():
-    raise SystemExit("OpenRouter credential source must be an owned regular non-symlink file")
-lines = path.read_bytes().splitlines()
-if len(lines) != 1 or not lines[0] or b"\0" in lines[0]:
-    raise SystemExit("OpenRouter credential source must contain exactly one nonempty line")
-PY
-openrouter_api_key=$(sed -n '1p' "$openrouter_path")
+python3 "$script_dir/model-config.py" stage "$model_config" "$run_root"
 export AGENTMAIL_API_KEY=$agentmail_api_key
 TXN_AGENTMAIL_HELPER=$helper_path
 export TXN_AGENTMAIL_HELPER
@@ -409,9 +408,8 @@ done
 create_allow "$sender_id" send "$receiver_address"
 create_allow "$sender_id" reply "$receiver_address"
 
-printf '%s\n' "$openrouter_api_key" > "$run_root/openrouter.key"
 printf '%s\n' "$agentmail_api_key" > "$run_root/agentmail.key"
-chmod 0600 "$run_root/openrouter.key" "$run_root/agentmail.key"
+chmod 0600 "$run_root/agentmail.key"
 
 container_intent=$(python3 - "$container_name" "$container_cidfile" "$container_label" "$run_id" <<'PY'
 import json
@@ -425,7 +423,8 @@ docker create --tmpfs /run/machtiani-qse-git:exec,size=2g --name "$container_nam
   --env QSE_SENDER_ADDRESS="$sender_address" --env QSE_RUN_ID="$run_id" "$image_name" >/dev/null
 chmod 0600 "$container_cidfile"
 container_id=$(txn_reconcile_container_from_cidfile "$container_name")
-docker cp "$run_root/openrouter.key" "$container_id:/run/machtiani-installer-qse/secrets/openrouter" >/dev/null
+docker cp "$run_root/model-secrets/." "$container_id:/run/machtiani-installer-qse/secrets/" >/dev/null
+docker cp "$run_root/model-config.json" "$container_id:/run/machtiani-installer-qse/model-config.json" >/dev/null
 docker cp "$run_root/agentmail.key" "$container_id:/run/machtiani-installer-qse/secrets/agentmail" >/dev/null
 docker start "$container_id" >/dev/null
 
@@ -437,7 +436,7 @@ while ! docker exec "$container_id" test -f /run/machtiani-installer-qse/ready 2
   sleep 2
 done
 
-for artifact in result.json installer.stderr dearmachine.status backend.status source.status; do
+for artifact in result.json installer.stderr dearmachine.status backend.status source.status model-receipt.json; do
   docker cp "$container_id:/run/machtiani-installer-qse/$artifact" "$run_root/$artifact" >/dev/null
   chmod 0600 "$run_root/$artifact"
 done
@@ -446,19 +445,9 @@ docker cp "$container_id:/home/installer/.config/dearmachine/machtiani/config.to
 docker cp "$container_id:/home/installer/.dearmachine/log/dearmachine.log" "$run_root/dearmachine.log" >/dev/null
 chmod 0600 "$run_root/product-installation.json" "$run_root/machtiani-config.toml" "$run_root/dearmachine.log"
 
-QSE_SCAN_OPENROUTER=$openrouter_api_key QSE_SCAN_AGENTMAIL=$agentmail_api_key python3 - \
+python3 "$script_dir/model-config.py" scan "$run_root" \
   "$run_root/result.json" "$run_root/installer.stderr" "$run_root/product-installation.json" \
-  "$run_root/machtiani-config.toml" "$run_root/dearmachine.log" <<'PY'
-from pathlib import Path
-import os
-import sys
-
-secrets = [os.environ["QSE_SCAN_OPENROUTER"].encode(), os.environ["QSE_SCAN_AGENTMAIL"].encode()]
-for raw_path in sys.argv[1:]:
-    data = Path(raw_path).read_bytes()
-    if any(secret in data for secret in secrets):
-        raise SystemExit("credential material appeared in a retained QSE artifact")
-PY
+  "$run_root/machtiani-config.toml" "$run_root/dearmachine.log" "$run_root/model-receipt.json"
 
 printf '==> Sending a real test email through the installed native client...\n'
 nonce=$(python3 - <<'PY'

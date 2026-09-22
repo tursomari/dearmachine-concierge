@@ -18,21 +18,53 @@ client identity are protected explicitly. Run the uncredentialed checks with:
 tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani --self-test
 ```
 
-Omit `--self-test` only when the live OpenRouter and AgentMail credentials are
-available in the approved local locations.
+For a live run, provide a private JSON model configuration and approved AgentMail
+credentials. The JSON contains credential **file references**, never key values:
 
-When the QSE source is an isolated worktree without its own credential files,
-point the runner at the approved host files explicitly:
-
-```console
-AGENTMAIL_SECRETS_PATH=/absolute/path/to/agentmail.env \
-OPENROUTER_KEY_PATH=/absolute/path/to/openrouter.key \
-  tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani
+```json
+{
+  "provider": "example_provider",
+  "endpoint": "https://models.example.test/v1/chat/completions",
+  "model": "example/model",
+  "reasoningEffort": "high",
+  "credentialFile": "/private/shared-provider.key",
+  "backend": {
+    "provider": "openai",
+    "model": "example-backend-model",
+    "reasoningEffort": "high",
+    "credentialFile": "/private/backend-provider.key"
+  }
+}
 ```
 
-Both overrides must be absolute. The credential sources remain host-side,
-must be owned regular non-symlink files with mode `0600`, and are copied only
-into the private transaction and disposable container.
+```console
+AGENTMAIL_SECRETS_PATH=/private/agentmail.env \
+  tests/e2e/run.sh --umbrella-root /absolute/path/to/machtiani \
+  --model-config /private/models.json
+```
+
+`openrouter`, `openai`, and `deepseek` use their built-in adapters without an
+`endpoint`. Other provider IDs require their exact HTTPS Chat Completions
+endpoint. The optional complete `backend` selection configures Forge separately;
+when absent, Forge uses the shared selection. There is no automatic provider or
+reasoning fallback. `reasoningEffort: "default"` explicitly selects provider
+defaults. Pinned Forge 2.13.21 cannot forward reasoning settings for custom
+providers; the runner rejects that combination before building or provisioning.
+Choose a supported backend selection or explicitly request default reasoning.
+
+Configuration and credential sources must be absolute, owned regular non-symlink
+files with mode `0600`. Model credentials contain one nonempty key, optionally
+followed by a newline. AgentMail uses the existing environment-file format.
+The runner validates configuration before building, then reads and stages keys
+only after the image and offline source checks pass. Sanitized model receipts
+record both selections and Forge's functional probe. Credential copies are
+removed even when `TXN_KEEP_RUNTIME=1` retains diagnostics.
+
+For compatibility, omitting `--model-config` retains the previous OpenRouter
+`z-ai/glm-5.3-flash` / high selection for both roles, using `OPENROUTER_KEY_PATH`
+or `~/.secrets/openrouter/work-api-key.txt`. The uncredentialed self-test also
+runs configuration, endpoint, private-file and artifact-redaction regressions;
+it never reads live keys.
 
 ## Git fixture
 

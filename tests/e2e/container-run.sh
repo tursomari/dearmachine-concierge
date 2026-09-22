@@ -19,9 +19,10 @@ done
 
 umbrella=/workspace/machtiani
 runtime=/run/machtiani-installer-qse
-openrouter_secret=$runtime/secrets/openrouter
+shared_secret=$runtime/secrets/shared
+backend_secret=$runtime/secrets/backend
 agentmail_secret=$runtime/secrets/agentmail
-for qse_secret in "$openrouter_secret" "$agentmail_secret"; do
+for qse_secret in "$shared_secret" "$backend_secret" "$agentmail_secret"; do
   test -f "$qse_secret" && test ! -L "$qse_secret" && test -s "$qse_secret" || \
     fail 'a private runtime credential file is missing'
   test "$(stat -c '%a' "$qse_secret")" = 600 || fail 'a runtime credential file is not mode 0600'
@@ -43,62 +44,21 @@ fixture_root=$(mktemp -d /run/machtiani-qse-git/fixture.XXXXXX)
 umbrella=$(python3 /workspace/machtiani/machtiani-installer/tests/e2e/git-fixture.py \
   restore /workspace/machtiani/.qse-git "$fixture_root/repositories")
 
-IFS= read -r openrouter_key < "$openrouter_secret"
-IFS= read -r agentmail_key < "$agentmail_secret"
-test -n "$openrouter_key" && test -n "$agentmail_key" || fail 'a runtime credential is empty'
-test "$(wc -l < "$openrouter_secret")" -eq 1 && test "$(wc -l < "$agentmail_secret")" -eq 1 || \
-  fail 'runtime credentials must each contain exactly one line'
-
-printf 'OPENROUTER_API_KEY=%s\n' "$openrouter_key" > "$HOME/.config/dearmachine/backends.env"
-printf '%s\n' "$agentmail_key" > "$HOME/.config/dearmachine/agentmail-api-key"
-chmod 0600 "$HOME/.config/dearmachine/backends.env" "$HOME/.config/dearmachine/agentmail-api-key"
-
-# Forge 2.13.21 imports environment credentials into its private store only
-# when direct mode starts. Closed stdin makes that migration fail safely before
-# an agent turn; all output remains inside this disposable QSE runtime.
-forge_migration_stdout=$runtime/forge-migration.stdout
-forge_migration_stderr=$runtime/forge-migration.stderr
-OPENROUTER_API_KEY=$openrouter_key forge </dev/null > "$forge_migration_stdout" 2> "$forge_migration_stderr" || true
-chmod 0600 "$forge_migration_stdout" "$forge_migration_stderr"
-test -f "$HOME/.forge/.credentials.json" && test "$(stat -c '%a' "$HOME/.forge/.credentials.json")" = 600 || \
-  fail 'Forge did not create a private disposable credential store'
-forge config set model open_router z-ai/glm-5.3-flash > "$forge_migration_stdout" 2> "$forge_migration_stderr" || \
-  fail 'Forge rejected the pinned OpenRouter model'
-forge config set reasoning-effort high > "$forge_migration_stdout" 2> "$forge_migration_stderr" || \
-  fail 'Forge rejected high reasoning effort'
-
+cp "$agentmail_secret" "$HOME/.config/dearmachine/agentmail-api-key"
+chmod 0600 "$HOME/.config/dearmachine/agentmail-api-key"
+node /workspace/machtiani/machtiani-installer/tests/e2e/prepare-model.mjs
 selection=$runtime/selection.json
-QSE_SELECTION_PATH=$selection python3 - <<'PY'
-from pathlib import Path
-import json
-import os
-
-selection = {
-    "provider": "openrouter",
-    "model": "z-ai/glm-5.3-flash",
-    "transport": "agentmail",
-    "authorizedSender": os.environ["QSE_SENDER_ADDRESS"],
-    "detectedBackends": ["forge"],
-    "backend": {
-        "name": "Forge",
-        "id": "forge",
-        "executable": "/usr/local/bin/forge",
-        "status": "ready",
-        "summary": "functional probe passed",
-    },
-}
-path = Path(os.environ["QSE_SELECTION_PATH"])
-path.write_text(json.dumps(selection, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-path.chmod(0o600)
-PY
-
-rm -f -- "$openrouter_secret" "$agentmail_secret"
-unset openrouter_key agentmail_key
+reasoning=$(cat "$runtime/reasoning-effort")
+reasoning_args=()
+if test "$reasoning" != default; then
+  reasoning_args=(--reasoning-effort "$reasoning")
+fi
+rm -f -- "$shared_secret" "$backend_secret" "$agentmail_secret"
 
 git -C "$umbrella" status --porcelain=v2 --untracked-files=all --ignore-submodules=none > "$runtime/source.before"
 node /workspace/machtiani/machtiani-installer/packages/app/dist/headless-bin.mjs \
   --source-root "$umbrella" --selection-file "$selection" \
-  --existing-inbox-id "$QSE_RECEIVER_ID" --reasoning-effort high \
+  --existing-inbox-id "$QSE_RECEIVER_ID" "${reasoning_args[@]}" \
   > "$runtime/result.json" 2> "$runtime/installer.stderr"
 chmod 0600 "$runtime/result.json" "$runtime/installer.stderr"
 

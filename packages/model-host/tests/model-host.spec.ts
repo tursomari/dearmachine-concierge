@@ -324,6 +324,8 @@ describe('shared model host profile', () => {
       ['QUOTA_EXHAUSTED', undefined],
       ['MODEL_UNAVAILABLE', undefined],
       ['UPSTREAM_CHANGED', undefined],
+      ['TRANSIENT_ERROR', undefined],
+      ['EMPTY_RESPONSE', undefined],
       ['CANCELLED', undefined],
     ] as const
     for (const [code, retryAfterMs] of failures) {

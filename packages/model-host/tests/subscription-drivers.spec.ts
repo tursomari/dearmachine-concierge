@@ -108,7 +108,7 @@ class FakeCodexServer implements CodexAppServerPort {
         this.emit({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', delta: 'working' } })
         this.emit({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', turnId: 'turn-1', tokenUsage: { last: { inputTokens: 12, outputTokens: 4, totalTokens: 16, cachedInputTokens: 8, reasoningOutputTokens: 2 } } } })
         this.emit({ id: 77, method: 'item/tool/call', params: { threadId: 'thread-1', turnId: 'turn-1', callId: 'call-1', tool: 'diagnose', arguments: { safe: true } } })
-        this.emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } })
+        this.emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', error: null } } })
       }, 0)
       return { turn: { id: 'turn-1' } }
     }
@@ -121,9 +121,33 @@ class SynchronousCodexServer extends FakeCodexServer {
     if (method !== 'turn/start') return await super.call(method, params)
     this.calls.push({ method, ...(params === undefined ? {} : { params }) })
     this.emit({ method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-fast', delta: 'READY' } })
-    this.emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-fast' } } })
+    this.emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-fast', status: 'completed', error: null } } })
     return { turn: { id: 'turn-fast' } }
   }
+}
+
+async function assertCodexNotifications(notifications: RpcMessage[], failure?: Record<string, unknown>) {
+  const root = await mkdtemp(join(tmpdir(), 'machtiani-codex-errors-'))
+  class NotificationServer extends FakeCodexServer {
+    override async call(method: string, params?: unknown): Promise<unknown> {
+      if (method !== 'turn/start') return await super.call(method, params)
+      for (const notification of notifications) this.emit({ ...notification, params: { threadId: 'thread-1', turnId: 'turn-1', ...(notification.params as object) } })
+      return { turn: { id: 'turn-1' } }
+    }
+  }
+  const driver = new OpenAICodexDriver(profile('openai-codex-app-server', 'openai-codex', root), () => new NotificationServer())
+  const events: import('../src/index.ts').ModelHostEvent[] = []
+  const consume = async () => {
+    for await (const event of driver.generate(generation([{ role: 'user', content: 'hello' }]))) events.push(event)
+  }
+  try {
+    if (failure === undefined) await consume()
+    else {
+      await expect(consume()).rejects.toMatchObject(failure)
+      expect(events.some(event => event.type === 'finish')).toBe(false)
+    }
+    return events
+  } finally { await rm(root, { recursive: true, force: true }) }
 }
 
 describe('subscription runtime boundaries', () => {
@@ -365,7 +389,7 @@ describe('subscription runtime boundaries', () => {
     }
   })
 
-  it('reports pinned Codex transport drift distinctly', async () => {
+  it('reports interrupted Codex transport as retryable', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-codex-drift-'))
     const driver = new OpenAICodexDriver(
       profile('openai-codex-app-server', 'openai-codex', root),
@@ -377,10 +401,59 @@ describe('subscription runtime boundaries', () => {
       }
     }
     try {
-      await expect(consume()).rejects.toMatchObject({ code: 'UPSTREAM_CHANGED' })
+      await expect(consume()).rejects.toMatchObject({ code: 'TRANSIENT_ERROR' })
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it.each([
+    ['contextWindowExceeded', 'CONTEXT_LENGTH_EXCEEDED'],
+    ['usageLimitExceeded', 'QUOTA_EXHAUSTED'],
+    ['rateLimitExceeded', 'RATE_LIMITED'],
+    ['unauthorized', 'AUTH_REQUIRED'],
+    ['badRequest', 'INVALID_REQUEST'],
+    ['serverOverloaded', 'TRANSIENT_ERROR'],
+    ['internalServerError', 'TRANSIENT_ERROR'],
+    [{ responseStreamDisconnected: { httpStatusCode: 503 } }, 'TRANSIENT_ERROR'],
+    [{ httpConnectionFailed: { httpStatusCode: 401 } }, 'AUTH_REQUIRED'],
+    [{ responseTooManyFailedAttempts: { httpStatusCode: null } }, 'TRANSIENT_ERROR'],
+    ['other', 'INTERNAL'],
+  ])('preserves failed Codex turn details: %j', async (info, code) => {
+    await assertCodexNotifications([
+      { method: 'item/agentMessage/delta', params: { delta: 'partial answer' } },
+      { method: 'turn/completed', params: { turn: { id: 'turn-1', status: 'failed', error: { message: 'Provider explanation', codexErrorInfo: info } } } },
+    ], { code, message: expect.stringContaining('Provider explanation') })
+  })
+
+  it('keeps a terminal error even when a completion follows it', async () => {
+    await assertCodexNotifications([
+      { method: 'error', params: { willRetry: false, error: { message: 'Overloaded Bearer private-value sk-private-value', codexErrorInfo: 'serverOverloaded' } } },
+      { method: 'item/agentMessage/delta', params: { delta: 'late answer' } },
+      { method: 'turn/completed', params: { turn: { id: 'turn-1', status: 'completed', error: null } } },
+    ], { code: 'TRANSIENT_ERROR', message: 'Codex turn failed (serverOverloaded): Overloaded Bearer [REDACTED] [REDACTED]' })
+  })
+
+  it('lets Codex recover its own retryable notification and ignores other turns', async () => {
+    const events = await assertCodexNotifications([
+      { method: 'error', params: { willRetry: true, error: { codexErrorInfo: 'serverOverloaded' } } },
+      { method: 'error', params: { threadId: 'unrelated', willRetry: false, error: { codexErrorInfo: 'unauthorized' } } },
+      { method: 'item/agentMessage/delta', params: { delta: 'recovered' } },
+      { method: 'turn/completed', params: { turn: { id: 'turn-1', status: 'completed', error: null } } },
+    ])
+    expect(events.at(-1)).toEqual({ type: 'finish', reason: 'stop' })
+  })
+
+  it.each([
+    ['completed', 'EMPTY_RESPONSE'],
+    ['interrupted', 'CANCELLED'],
+    ['unknown', 'UPSTREAM_CHANGED'],
+    ['failed', 'INTERNAL'],
+  ])('rejects a %s turn with no answer', async (status, code) => {
+    await assertCodexNotifications([
+      { method: 'item/reasoning/summaryTextDelta', params: { delta: 'thinking' } },
+      { method: 'turn/completed', params: { turn: { id: 'turn-1', status, error: null } } },
+    ], { code })
   })
 
   it('does not lose a fast Codex response emitted before turn/start returns', async () => {

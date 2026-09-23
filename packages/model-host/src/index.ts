@@ -139,6 +139,8 @@ export type ModelHostErrorCode =
   | 'UPSTREAM_CHANGED'
   | 'INVALID_REQUEST'
   | 'INTERNAL'
+  | 'TRANSIENT_ERROR'
+  | 'EMPTY_RESPONSE'
 
 export class ModelHostError extends Error {
   constructor(

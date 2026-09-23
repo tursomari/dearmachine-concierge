@@ -26,6 +26,7 @@ import type {
   ModelHostModelInfo,
   ModelHostProfile,
   ModelHostRuntimeDriver,
+  ModelHostErrorCode,
 } from './index.ts'
 import { ModelHostError } from './index.ts'
 
@@ -156,8 +157,8 @@ class EventQueue implements AsyncIterable<ModelHostEvent> {
   private waiters: Array<() => void> = []
   private ended = false
   private failure: unknown
-  push(value: ModelHostEvent): void { this.values.push(value); this.waiters.shift()?.() }
-  close(error?: unknown): void { this.ended = true; this.failure = error; for (const wake of this.waiters.splice(0)) wake() }
+  push(value: ModelHostEvent): void { if (this.ended) return; this.values.push(value); this.waiters.shift()?.() }
+  close(error?: unknown): void { if (this.ended) return; this.ended = true; this.failure = error; for (const wake of this.waiters.splice(0)) wake() }
   async * [Symbol.asyncIterator](): AsyncIterator<ModelHostEvent> {
     while (!this.ended || this.values.length > 0) {
       if (this.values.length > 0) { yield this.values.shift()!; continue }
@@ -253,6 +254,32 @@ class CodexAppServer implements CodexAppServerPort {
 
 type AppServerFactory = (profile: string) => CodexAppServerPort
 
+// Codex 0.153.2 reports failures in both error notifications and completed
+// turns. A completed turn is not necessarily a successful generation.
+function codexTurnError(value: unknown): ModelHostError {
+  const error = value as { message?: unknown; codexErrorInfo?: unknown } | null
+  const info = error?.codexErrorInfo
+  const kind = typeof info === 'string' ? info : info !== null && typeof info === 'object' ? Object.keys(info)[0] : undefined
+  const detail = kind !== undefined && info !== null && typeof info === 'object'
+    ? (info as Record<string, { httpStatusCode?: unknown }>)[kind] : undefined
+  const status = typeof detail?.httpStatusCode === 'number' ? detail.httpStatusCode : undefined
+  let code: ModelHostErrorCode = 'INTERNAL'
+  if (kind === 'contextWindowExceeded') code = 'CONTEXT_LENGTH_EXCEEDED'
+  else if (kind === 'usageLimitExceeded' || kind === 'sessionBudgetExceeded') code = 'QUOTA_EXHAUSTED'
+  else if (kind === 'unauthorized' || status === 401 || status === 403) code = 'AUTH_REQUIRED'
+  else if (kind === 'rateLimitExceeded' || status === 429) code = 'RATE_LIMITED'
+  else if (kind === 'badRequest' || status === 400 || status === 422) code = 'INVALID_REQUEST'
+  else if (status === 404) code = 'MODEL_UNAVAILABLE'
+  else if (kind === 'serverOverloaded' || kind === 'internalServerError' || status === 408 || (status !== undefined && status >= 500 && status <= 599) ||
+    (status === undefined && ['httpConnectionFailed', 'responseStreamConnectionFailed', 'responseStreamDisconnected', 'responseTooManyFailedAttempts'].includes(kind ?? ''))) code = 'TRANSIENT_ERROR'
+  // Preserve the provider's explanation, not stderr or arbitrary response data.
+  const message = (typeof error?.message === 'string' ? error.message : 'Codex turn failed without error details.')
+    .replace(/\bBearer\s+[^\s,;]+/giu, 'Bearer [REDACTED]')
+    .replace(/\b(?:sk|sess)-[A-Za-z0-9_-]+/gu, '[REDACTED]')
+    .slice(0, 4096)
+  return new ModelHostError(code, `Codex turn failed${kind === undefined ? '' : ` (${kind}${status === undefined ? '' : `, HTTP ${status}`})`}: ${message}`)
+}
+
 export class OpenAICodexDriver implements ModelHostRuntimeDriver {
   constructor(private readonly profile: ModelHostProfile, private readonly factory: AppServerFactory = profile => new CodexAppServer(profile)) {}
   private async server(): Promise<CodexAppServerPort> {
@@ -337,7 +364,8 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
       const currentTurn = params?.threadId === threadId && notificationTurnId !== undefined &&
         (turnId === '' || notificationTurnId === turnId)
       if (currentTurn && turnId === '') turnId = notificationTurnId
-      if (message.method === 'transport/error') queue.close(new ModelHostError('UPSTREAM_CHANGED', 'The pinned Codex app-server stopped during generation.'))
+      if (message.method === 'transport/error') queue.close(new ModelHostError('TRANSIENT_ERROR', 'The pinned Codex app-server stopped during generation.'))
+      else if (message.method === 'error' && currentTurn && params.willRetry === false) queue.close(codexTurnError(params.error))
       else if (message.method === 'item/agentMessage/delta' && currentTurn) {
         const delta = String(params.delta ?? ''); if (text === '') queue.push({ type: 'text-start', index: 0 }); text += delta; queue.push({ type: 'text-delta', index: 0, text: delta })
       } else if ((message.method === 'item/reasoning/summaryTextDelta' || message.method === 'item/reasoning/textDelta') && currentTurn) {
@@ -361,6 +389,11 @@ export class OpenAICodexDriver implements ModelHostRuntimeDriver {
         server.respond(message.id, { contentItems: [{ type: 'inputText', text: 'The host will execute this tool call.' }], success: true })
         void server.call('turn/interrupt', { threadId, turnId }).catch(() => {})
       } else if (message.method === 'turn/completed' && currentTurn) {
+        const turn = params.turn as { status?: string; error?: unknown }
+        if (turn.status === 'failed' || turn.error != null) { queue.close(codexTurnError(turn.error)); return }
+        if (turn.status === 'interrupted' && !toolCall) { queue.close(new ModelHostError('CANCELLED', 'Codex turn was interrupted.')); return }
+        if (turn.status !== 'completed' && turn.status !== 'interrupted') { queue.close(new ModelHostError('UPSTREAM_CHANGED', 'Codex returned an unexpected completed-turn status.')); return }
+        if (!toolCall && text.trim() === '') { queue.close(new ModelHostError('EMPTY_RESPONSE', 'Codex completed the turn without answer text.')); return }
         if (text !== '') queue.push({ type: 'text-end', index: 0, text })
         if (reasoning !== '') queue.push({ type: 'reasoning-end', index: 1, text: reasoning })
         queue.push({ type: 'finish', reason: toolCall ? 'tool-calls' : request.signal?.aborted ? 'cancelled' : 'stop' })

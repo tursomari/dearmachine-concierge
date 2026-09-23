@@ -70,3 +70,40 @@ it('also refuses role and parameter edits made after migration', async () => {
     expect(await readFile(f.path, 'utf8')).toBe(customized)
   }
 })
+
+
+it('migrates the indented config-import layout and home-relative profile from the published installation', async () => {
+  const f = await fixture()
+  const imported = `answer_model = "dearmachine"
+default_model = "dearmachine"
+file_discovery_model = "dearmachine"
+shell_agent_model = "dearmachine"
+
+[models]
+  [models.dearmachine]
+    context_length = 131072
+    model = "legacy"
+    provider = "dearmachine-host"
+    [models.dearmachine.params]
+      [models.dearmachine.params.reasoning]
+        effort = "high"
+  [models.personal]
+    model = "untouched"
+    provider = "personal"
+
+[providers]
+  [providers.dearmachine-host]
+    command = "fixture-model-host"
+    profile = "~/.config/machtiani/model-profile.json"
+    transport = "model-host"
+`
+  await writeFile(f.path, imported)
+  await upgradeManagedModelConfig(f.home, f.profile)
+  const next = await readFile(f.path, 'utf8')
+  expect(next).toContain('shell_agent_model = "dearmachine-shell-agent"')
+  for (const component of ['planner', 'shell-agent', 'sync']) expect(next).toContain(`model = "@machtiani/${component}"`)
+  expect(next).not.toContain('effort = "high"')
+  expect(next).toContain('  [models.personal]\n    model = "untouched"\n    provider = "personal"')
+  await upgradeManagedModelConfig(f.home, f.profile)
+  expect(await readFile(f.path, 'utf8')).toBe(next)
+})

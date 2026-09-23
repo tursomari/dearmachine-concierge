@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
@@ -405,4 +405,46 @@ it('resolves generated component selectors on the wire and keeps explicit per-ru
   input.end()
   try { await serving } finally { generate.mockRestore() }
   expect(observed).toEqual([{ model: 'default', reasoning: 'high' }, { model: 'shell', reasoning: 'low' }, { model: 'sync', reasoning: 'medium' }, { model: 'cli-model', reasoning: 'low' }])
+})
+
+
+it('reloads every saved component selection between requests in the same host and after reopening', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'model-reload-'))
+  const profilePath = join(root, 'profile.json')
+  const base = { version: 1 as const, driver: 'openai-codex-app-server', provider: 'openai-codex', authMethod: 'subscription' as const, model: 'default', reasoningEffort: 'high', runtimeProfile: '/fixture' }
+  const components = ['concierge', 'planner', 'shell-agent', 'sync'] as const
+  const observed: string[] = []
+  const generate = vi.spyOn(ModelHost.prototype, 'generate').mockImplementation(async function* (this: ModelHost, request) {
+    observed.push(`${request.model ?? this.profile.model}:${request.reasoningEffort ?? this.profile.reasoningEffort}`)
+    yield { type: 'finish' as const, reason: 'stop' as const }
+  })
+  const save = async (model: string) => saveModelHostProfile(profilePath, { ...base, selectionVersion: 1,
+    overrides: Object.fromEntries(components.map(component => [component, { ...base, model: `${component}-${model}` }])) })
+  const session = async (change: boolean) => {
+    const input = new PassThrough()
+    const output = new PassThrough()
+    let reply: (() => void) | undefined
+    output.setEncoding('utf8').on('data', chunk => {
+      if (JSON.parse(String(chunk)).result?.completed) reply?.()
+    })
+    const serving = serveModelHost(profilePath, input, output)
+    try {
+      for (const model of change ? ['A', 'B'] : ['B']) {
+        if (change) await save(model)
+        for (const component of components) {
+          await new Promise<void>(resolve => {
+            reply = resolve
+            input.write(JSON.stringify({ v: 1, id: `${component}-${model}`, method: 'generation/start', params: {
+              caller: 'machtiani', sessionId: 'reload', model: `@machtiani/${component}`, messages: [],
+            } }) + '\n')
+          })
+        }
+      }
+    } finally { input.end(); await serving }
+  }
+  try {
+    await session(true)
+    await session(false)
+    expect(observed).toEqual(['A', 'B', 'B'].flatMap(model => components.map(component => `${component}-${model}:high`)))
+  } finally { generate.mockRestore(); await rm(root, { recursive: true, force: true }) }
 })

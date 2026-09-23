@@ -29,6 +29,14 @@ function generation(messages: ModelHostGenerateRequest['messages']): ModelHostGe
 }
 
 describe('Codex startup diagnostics', () => {
+  it('identifies incompatible runtime state without exposing private diagnostics', () => {
+    const error = codexStartupError('Error: failed to initialize sqlite state runtime under /private/host/.codex: private detail')
+    expect(error).toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })
+    expect(error.message).toContain('different Codex versions')
+    expect(error.message).toContain('/model')
+    expect(error.message).not.toContain('/private/host')
+  })
+
   it('reports an incomplete native installation without exposing launcher diagnostics', () => {
     const error = codexStartupError('private diagnostic\nError: Missing optional dependency @openai/codex-win32-x64. Reinstall Codex: npm install -g @openai/codex@latest\n at C:\\private\\profile\nNode.js v24.19.0')
     expect(error).toMatchObject({ code: 'RUNTIME_UNAVAILABLE' })

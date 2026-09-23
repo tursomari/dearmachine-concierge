@@ -65,3 +65,17 @@ retains its existing custom-provider compatibility check.
 
 The extension and generated selectors require the coordinated updated model-host
 runtime. This is an upgrade migration, not a downgrade converter for older runtimes.
+
+## OpenAI subscription runtime state
+
+Machtiani's bundled Codex runtime uses `~/.config/machtiani/codex` by default,
+separate from the standalone Codex CLI's `~/.codex`. Sign in once for Machtiani;
+its installer, concierge, and model components reuse that private profile.
+An ambient `CODEX_HOME` does not select the bundled runtime's profile.
+`MACHTIANI_CODEX_HOME` may explicitly select another private Machtiani profile.
+Do not point it at a standalone CLI profile maintained by a different version.
+
+Existing selections retain their saved runtime path until reconfigured. If an
+older selection shared the default standalone profile and startup fails, use
+`/model` to reconfigure OpenAI. This selects the private Machtiani profile and
+requires a separate sign-in; it does not copy credentials or remove host state.

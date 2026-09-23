@@ -179,6 +179,9 @@ export interface CodexAppServerPort {
 }
 
 export function codexStartupError(stderr: string, cause?: Error): Error {
+  if (/failed to initialize (?:sqlite )?state runtime/iu.test(stderr)) {
+    return new ModelHostError('RUNTIME_UNAVAILABLE', 'The bundled OpenAI runtime could not open its local state. This can happen when different Codex versions share a profile. Reconfigure OpenAI through /model to use a separate Machtiani sign-in. Do not delete your standalone Codex data.')
+  }
   if (/Missing optional dependency @openai\/codex-[a-z0-9-]+/u.test(stderr)) {
     return new ModelHostError('RUNTIME_UNAVAILABLE', 'The installed OpenAI sign-in runtime is incomplete. Repair or reinstall Dear Machine, then try signing in again.')
   }

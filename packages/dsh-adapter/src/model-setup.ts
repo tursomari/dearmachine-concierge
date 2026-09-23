@@ -240,7 +240,7 @@ export class InstallerModelSetup {
     const subscription = subscriptionProviders(this.environment).find(provider => provider.id === selection.provider)
     if (subscription === undefined) throw new Error(`unsupported shared model provider: ${selection.provider}`)
     const runtimeProfile = selection.provider === 'openai-codex'
-      ? (this.environment.CODEX_HOME ?? join(this.home, '.codex'))
+      ? (this.environment.MACHTIANI_CODEX_HOME ?? join(this.home, '.config', 'machtiani', 'codex'))
       : selection.provider === 'github-copilot'
         ? (this.environment.COPILOT_HOME ?? join(this.home, '.copilot'))
         : (this.environment.CLAUDE_CONFIG_DIR ?? join(this.home, '.config', 'machtiani', 'claude'))

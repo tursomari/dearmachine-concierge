@@ -111,8 +111,13 @@ export async function changeAssistantModel(tui: WizardTui, options: {
     }
     const environment = { ...(options.environment ?? process.env) }
     if (current?.runtimeProfile !== undefined) {
-      const variable = { 'openai-codex': 'CODEX_HOME', 'anthropic-claude': 'CLAUDE_CONFIG_DIR', 'github-copilot': 'COPILOT_HOME' }[current.provider]
-      if (variable !== undefined) environment[variable] = current.runtimeProfile
+      const variable = { 'openai-codex': 'MACHTIANI_CODEX_HOME', 'anthropic-claude': 'CLAUDE_CONFIG_DIR', 'github-copilot': 'COPILOT_HOME' }[current.provider]
+      // Older profiles shared the standalone CLI's database. Reconfiguration
+      // moves those profiles to Machtiani's private runtime without touching it.
+      if (variable !== undefined && !(current.provider === 'openai-codex' &&
+          (current.runtimeProfile === join(home, '.codex') || current.runtimeProfile === environment.CODEX_HOME))) {
+        environment[variable] = current.runtimeProfile
+      }
     }
     setup = await InstallerModelSetup.open(stage, environment, { credentialPath, home })
     if (current !== undefined) await saveInstallerModelSelection(stage, current)

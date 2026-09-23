@@ -143,10 +143,10 @@ describe('pinned DSH compatibility boundary', () => {
   it('builds official-runtime profiles without copying subscription credentials', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-dsh-subscription-'))
     const home = join(root, 'home')
-    const setup = await InstallerModelSetup.open(join(root, 'dsh'), { HOME: home }, { home })
+    const setup = await InstallerModelSetup.open(join(root, 'dsh'), { HOME: home, CODEX_HOME: join(home, 'standalone-codex') }, { home })
     expect(setup.profileFor({ provider: 'openai-codex', model: 'gpt-test', reasoningEffort: 'high' })).toEqual({
       version: 1, driver: 'openai-codex-app-server', provider: 'openai-codex', authMethod: 'subscription',
-      model: 'gpt-test', reasoningEffort: 'high', runtimeProfile: join(home, '.codex'),
+      model: 'gpt-test', reasoningEffort: 'high', runtimeProfile: join(home, '.config', 'machtiani', 'codex'),
     })
     expect(setup.profileFor({ provider: 'github-copilot', model: 'copilot-test' })).toEqual({
       version: 1, driver: 'github-copilot-sdk', provider: 'github-copilot', authMethod: 'subscription',

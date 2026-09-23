@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { InstallerModelSetup } from '@dearmachine/machtiani-installer-dsh-adapter'
@@ -173,4 +173,25 @@ it('does not treat unsafe legacy profile permissions as recoverable metadata', a
   expect(tui.messages.join('\n')).toContain('Existing settings were kept')
   expect(await readFile(sharedModelPath(options.home), 'utf8')).toBe(before)
   expect(await readFile(assistantModelPath(options.home), 'utf8')).toBe('invalid')
+})
+
+
+it.each(['default home', 'ambient home'])('isolates legacy Codex %s on reconfiguration without changing its data', async kind => {
+  const options = await fixture()
+  const runtimeProfile = join(options.home, kind === 'default home' ? '.codex' : 'standalone-codex')
+  await mkdir(runtimeProfile)
+  const database = join(runtimeProfile, 'state.sqlite')
+  await writeFile(database, 'standalone state must stay untouched')
+  await saveModelHostProfile(assistantModelPath(options.home), {
+    version: 1, driver: 'openai-codex-app-server', provider: 'openai-codex', authMethod: 'subscription',
+    model: 'first-model', runtimeProfile,
+  })
+  vi.spyOn(InstallerModelSetup.prototype, 'isAuthenticated').mockResolvedValue(true)
+  await changeAssistantModel(interaction(['concierge', 'override', 'openai-codex', 'second-model', 'high']),
+    { ...options, environment: { CODEX_HOME: runtimeProfile } })
+  expect(await loadAssistantModel(options.home)).toMatchObject({
+    provider: 'openai-codex', model: 'second-model', reasoningEffort: 'high',
+    runtimeProfile: join(options.home, '.config', 'machtiani', 'codex'),
+  })
+  expect(await readFile(database, 'utf8')).toBe('standalone state must stay untouched')
 })

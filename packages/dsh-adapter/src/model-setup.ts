@@ -207,6 +207,12 @@ export class InstallerModelSetup {
     }), signal)
   }
 
+  /** Recheck a saved endpoint using its private credential reference, without rewriting credentials. */
+  async verifySavedCustomProvider(selection: InstallerModelSelection, signal?: AbortSignal): Promise<void> {
+    if (selection.customProvider === undefined) throw new Error('custom provider settings are missing')
+    await verifyCustomOpenAIProfile(this.profileFor(selection), signal)
+  }
+
   profileFor(selection: InstallerModelSelection): ModelHostProfile {
     if (selection.provider === CUSTOM_OPENAI_REMOTE_PROVIDER || selection.provider === CUSTOM_OPENAI_LOCAL_PROVIDER) {
       const definition = API_KEY_PROVIDERS.find(provider => provider.id === selection.provider)!

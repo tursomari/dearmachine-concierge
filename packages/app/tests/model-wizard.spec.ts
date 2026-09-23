@@ -2,6 +2,7 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { saveInstallerModelSelection } from '@dearmachine/machtiani-installer-dsh-adapter'
 import type {
   InstallerAuthInteraction,
   InstallerAuthMethodId,
@@ -126,6 +127,54 @@ describe('installer model setup wizard', () => {
     expect(tui.messages).toContain('I’ll use https://models.example/v1/chat/completions.')
     expect(JSON.stringify(tui.messages)).not.toContain('wizard-private-value')
     expect(JSON.parse(await readFile(join(root, 'installer-model.json'), 'utf8'))).toEqual(selection)
+  })
+
+  it.each([false, true])('resumes saved custom settings without asking for a key (retry=%s)', async retry => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-resume-'))
+    const stored = {
+      provider: 'custom-openai-remote', model: 'saved-model', reasoningEffort: 'high',
+      customProvider: {
+        kind: 'openai-compatible' as const, scope: 'remote' as const, name: 'Saved provider',
+        usesApiKey: true, chatCompletionsEndpoint: 'https://models.example/v1/chat/completions',
+      },
+    }
+    await saveInstallerModelSelection(root, stored)
+    let attempts = 0
+    const setup = {
+      dshHome: root,
+      providers: () => [{ id: stored.provider, name: 'Custom', authMethods: [], customScope: 'remote' as const }],
+      modelsFor: async () => [], isAuthenticated: async () => false, authenticate: async () => {},
+      verifySavedCustomProvider: async (selection: unknown) => {
+        expect(selection).toEqual(stored)
+        attempts++
+        if (retry && attempts === 1) throw new Error('Provider temporarily unavailable')
+      },
+    }
+    const tui = new ScriptedTui([stored.provider, 'reuse', ...(retry ? ['reuse'] : [])])
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toEqual(stored)
+    expect(tui.secretAttempts).toBe(0)
+    expect(attempts).toBe(retry ? 2 : 1)
+    expect(JSON.parse(await readFile(join(root, 'installer-model.json'), 'utf8'))).toEqual(stored)
+  })
+
+  it('lets a returning custom-provider user change models instead of reusing settings', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-model-resume-edit-'))
+    await saveInstallerModelSelection(root, {
+      provider: 'custom-openai-local', model: 'old',
+      customProvider: {
+        kind: 'openai-compatible', scope: 'local', name: 'Local', usesApiKey: false,
+        chatCompletionsEndpoint: 'http://localhost:11434/v1/chat/completions',
+      },
+    })
+    const setup = {
+      dshHome: root,
+      providers: () => [{ id: 'custom-openai-local', name: 'Custom', authMethods: [], customScope: 'local' as const }],
+      modelsFor: async () => [], isAuthenticated: async () => false, authenticate: async () => {},
+      verifySavedCustomProvider: async () => { throw new Error('must not check old settings') },
+      verifyCustomProvider: async () => {},
+    }
+    const tui = new ScriptedTui(['custom-openai-local', 'edit', 'Local', 'localhost:11434', 'new', 'no', 'high'])
+    await expect(runInstallerModelWizard(tui as never, setup)).resolves.toMatchObject({ model: 'new', reasoningEffort: 'high' })
   })
 
   it('supports a keyless loopback provider and retries a failed live test', async () => {

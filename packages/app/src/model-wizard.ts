@@ -21,7 +21,7 @@ export type WizardTui = Pick<InstallerTui,
   | 'setProgress'
 >
 type WizardSetup = Pick<InstallerModelSetup, 'authenticate' | 'dshHome' | 'isAuthenticated' | 'modelsFor' | 'providers'> &
-  Partial<Pick<InstallerModelSetup, 'verifyCustomProvider' | 'prepareCustomProvider'>>
+  Partial<Pick<InstallerModelSetup, 'verifyCustomProvider' | 'prepareCustomProvider' | 'verifySavedCustomProvider'>>
 
 class SignInCodeCancelledError extends Error {
   constructor() {
@@ -172,6 +172,30 @@ async function runCustomProviderWizard(
   assistantOnly: boolean,
 ): Promise<InstallerModelSelection> {
   let previous = stored?.provider === providerId ? stored : undefined
+  if (!assistantOnly && previous?.customProvider !== undefined && setup.verifySavedCustomProvider !== undefined) {
+    while (true) {
+      const choice = await tui.choose(
+        'Use your saved custom provider settings?',
+        [
+          { value: 'reuse', label: 'Use saved settings', description: `${previous.customProvider.name} — ${previous.model}${previous.reasoningEffort ? ` — ${previous.reasoningEffort} reasoning` : ''}` },
+          { value: 'edit', label: 'Change settings', description: 'Choose a different endpoint, model, or API key' },
+        ],
+        'reuse',
+      )
+      if (choice === 'edit') break
+      const controller = new AbortController()
+      const cancellation = tui.beginCancellationScope(() => { controller.abort() })
+      try {
+        tui.setProgress('Checking the saved custom provider')
+        await setup.verifySavedCustomProvider(previous, controller.signal)
+        tui.addAssistant('Your saved provider settings and private credentials are ready.')
+        return previous
+      } catch (error) {
+        tui.addAssistant(controller.signal.aborted ? 'The compatibility test was cancelled.' :
+          error instanceof Error ? error.message : 'The saved provider could not be verified.')
+      } finally { tui.setProgress(undefined); cancellation.close() }
+    }
+  }
   while (true) {
     const name = await customValue(tui, `What should I call this ${scope} provider?`, 'Provider name')
     const chatCompletionsEndpoint = await customEndpoint(tui, scope)

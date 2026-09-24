@@ -91,6 +91,8 @@ export function localHelpForPlatform(platform: NodeJS.Platform = process.platfor
 }
 export const localHelp = localHelpForPlatform()
 
+const externalOwnerAdvice = 'Ownership: another foreground session or service\nRecovery: Inspect the existing process or service. To switch supervision, stop that owner, then run dearmachine up.\n'
+
 export function formatDaemonStatus(status: DaemonStatus): string {
   const recovery = {
     running: 'active — retries if Dear Machine exits unexpectedly',
@@ -108,6 +110,7 @@ export function formatDaemonStatus(status: DaemonStatus): string {
   // The legacy socket persistence flag cannot distinguish observed startup
   // configuration from saved permission. Never use it to infer these fields.
   return `Installation: ${status.installation}\nDear Machine: ${status.daemon}\nSupervisor: ${status.supervisor}\nCrash recovery: ${recovery}\n` +
+    (status.externalOwner ? externalOwnerAdvice : '') +
     `Closing this chat: ${chat}\nAfter account logout: not verified — session/service lifetime not assessed\n` +
     'Managed startup at login: cannot verify\nManaged startup after reboot (before login): cannot verify\n' +
     'Reason: detailed native status unavailable; run dearmachine status\n' +
@@ -136,6 +139,7 @@ export async function executeDaemonCommand(control: DaemonControl, command: Daem
     if (command === 'status') {
       return { code: ['failed', 'unreachable'].includes(status.supervisor) || status.daemon === 'unknown' || ['partial', 'unreadable'].includes(status.installation) ? 1 : 0, message: await readDaemonStatusReport(control, status) }
     }
+    if (status.externalOwner) return { code: 1, message: externalOwnerAdvice.trim() }
     if (status.installation !== 'installed') {
       return { code: 1, message: 'No verified installation is available. Use the installer for an absent installation; inspect existing state with dearmachine status before recovery. No change was requested.' }
     }

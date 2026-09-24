@@ -25,7 +25,11 @@ by a newline. Status contains:
   `failed`, or `unreachable`;
 - `daemon`: `running`, `stopped`, or `unknown`;
 - `persistence`: `enabled`, `disabled`, or `unknown`;
-- optional `retryInMs` (nonnegative integer) and `lastExit` (string).
+- optional `retryInMs` (nonnegative integer) and `lastExit` (string);
+- optional `externalOwner` (boolean), a native CLI observation of another
+  foreground or service owner. The concierge preserves its recovery explanation
+  and refuses lifecycle mutations through a different supervisor. This field
+  grants no authority to signal a PID or take ownership.
 
 A mutation response must reflect observed state. An explicit stop must cancel
 pending automatic restarts before reporting `supervisor: stopped`. An `ok`

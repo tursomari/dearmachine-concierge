@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import * as pty from 'node-pty'
@@ -175,6 +175,44 @@ setInterval(() => {}, 1000);
     expect(await readFile(join(root, 'run', 'supervisor.lock'), 'utf8')).toBe(record)
     expect(await readFile(join(root, 'run', 'launches'), 'utf8')).toBe(launchRecord)
     await expect(control.request('status')).rejects.toThrow()
+  })
+
+  it.each([false, true])('explains an external owner without taking it over (stale record: %s)', async staleRecord => {
+    const { home, env } = await fixture()
+    const root = join(home, '.dearmachine')
+    const run = join(root, 'run')
+    await mkdir(run, { recursive: true, mode: 0o700 })
+    const inbox = randomUUID()
+    await writeFile(join(root, 'pairs.toml'), `version = 2\n[[inboxes]]\nid = "${inbox}"\ntransport = "agentmail"\nprovider_id = "fixture"\naddress = "machine@example.test"\n[[pairs]]\nid = "${randomUUID()}"\nuser_email = "user@example.test"\ninbox_id = "${inbox}"\n`, { mode: 0o600 })
+    // A live process holds the actual POSIX daemon lock. No provider is involved.
+    const owner = spawn('python3', ['-c', `
+import fcntl, os, signal, sys
+with open(sys.argv[1], 'w') as lock:
+    os.chmod(sys.argv[1], 0o600)
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    lock.write(str(os.getpid()))
+    lock.flush()
+    signal.pause()
+`, join(run, 'dearmachine.pid')], { env, stdio: 'ignore' })
+    cleanups.push(() => stop(owner))
+    await expect.poll(async () => readFile(join(run, 'dearmachine.pid'), 'utf8')).toBe(String(owner.pid))
+    if (staleRecord) await writeFile(join(run, 'supervisor.lock'), '', { mode: 0o600 })
+    const before = (await readdir(run)).sort()
+    const result = await terminal(env, [
+      { prompt: 'Use /help', input: '/status\r' },
+      { prompt: 'then run dearmachine up.', input: '/up\r' },
+      { prompt: 'then run dearmachine up.', input: '/down\r' },
+      { prompt: 'then run dearmachine up.', input: '/restart\r' },
+      { prompt: 'then run dearmachine up.', input: '/quit\r' },
+    ])
+    expect(result.code, result.output).toBe(0)
+    expect(result.output).toContain('Ownership: another foreground session or service')
+    expect(result.output).not.toContain('Bootstrapping')
+    expect(result.output).not.toContain('Would you like to continue')
+    expect(owner.exitCode).toBeNull()
+    expect(owner.signalCode).toBeNull()
+    expect(await readFile(join(run, 'dearmachine.pid'), 'utf8')).toBe(String(owner.pid))
+    expect((await readdir(run)).sort()).toEqual(before)
   })
   it('keeps actual incomplete setup in recovery without a supervisor', async () => {
     const { home, env } = await fixture()

@@ -10,6 +10,8 @@ export interface DaemonStatus {
   supervisor: 'starting' | 'running' | 'backing-off' | 'stopping' | 'stopped' | 'failed' | 'unreachable'
   daemon: 'running' | 'stopped' | 'unknown'
   persistence: 'enabled' | 'disabled' | 'unknown'
+  /** Another foreground session or service owns the daemon; no takeover authority. */
+  externalOwner?: boolean
   retryInMs?: number
   lastExit?: string
 }
@@ -31,6 +33,7 @@ function isStatus(value: unknown): value is DaemonStatus {
     ['running', 'stopped', 'unknown'].includes(String(state.daemon)) &&
     ['enabled', 'disabled', 'unknown'].includes(String(state.persistence)) &&
     (state.retryInMs === undefined || (typeof state.retryInMs === 'number' && Number.isSafeInteger(state.retryInMs) && state.retryInMs >= 0)) &&
+    (state.externalOwner === undefined || typeof state.externalOwner === 'boolean') &&
     (state.lastExit === undefined || typeof state.lastExit === 'string')
 }
 
@@ -197,7 +200,7 @@ export function nativeStatus(environment: NodeJS.ProcessEnv = process.env): Prom
 export function summarizeNativeStatusReport(output: string): string {
   const labels = ['Dear Machine:', 'Supervisor:', 'Crash recovery:', 'Next retry:', 'Closing this chat:',
     'After account logout:', 'Managed startup at login:', 'Managed startup after reboot (before login):',
-    'Reason:', 'Scope:']
+    'Reason:', 'Scope:', 'Ownership:', 'Recovery:']
   const fields = new Map<string, string>()
   for (const line of output.split('\n')) {
     const text = line.trim()
@@ -209,7 +212,7 @@ export function summarizeNativeStatusReport(output: string): string {
     if (label === 'Next retry:' && !/^Next retry: \d+ seconds$/u.test(text)) throw new Error('Invalid native retry interval.')
     fields.set(label, text)
   }
-  if (labels.some(label => label !== 'Next retry:' && !fields.has(label))) throw new Error('Native lifecycle report unavailable.')
+  if (labels.some(label => !['Next retry:', 'Ownership:', 'Recovery:'].includes(label) && !fields.has(label))) throw new Error('Native lifecycle report unavailable.')
   return labels.filter(label => fields.has(label)).map(label => fields.get(label)!).join('\n')
 }
 

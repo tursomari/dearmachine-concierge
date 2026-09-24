@@ -1,7 +1,7 @@
 import { execFile, type ChildProcess } from 'node:child_process'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defaultConciergeControl, nativeStatus, nativeStatusReport, summarizeNativeStatusReport, type DaemonStatus } from '../src/concierge-control.ts'
-import { ConciergeShell, formatDaemonStatus, readDaemonStatusReport } from '../src/concierge-shell.ts'
+import { ConciergeShell, executeDaemonCommand, formatDaemonStatus, readDaemonStatusReport } from '../src/concierge-shell.ts'
 
 vi.mock('node:child_process', () => ({ execFile: vi.fn() }))
 const running: DaemonStatus = { installation: 'installed', daemon: 'running', supervisor: 'running', persistence: 'unknown' }
@@ -157,5 +157,39 @@ describe('independent native installation observation', () => {
     await expect(defaultConciergeControl(custom).request('status')).rejects.toThrow()
     await expect(nativeStatus(custom)).rejects.toThrow()
     expect(execFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('external foreground or service ownership', () => {
+  it('preserves native ownership and recovery guidance in the lifecycle summary', () => {
+    const advice = 'Ownership: another foreground session or service\nRecovery: Inspect the existing process or service. To switch supervision, stop that owner, then run dearmachine up.'
+    expect(summarizeNativeStatusReport(report + advice + '\n')).toContain(advice)
+  })
+  const external = { ...running, supervisor: 'unreachable' as const, daemon: 'unknown' as const, externalOwner: true }
+  it('keeps the ownership explanation when the native text report fails', async () => {
+    const control = { request: vi.fn(), readStatusReport: vi.fn().mockRejectedValue(new Error('private stderr')) }
+    const result = await readDaemonStatusReport(control, external)
+    expect(result).toContain('Ownership: another foreground session or service')
+    expect(result).toContain('Inspect the existing process or service')
+    expect(result).not.toContain('private stderr')
+    expect(result).not.toContain('leaves Dear Machine stopped')
+    expect(control.request).not.toHaveBeenCalled()
+  })
+  it.each(['up', 'down', 'restart'] as const)('explains %s refusal without a mutation or bootstrap attempt', async command => {
+    const control = { request: vi.fn().mockResolvedValue(external), bootstrapUp: vi.fn() }
+    const result = await executeDaemonCommand(control, command)
+    expect(result.code).toBe(1)
+    expect(result.message).toContain('Inspect the existing process or service')
+    expect(control.request).toHaveBeenCalledExactlyOnceWith('status')
+    expect(control.bootstrapUp).not.toHaveBeenCalled()
+  })
+  it('rejects malformed ownership observations without exposing their contents', async () => {
+    vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+      const done = args.at(-1) as (error: Error | null, stdout: string, stderr: string) => void
+      done(null, JSON.stringify({ version: 1, ok: true, status: { ...external, externalOwner: 'private text' } }), '')
+      return {} as ChildProcess
+    })
+    await expect(nativeStatus({ HOME: '/fixture/home', DEARMACHINE_NATIVE_BIN: '/fixture/dearmachine' }))
+      .rejects.toThrow('Native installation and runtime status unavailable.')
   })
 })

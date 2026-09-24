@@ -245,12 +245,6 @@ async function runCustomProviderWizard(
         usesApiKey,
       },
     }
-    if (assistantOnly) {
-      if (setup.prepareCustomProvider === undefined) throw new Error('Custom provider setup is unavailable.')
-      await setup.prepareCustomProvider(selection, apiKey)
-      await saveInstallerModelSelection(setup.dshHome, selection)
-      return selection
-    }
     tui.addAssistant('I’ll send a tiny live request now to verify streaming, tool calling, and continuation after a tool result. This confirms the configuration works now; it cannot guarantee the provider will never change.')
     while (true) {
       const controller = new AbortController()
@@ -261,12 +255,14 @@ async function runCustomProviderWizard(
         await setup.verifyCustomProvider(selection, apiKey, controller.signal)
         tui.setProgress(undefined)
         await saveInstallerModelSelection(setup.dshHome, selection)
+        if (assistantOnly) tui.addAssistant('Compatibility test passed: streaming, tool calling, and continuation after a tool result worked.')
         if (!assistantOnly) tui.addAssistant(`Ready. The installation assistant and Machtiani will use ${name} — ${model}${reasoning === 'default' ? '' : ` — ${reasoning} reasoning`}.`)
         return selection
       } catch (error) {
         tui.setProgress(undefined)
         if (controller.signal.aborted) tui.addAssistant('The compatibility test was cancelled.')
         else tui.addAssistant(error instanceof Error ? error.message : 'The compatibility test failed.')
+        if (assistantOnly) tui.addAssistant('The model change has not been saved. Your previous selection is unchanged. Edit the provider settings to correct the endpoint, model name, or key, or retry if the failure was temporary. Press Escape to return to provider selection.')
       } finally { cancellation.close() }
       const next = await tui.choose(
         'What would you like to do?',

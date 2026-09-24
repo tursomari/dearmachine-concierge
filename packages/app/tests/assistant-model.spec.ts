@@ -195,3 +195,37 @@ it.each(['default home', 'ambient home'])('isolates legacy Codex %s on reconfigu
   })
   expect(await readFile(database, 'utf8')).toBe('standalone state must stay untouched')
 })
+
+
+it('keeps active custom credentials and settings when a failed compatibility test is cancelled', async () => {
+  const options = await fixture()
+  await writeApiKeyCredential(options.credentials, 'custom-openai-remote', 'previous-custom-key')
+  await saveModelHostProfile(sharedModelPath(options.home), {
+    version: 1, driver: 'openai-compatible', provider: 'custom-openai-remote', authMethod: 'optional_api_key', model: 'working-model',
+    customProvider: { kind: 'openai-compatible', scope: 'remote', name: 'Existing', usesApiKey: true,
+      chatCompletionsEndpoint: 'https://provider.example/v1/chat/completions' },
+    credential: { kind: 'environment-file', path: options.credentials, variable: 'MACHTIANI_CUSTOM_OPENAI_REMOTE_API_KEY' },
+  })
+  const before = await readFile(sharedModelPath(options.home), 'utf8')
+  const credentialsBefore = await readFile(options.credentials, 'utf8')
+  const verify = vi.spyOn(InstallerModelSetup.prototype, 'verifyCustomProvider').mockImplementation(async function(this: InstallerModelSetup, selection, key) {
+    await this.prepareCustomProvider(selection, key)
+    expect(await readFile(sharedModelPath(options.home), 'utf8')).toBe(before)
+    expect(await readFile(options.credentials, 'utf8')).toBe(credentialsBefore)
+    throw new Error('The endpoint did not accept that model name.')
+  })
+  const tui = interaction([
+    'shell-agent', 'override', 'custom-openai-remote', 'Replacement', 'https://provider.example/v1',
+    'missing-model', 'yes', 'default', new InstallerChoiceBackError(), new InstallerChoiceBackError(),
+  ])
+  await changeAssistantModel(tui, options)
+  expect(verify).toHaveBeenCalledOnce()
+  expect(await readFile(sharedModelPath(options.home), 'utf8')).toBe(before)
+  expect(await readFile(options.credentials, 'utf8')).toBe(credentialsBefore)
+  expect(await readdir(join(options.home, '.config', 'dearmachine', 'assistant-models'))).toEqual([])
+  expect(tui.messages.join('\n')).toContain('The model change has not been saved')
+  expect(tui.messages.join('\n')).toContain('Edit the provider settings')
+  expect(tui.messages.join('\n')).toContain('Model change cancelled')
+  expect(tui.messages.join('\n')).not.toContain('fixture-replacement-key')
+  expect(tui.messages.join('\n')).not.toContain('previous-custom-key')
+})

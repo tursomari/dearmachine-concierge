@@ -191,6 +191,32 @@ describe('shared model host profile', () => {
     expect(requests).toBe(1)
   })
 
+  it.each([
+    [404, 'Model not found', 'MODEL_UNAVAILABLE', 'did not accept that model name'],
+    [401, 'Invalid API key', 'AUTH_REQUIRED', 'rejected the API key'],
+    [429, 'Rate limit exceeded', 'RATE_LIMITED', 'rate-limited'],
+  ] as const)('preserves the actionable compatibility error for HTTP %s', async (status, message, code, detail) => {
+    const server = createServer((_request, response) => {
+      response.writeHead(status, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ error: { message: message + ' private-response-detail' } }))
+    })
+    await new Promise<void>(resolve => { server.listen(0, '127.0.0.1', resolve) })
+    try {
+      const address = server.address()
+      if (address === null || typeof address === 'string') throw new Error('test server did not bind')
+      await expect(verifyCustomOpenAIProfile({
+        version: 1, driver: 'openai-compatible', provider: 'custom-openai-local', authMethod: 'optional_api_key', model: 'test-model',
+        customProvider: {
+          kind: 'openai-compatible', scope: 'local', name: 'Error test', usesApiKey: false,
+          chatCompletionsEndpoint: 'http://127.0.0.1:' + address.port + '/v1/chat/completions',
+        },
+      })).rejects.toMatchObject({ code, message: expect.stringContaining(detail) })
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  })
+
   it('stores one private credential reference without embedding the key', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-model-host-'))
     const credentials = join(root, 'config', 'dearmachine', 'backends.env')

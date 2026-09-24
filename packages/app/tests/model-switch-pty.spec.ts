@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import * as pty from 'node-pty'
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
-import { assistantModelPath, sharedModelPath } from '../src/assistant-model.ts'
+import { ensureAssistantModel, sharedModelPath } from '../src/assistant-model.ts'
 
-it('switches a real concierge through /model, preserves history, and cancels from the provider menu', async () => {
+it('rejects an invalid custom model, retries, corrects it, and preserves concierge history', async () => {
   const home = await mkdtemp(join(tmpdir(), 'model-pty-'))
   const requests: Array<{ model: string; messages: Array<{ role: string; content: unknown }> }> = []
   const server = createServer(async (request, response) => {
@@ -15,6 +15,11 @@ it('switches a real concierge through /model, preserves history, and cancels fro
     for await (const chunk of request) body += chunk
     const wire = JSON.parse(body)
     requests.push(wire)
+    if (wire.model === 'missing-model') {
+      response.writeHead(404, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ error: { message: 'Model not found', type: 'invalid_request_error', code: 'model_not_found' } }))
+      return
+    }
     // The custom-provider wizard requires one tool round trip before committing.
     const probe = JSON.stringify(wire.messages).includes('compatibility_echo')
     const tool = probe && !wire.messages.some((message: { role: string }) => message.role === 'tool')
@@ -35,6 +40,7 @@ it('switches a real concierge through /model, preserves history, and cancels fro
       customProvider: { kind: 'openai-compatible', scope: 'local', name: 'Fixture', usesApiKey: false,
         chatCompletionsEndpoint: `http://127.0.0.1:${port}/v1/chat/completions` },
     })
+    await ensureAssistantModel(home)
     const shared = await readFile(sharedModelPath(home), 'utf8')
     child = pty.spawn(process.execPath, [resolve('packages/app/dist/bin.mjs')], {
       cols: 160, rows: 50, cwd: home,
@@ -57,10 +63,27 @@ it('switches a real concierge through /model, preserves history, and cancels fro
     await answer('Choose the AI service', 'Custom OpenAI-compatible provider (local)\r')
     await answer('What should I call', 'Fixture\r')
     await answer('What local URL', `http://127.0.0.1:${port}\r`)
+    await answer('What exact model name', 'missing-model\r')
+    await answer('Does this endpoint require', 'No\r')
+    await answer('Should the assistant send', '\r')
+    await waitFor('What would you like to do?')
+    expect(output).toContain('The endpoint did not accept that model name')
+    expect(output).toContain('Your previous selection is unchanged')
+    expect(output).not.toContain('saved:')
+    expect(await readFile(sharedModelPath(home), 'utf8')).toBe(shared)
+    child.write('Try the test again\r')
+    await waitFor('What would you like to do?')
+    expect(requests.filter(request => request.model === 'missing-model')).toHaveLength(2)
+    expect(await readFile(sharedModelPath(home), 'utf8')).toBe(shared)
+    child.write('Edit provider settings\r')
+    await answer('What should I call', 'Fixture\r')
+    await answer('What local URL', 'http://127.0.0.1:' + port + '\r')
     await answer('What exact model name', 'after\r')
     await answer('Does this endpoint require', 'No\r')
     await answer('Should the assistant send', '\r')
     await answer('saved:', 'Continue HISTORY_MARKER.\r')
+    expect(output).toContain('Compatibility test passed')
+    expect(requests.filter(request => request.model === 'after' && JSON.stringify(request.messages).includes('compatibility_echo'))).toHaveLength(2)
     await answer('ANSWER_after', '/model\r')
     await answer('Change Default', 'Concierge\r')
     await answer('Choose override', 'Choose override\r')

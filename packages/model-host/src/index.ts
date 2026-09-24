@@ -636,6 +636,7 @@ export class ModelHost {
         for (const item of mapped) yield item
       }
     } catch (error) {
+      if (error instanceof ModelHostError) throw error
       throw mappedError(error instanceof Error ? error.message : String(error))
     }
   }

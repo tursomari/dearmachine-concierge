@@ -139,3 +139,7 @@ it('routes Quick start through installation diagnosis with an explicit acquisiti
     expect(() => parseInvocation(['quick-start', ...args])).toThrow()
   }
 })
+
+it('parses the shell setup repair command', () => {
+  expect(parseInvocation(['configure-shell'])).toEqual({ mode: 'managed', action: 'configure-shell', args: [] })
+})

@@ -1,3 +1,4 @@
+import { handoffInstalledConcierge } from './concierge-handoff.ts'
 import type { InstallationMethod } from '@dearmachine/machtiani-installer-products'
 import { ManagementConversation, openManagementAgent } from './concierge-agent.ts'
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
@@ -104,7 +105,12 @@ export async function launchConcierge(sourceRoot?: string, method?: Installation
       const { runInstaller } = await import('./index.ts')
       await runInstaller(sourceRoot, undefined, method)
     },
-    manage: async diagnosis => { result = await runLocalConcierge(control, diagnosis, await managementReference()) },
+    manage: async diagnosis => {
+      // An absent supervisor cannot establish installation health. Let the
+      // installed native entry inspect its own state, including a stopped client.
+      if (['installed', 'unknown'].includes(diagnosis.installation) && await handoffInstalledConcierge()) return
+      result = await runLocalConcierge(control, diagnosis, await managementReference())
+    },
     write: text => { process.stdout.write(text) },
   })
   return result

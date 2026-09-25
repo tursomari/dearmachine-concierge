@@ -1,19 +1,39 @@
+import { access } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { ManagedNix, UnsupportedManagedInstallationError, launcherGuidance } from '@dearmachine/machtiani-installer-products'
+import { ManagedNix, UnsupportedManagedInstallationError, launcherGuidance, configureShellPath } from '@dearmachine/machtiani-installer-products'
 
 function writeJSON(value: object): void {
   process.stdout.write(`${JSON.stringify({ version: 1, ...value })}\n`)
 }
 
-export async function runManagedCommand(action: 'install' | 'update' | 'migrate-profile' | '_launcher-check', args: string[], callerPath = process.env.PATH ?? ''): Promise<void> {
+export async function runManagedCommand(action: 'install' | 'update' | 'migrate-profile' | '_launcher-check' | 'configure-shell', args: string[], callerPath = process.env.PATH ?? ''): Promise<void> {
   if (args.length === 1 && args[0] === '--help') {
-    process.stdout.write('Usage: machtiani-installer install --source-root <absolute-checkout>\n       dearmachine update [--check | --recover] [--json]\n       machtiani-installer migrate-profile <entry> [--check]\n')
+    process.stdout.write('Usage: machtiani-installer install --source-root <absolute-checkout>\n       dearmachine update [--check | --recover] [--json]\n       machtiani-installer configure-shell\n       machtiani-installer migrate-profile <entry> [--check]\n')
     return
   }
   const home = process.env.HOME
   if (!home) throw new Error('HOME is required')
   const reportLaunchers = async () => {
     for (const message of await launcherGuidance(home, callerPath)) process.stderr.write(message + '\n')
+  }
+  const configureShell = async () => {
+    await access(join(home, '.local/bin/dearmachine'), constants.X_OK)
+    try {
+      const result = await configureShellPath(home)
+      process.stderr.write('Configured PATH in ' + result.files.join(', ') + '.\n')
+      for (const backup of result.backups) process.stderr.write('Previous shell settings: ' + backup + '\n')
+      process.stderr.write('Open a new terminal, or run in your current shell: ' + result.currentShellCommand + '\n')
+    } catch (error) {
+      throw new Error('Dear Machine is installed, but shell PATH setup failed: ' + (error instanceof Error ? error.message : String(error)) +
+        '\nUse ' + join(home, '.local/bin/dearmachine') + ' to reopen it. Retry with ' + join(home, '.local/bin/machtiani-installer') + ' configure-shell.')
+    }
+  }
+  if (action === 'configure-shell') {
+    if (args.length) throw new Error('configure-shell takes no arguments')
+    await configureShell()
+    return
   }
   if (action === '_launcher-check') {
     if (args.length) throw new Error('_launcher-check takes no arguments')
@@ -56,6 +76,7 @@ export async function runManagedCommand(action: 'install' | 'update' | 'migrate-
     if (action === 'install') {
       if (args.length !== 2 || args[0] !== '--source-root' || !args[1]?.startsWith('/')) throw new Error('install requires --source-root <absolute-checkout>')
       const release = await manager.install(args[1])
+      await configureShell()
       process.stdout.write(`Installed coordinated release ${release.revision}.\nSource: ${release.sourceRoot}\n`)
       await reportLaunchers()
     } else if (updateArgs.length === 1 && updateArgs[0] === '--check') {

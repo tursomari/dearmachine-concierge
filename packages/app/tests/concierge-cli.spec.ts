@@ -149,3 +149,59 @@ it.each(['source-flag', 'source-env', 'install-flag', 'quick-start'])('keeps con
   expect(result.output).toContain('Native fallback CLI commands')
   expect(result.output).not.toContain('Which LLM provider')
 })
+
+it.each([true, false])('hands quick-start management to the installed launcher (supervisor present: %s)', async withSupervisor => {
+  const { root, env, commands } = await fixture(withSupervisor)
+  await mkdir(join(root, '.dearmachine'), { recursive: true })
+  delete env.DEARMACHINE_NATIVE_BIN
+  env.DEARMACHINE_CONCIERGE_BIN = '/obsolete/bootstrap-concierge'
+  env.MACHTIANI_DISTRIBUTION = '/obsolete/bootstrap-distribution.json'
+  env.HANDOFF_TEST_NODE = process.execPath
+  env.HANDOFF_TEST_APP = app
+  const native = join(root, 'native-update')
+  await writeFile(native, [
+    '#!/bin/sh',
+    'case "$1" in',
+    'status)',
+    ' if [ "$2" = --json ]; then',
+    '  printf \'%s\\n\' \'{"version":1,"ok":true,"status":{"installation":"installed","supervisor":"stopped","daemon":"stopped","persistence":"unknown"}}\'',
+    ' else printf "Dear Machine: stopped\\nSupervisor: stopped\\n"; fi ;;',
+    'update)',
+    ' test "$2" = --check && test "$3" = --json || exit 95',
+    ' printf \'%s\\n\' \'{"version":1,"operation":"check","state":"current","current":"' + 'a'.repeat(40) + '","available":"' + 'a'.repeat(40) + '"}\' ;;',
+    '*) exit 96 ;;',
+    'esac',
+  ].join('\n'), { mode: 0o700 })
+  await mkdir(join(root, '.local/bin'), { recursive: true })
+  await writeFile(join(root, '.local/bin/dearmachine'), [
+    '#!/bin/sh',
+    'test -z "$DEARMACHINE_SOURCE_ROOT$DEARMACHINE_CONCIERGE_BIN$MACHTIANI_DISTRIBUTION" || exit 92',
+    'test "$#" = 0 || exit 93',
+    'printf "Installed launcher handoff\\n"',
+    'export DEARMACHINE_NATIVE_BIN="$HOME/native-update"',
+    'exec "$HANDOFF_TEST_NODE" "$HANDOFF_TEST_APP" --concierge',
+  ].join('\n'), { mode: 0o700 })
+  const daemon = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { env, detached: true, stdio: 'ignore' })
+  cleanups.push(() => new Promise<void>(resolve => { daemon.once('close', () => resolve()); daemon.kill() }))
+  const result = await new Promise<{ code: number; output: string }>((resolveResult, reject) => {
+    const child = pty.spawn('bash', ['--noprofile', '--norc', '-c',
+      'before=$(stty -g); "$@"; code=$?; after=$(stty -g); [ "$before" = "$after" ] || exit 90; exit "$code"',
+      'handoff-test', process.execPath, app, 'quick-start', '--source-root', '/obsolete/source'],
+      { env: env as Record<string, string>, cols: 110, rows: 35 })
+    let output = ''
+    let sent = false
+    const timer = setTimeout(() => { child.kill(); reject(new Error('Installed handoff PTY timed out: ' + output)) }, 8_000)
+    child.onData(chunk => {
+      output += chunk
+      if (!sent && output.includes('Updates: current')) { sent = true; child.write('/quit\r') }
+    })
+    child.onExit(({ exitCode }) => { clearTimeout(timer); resolveResult({ code: exitCode, output }) })
+  })
+  expect(result.code, result.output).toBe(0)
+  expect(result.output).toContain('Installed launcher handoff')
+  expect(result.output).toContain('Updates: current')
+  expect(result.output).not.toContain('Update check failed')
+  expect(daemon.exitCode).toBeNull()
+  expect(daemon.signalCode).toBeNull()
+  expect(commands).toEqual(withSupervisor ? ['status'] : [])
+})

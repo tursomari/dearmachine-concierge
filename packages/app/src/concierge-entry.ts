@@ -8,6 +8,7 @@ export const entryHelp = `Usage: dearmachine [--source-root /absolute/path/to/ma
        dearmachine update [--check | --recover] [--json]
        machtiani-installer quick-start [--method nix|standard] --source-root /absolute/path/to/machtiani
        machtiani-installer install --source-root /absolute/path/to/machtiani
+       machtiani-installer configure-shell
        machtiani-installer migrate-profile <entry> [--check]
        dearmachine --help
 
@@ -22,7 +23,7 @@ machtiani-installer remains available as a compatibility alias.
 `
 
 export type InstallerInvocation =
-  | { mode: 'managed'; action: 'install' | 'update' | 'migrate-profile' | '_launcher-check'; args: string[] }
+  | { mode: 'managed'; action: 'install' | 'update' | 'migrate-profile' | '_launcher-check' | 'configure-shell'; args: string[] }
   | { mode: 'mock' }
   | { mode: 'help' }
   | { mode: 'install'; sourceRoot: string }
@@ -47,7 +48,7 @@ export function parseInvocation(args: readonly string[], environment: NodeJS.Pro
     if (!isAbsolute(sourceRoot)) throw new Error('--source-root must be absolute.')
     return { mode: 'concierge', sourceRoot, method }
   }
-  if (args[0] === 'update' || args[0] === 'install' || args[0] === 'migrate-profile' || args[0] === '_launcher-check') return { mode: 'managed', action: args[0], args: args.slice(1) }
+  if (args[0] === 'update' || args[0] === 'install' || args[0] === 'migrate-profile' || args[0] === '_launcher-check' || args[0] === 'configure-shell') return { mode: 'managed', action: args[0], args: args.slice(1) }
   if (args.length === 0 || (args.length === 1 && args[0] === '--concierge')) {
     const sourceRoot = environment.DEARMACHINE_SOURCE_ROOT
     if (!sourceRoot) return { mode: 'concierge' }

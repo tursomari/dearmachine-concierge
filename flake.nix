@@ -64,9 +64,10 @@
             src = dependencySource;
             fetcherVersion = 4;
             # --no-force fetches platform-specific optional native dependencies.
-            hash = if system == "x86_64-darwin" then "sha256-EUdyWiZQNUW324UnfnH1Z/hyJDOcYYiw66KpQvOKXpY="
-              else if system == "aarch64-darwin" then "sha256-36a0mmvkhOb59Tbq3Zjf+bx1UQVqZk1O+ITNOnJ65N0="
-              else "sha256-I6b7w/un7cfyWUuQb6uhh50iguqPIQuI2jYJiY47NSs=";
+            hash = if system == "x86_64-darwin" then "sha256-CJoNIudKyzb7qq6hPpnbxDqUTiOWqahMqK0Gf+dsr2M="
+              else if system == "aarch64-darwin" then "sha256-Nb9QcLbIYEZjlOfq/81KrLT5epxCz3ZRUgXnGkQ8IYg="
+              else if system == "aarch64-linux" then "sha256-/WStR23WfGeyYpWpCYOugSNv0xK6sBrWXZBrDl/2T+M="
+              else "sha256-J2Ls6Sh9EHa0aDSuZB+cPcOnp/f8zfZoXV33YwT3Nis=";
             prePnpmInstall = ''
               pnpm config set network-concurrency 1
               pnpm config set child-concurrency 1

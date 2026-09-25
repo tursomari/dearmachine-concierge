@@ -129,7 +129,7 @@ it('shows the requested labels, inheritance and overrides, with no statistics or
   expect(text).toContain('Default: openrouter')
   expect(text).toContain('Concierge — the thing you are looking at right now: inherits Default')
   expect(text).toContain('Machtiani planner: inherits Default')
-  expect(text).toContain('Machiani shell-agent: inherits Default')
+  expect(text).toContain('Machtiani shell-agent: inherits Default')
   expect(text).toContain('Machtiani sync: inherits Default')
   expect(text).toContain('Configured backends (read-only)\nNone configured.')
   expect(text).not.toMatch(/verification|activity|last.action|rounds|tokens/i)
@@ -194,6 +194,30 @@ it.each(['default home', 'ambient home'])('isolates legacy Codex %s on reconfigu
     runtimeProfile: join(options.home, '.config', 'machtiani', 'codex'),
   })
   expect(await readFile(database, 'utf8')).toBe('standalone state must stay untouched')
+})
+
+it.each([
+  ['concierge', 'It will be used for Concierge requests.'],
+  ['planner', 'It will be used for Machtiani planner requests.'],
+  ['shell-agent', 'It will be used for Machtiani shell-agent requests.'],
+  ['sync', 'It will be used for Machtiani sync requests.'],
+  ['default', 'It will be used for requests that inherit Default; existing component overrides will be kept.'],
+  ['all', 'It will be used for Concierge, Machtiani planner, Machtiani shell-agent, and Machtiani sync requests.'],
+] as const)('describes the selected %s authentication scope and saves that target', async (target, usage) => {
+  const options = await fixture()
+  await ensureAssistantModel(options.home)
+  const component = target !== 'default' && target !== 'all'
+  const tui = interaction([target, ...(component ? ['override'] : []), 'openrouter', 'second-model', 'high'])
+  await changeAssistantModel(tui, options)
+  expect(tui.messages).toContain('Your existing OpenRouter sign-in is available. ' + usage)
+  expect(tui.messages.join('\n')).not.toContain('It will be used by this assistant.')
+  const settings = await loadModelSettings(options.home)
+  if (component) {
+    expect(settings?.overrides?.[target]?.model).toBe('second-model')
+    expect(settings?.model).toBe('first-model')
+  } else {
+    expect(settings?.model).toBe('second-model')
+  }
 })
 
 

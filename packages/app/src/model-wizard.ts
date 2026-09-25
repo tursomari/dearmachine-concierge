@@ -283,11 +283,11 @@ function preferredEffort(efforts: readonly string[], current: string | undefined
   return efforts[0]
 }
 
-async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, providerId: string, assistantOnly: boolean): Promise<void> {
+async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, providerId: string, usage: string): Promise<void> {
   const provider = setup.providers().find(candidate => candidate.id === providerId)
   try {
     if (await setup.isAuthenticated(providerId)) {
-      tui.addAssistant(`Your existing ${provider?.name ?? providerId} sign-in is available. ${assistantOnly ? 'It will be used by this assistant.' : 'It will be used by this installer and by Machtiani for Dear Machine.'}`)
+      tui.addAssistant(`Your existing ${provider?.name ?? providerId} sign-in is available. ${usage}`)
       return
     }
   } catch (error) {
@@ -348,7 +348,12 @@ async function ensureAuthentication(tui: WizardTui, setup: WizardSetup, provider
 }
 
 /** Configure the model that conducts installation before that model is started. */
-export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup, assistantOnly = false): Promise<InstallerModelSelection> {
+export async function runInstallerModelWizard(
+  tui: WizardTui,
+  setup: WizardSetup,
+  reconfiguration?: { authenticationUsage: string },
+): Promise<InstallerModelSelection> {
+  const assistantOnly = reconfiguration !== undefined
   const stored = await loadInstallerModelSelection(setup.dshHome)
   const preliminary = stored !== undefined && setup.providers().some(provider => provider.id === stored.provider) ? stored : undefined
   const providers = providerChoices(setup)
@@ -365,7 +370,7 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
       if (chosenProvider?.customScope !== undefined) {
         return await runCustomProviderWizard(tui, setup, providerId, chosenProvider.customScope, preliminary, assistantOnly)
       }
-      await ensureAuthentication(tui, setup, providerId, assistantOnly)
+      await ensureAuthentication(tui, setup, providerId, reconfiguration?.authenticationUsage ?? 'It will be used by this installer and by Machtiani for Dear Machine.')
 
       const provider = setup.providers().find(candidate => candidate.id === providerId)
       const models = await setup.modelsFor(providerId)
@@ -375,7 +380,7 @@ export async function runInstallerModelWizard(tui: WizardTui, setup: WizardSetup
         let modelId: string
         try {
           modelId = await tui.choose(
-            assistantOnly ? `Choose a ${provider?.name ?? providerId} model. Type to filter the model list.` : `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
+            assistantOnly ? `Choose a model for ${provider?.name ?? providerId}. Type to filter the model list.` : `Which ${provider?.name ?? providerId} model should conduct the installation and power Dear Machine’s reasoning? Type to filter the model list.`,
             models.map(model => ({
               value: model.id,
               label: model.name,

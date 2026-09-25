@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import { InstallerModelSetup, saveInstallerModelSelection } from '@dearmachine/machtiani-installer-dsh-adapter'
 import { apiKeyProviders, effectiveModelProfile, modelComponents, readApiKeyCredential, saveModelHostProfile, writeApiKeyCredential, type ModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { configuredBackendModels } from './backend-models.ts'
-import { assistantModelPath, loadModelSettings, migrateModelSettings, saveModelSettings, type ModelTarget } from './model-settings.ts'
+import { ModelRoutingError } from './model-routing.ts'
+import { ModelSaveRecoveryError, assistantModelPath, loadModelSettings, migrateModelSettings, saveModelSettings, type ModelTarget } from './model-settings.ts'
 export { assistantModelPath, sharedModelPath } from './model-settings.ts'
 import { InstallerChoiceBackError } from '@dearmachine/machtiani-installer-tui'
 import { runInstallerModelWizard, type WizardTui } from './model-wizard.ts'
@@ -22,13 +23,19 @@ export async function ensureAssistantModel(home: string): Promise<ModelHostProfi
   return profile
 }
 
-const labels = { concierge: 'Concierge — the thing you are looking at right now', planner: 'Machtiani planner', 'shell-agent': 'Machiani shell-agent', sync: 'Machtiani sync' } as const
+const labels = { concierge: 'Concierge — the thing you are looking at right now', planner: 'Machtiani planner', 'shell-agent': 'Machtiani shell-agent', sync: 'Machtiani sync' } as const
+
+function authenticationUsage(target: ModelTarget): string {
+  if (target === 'default') return 'It will be used for requests that inherit Default; existing component overrides will be kept.'
+  if (target === 'all') return 'It will be used for Concierge, Machtiani planner, Machtiani shell-agent, and Machtiani sync requests.'
+  return 'It will be used for ' + (target === 'concierge' ? 'Concierge' : labels[target]) + ' requests.'
+}
 
 function describe(profile: ModelHostProfile): string {
   return `${profile.provider} — ${profile.model} — ${profile.reasoningEffort === undefined ? 'provider-default reasoning' : `${profile.reasoningEffort} reasoning`}`
 }
 
-/** Stage credentials and selection privately; the one atomic profile write commits. */
+/** Stage credentials privately; restore the selection if harness routing cannot commit. */
 export async function changeAssistantModel(tui: WizardTui, options: {
   home: string
   signal: AbortSignal
@@ -79,7 +86,7 @@ export async function changeAssistantModel(tui: WizardTui, options: {
     signal.throwIfAborted()
   } catch (error) {
     if (signal.aborted || error instanceof InstallerChoiceBackError) return
-    tui.addAssistant('Model settings could not be read or saved. Existing settings were kept; repair the saved configuration before trying again.')
+    tui.addAssistant(error instanceof ModelRoutingError || error instanceof ModelSaveRecoveryError ? error.message : 'Model settings could not be read or saved. Existing settings were kept. Check the saved configuration and its file permissions, then retry /model.')
     return
   }
   const directory = join(home, '.config', 'dearmachine', 'assistant-models')
@@ -121,7 +128,7 @@ export async function changeAssistantModel(tui: WizardTui, options: {
     }
     setup = await InstallerModelSetup.open(stage, environment, { credentialPath, home })
     if (current !== undefined) await saveInstallerModelSelection(stage, current)
-    const selection = await runInstallerModelWizard(interaction, setup, true)
+    const selection = await runInstallerModelWizard(interaction, setup, { authenticationUsage: authenticationUsage(target) })
     signal.throwIfAborted()
     const profile = setup.profileFor(selection)
     await saveModelSettings(home, target, profile, repairLegacyAssistant)
@@ -130,7 +137,11 @@ export async function changeAssistantModel(tui: WizardTui, options: {
   } catch (error) {
     if (signal.aborted) return
     if (error instanceof InstallerChoiceBackError) tui.addAssistant('Model change cancelled. Your previous selection is unchanged.')
-    else tui.addAssistant('The model change could not be saved. Your previous selection is unchanged. Use /model to try another provider or sign in again.')
+    else if (error instanceof ModelSaveRecoveryError) {
+      committed = true
+      tui.addAssistant(error.message)
+    } else if (error instanceof ModelRoutingError) tui.addAssistant('The model change could not be saved. Your previous selection is unchanged. ' + error.message)
+    else tui.addAssistant('The model change could not be saved. Your previous selection is unchanged. Check file permissions and free disk space under ~/.config, then retry /model. If authentication failed, use the provider sign-in or API-key options.')
   } finally {
     await setup?.close()
     if (!committed) await rm(stage, { recursive: true, force: true })

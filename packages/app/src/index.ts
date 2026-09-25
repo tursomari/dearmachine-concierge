@@ -23,7 +23,7 @@ import { nativeSupervisionChoice, defaultConciergeControl } from './concierge-co
 import { saveModelHostProfile } from '@dearmachine/machtiani-model-host'
 import { resolveSourceReference, saveSourceReference, type SourceReference } from './source-reference.ts'
 import { buildStandardDistribution } from './container-build.ts'
-import { checkNixPrerequisites } from './nix-prerequisites.ts'
+import { prepareNixConfiguration } from './nix-configuration.ts'
 import { runInstallationWizard } from './installation-wizard.ts'
 import { saveInterfacePreferences } from './interface-preferences.ts'
 import { submitInstallerMessage, type InstallerAssistantState } from './installer-conversation.ts'
@@ -348,7 +348,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
       wizard = runInstallerModelWizard(tui, await modelSetup())
       return await wizard
     }, async method => {
-      if (method === 'nix') return await checkNixPrerequisites()
+      if (method === 'nix') return await prepareNixConfiguration(tui, { home, exited: exitRequested })
       if (method !== 'standard' || distribution !== undefined) return
       building = new AbortController()
       tui.setProgress(process.platform === 'darwin'

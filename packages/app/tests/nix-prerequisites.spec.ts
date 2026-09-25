@@ -3,7 +3,7 @@ import { checkNixPrerequisites, nixFeatureGuidance } from '../src/nix-prerequisi
 
 it('accepts both feature settings without requesting configuration changes', async () => {
   for (const value of [['nix-command', 'flakes'], 'nix-command flakes']) {
-    await expect(checkNixPrerequisites(async () => JSON.stringify({ 'experimental-features': { value } }))).resolves.toBeUndefined()
+    await expect(checkNixPrerequisites(async () => JSON.stringify({ 'experimental-features': { value } }))).resolves.toBe('ready')
   }
 })
 it('explains missing features without exposing unrelated private Nix settings', async () => {
@@ -16,7 +16,7 @@ it('recognizes a disabled nix-command interface', async () => {
   await expect(checkNixPrerequisites(async () => { throw { stderr: "error: experimental Nix feature 'nix-command' is disabled" } })).rejects.toThrow(nixFeatureGuidance)
 })
 it('leaves installation consent to guided setup when Nix is absent', async () => {
-  await expect(checkNixPrerequisites(async () => { throw { code: 'ENOENT' } })).resolves.toBeUndefined()
+  await expect(checkNixPrerequisites(async () => { throw { code: 'ENOENT' } })).resolves.toBe('absent')
 })
 it('does not echo raw diagnostics for other failures or invalid configuration', async () => {
   await expect(checkNixPrerequisites(async () => { throw { stderr: 'fake-private-token', code: 'EACCES' } })).rejects.toThrow('Could not check Nix prerequisites')

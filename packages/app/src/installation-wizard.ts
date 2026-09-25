@@ -10,7 +10,7 @@ export async function runInstallationWizard(
   prebuiltAvailable: boolean,
   exited: Promise<void>,
   chooseModel: () => Promise<InstallerModelSelection>,
-  prepare: (method: InstallationMethod) => Promise<void> = async () => {},
+  prepare: (method: InstallationMethod) => Promise<void | 'back'> = async () => {},
   platform: NodeJS.Platform = process.platform,
   nixos?: boolean,
   requestedMethod?: InstallationMethod,
@@ -30,7 +30,10 @@ export async function runInstallationWizard(
       if (method === undefined) return
       if (method === 'back') break
       try {
-        await prepare(method)
+        if (await prepare(method) === 'back') {
+          if (fixedMethod) break
+          continue
+        }
       } catch (error) {
         if (closed) return
         tui.addAssistant(error instanceof Error ? error.message : 'Software preparation failed. Choose a method to try again.')

@@ -88,6 +88,7 @@ function profilePatch(selection: InstallerModelSelection, mode: DshMode = 'insta
 - id: bash-sandbox
 ${process.platform === 'win32' ? '  disabled: false\n' : ''}  config:
     timeoutMs: 3600000
+    maxTimeoutMs: 3600000
 ${process.platform === 'win32' ? '- id: pwsh-sandbox\n  disabled: true\n- id: tool-pwsh\n  disabled: true\n' : ''}- id: tool-bash
 ${process.platform === 'win32' ? '  disabled: false\n' : ''}  config:
     enableRunInBackground: false

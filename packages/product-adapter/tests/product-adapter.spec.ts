@@ -39,7 +39,7 @@ async function fixture() {
   await mkdir(join(home, '.config', 'machtiani'), { recursive: true })
   await mkdir(join(sourceRoot, 'machtiani-harness'), { recursive: true })
   await mkdir(join(sourceRoot, 'dearmachine'), { recursive: true })
-  await mkdir(join(sourceRoot, 'machtiani-installer'), { recursive: true })
+  await mkdir(join(sourceRoot, 'dearmachine-concierge'), { recursive: true })
   await writeFile(join(sourceRoot, '.git'), 'fixture git marker')
   await writeFile(join(home, '.config', 'dearmachine', 'backends.env'), 'OPENROUTER_API_KEY=product-test-secret\n', { mode: 0o600 })
   await writeFile(join(home, '.config', 'machtiani', 'model-profile.json'), `${JSON.stringify({

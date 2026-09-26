@@ -35,32 +35,32 @@ RUN set -eu; \
 # Cache the installer dependency graph separately from changing source. Keep
 # downloads serial because the subscription runtime packages are large enough
 # to put memory-constrained Docker daemons under avoidable pressure.
-COPY machtiani-installer/flake.nix \
-     machtiani-installer/flake.lock \
-     machtiani-installer/package.json \
-     machtiani-installer/pnpm-lock.yaml \
-     machtiani-installer/pnpm-workspace.yaml \
-     /workspace/machtiani/machtiani-installer/
-COPY machtiani-installer/patches /workspace/machtiani/machtiani-installer/patches
-COPY machtiani-installer/packages/app/package.json /workspace/machtiani/machtiani-installer/packages/app/package.json
-COPY machtiani-installer/packages/backend-adapter/package.json /workspace/machtiani/machtiani-installer/packages/backend-adapter/package.json
-COPY machtiani-installer/packages/credential-adapter/package.json /workspace/machtiani/machtiani-installer/packages/credential-adapter/package.json
-COPY machtiani-installer/packages/dsh-adapter/package.json /workspace/machtiani/machtiani-installer/packages/dsh-adapter/package.json
-COPY machtiani-installer/packages/environment-adapter/package.json /workspace/machtiani/machtiani-installer/packages/environment-adapter/package.json
-COPY machtiani-installer/packages/model-host/package.json /workspace/machtiani/machtiani-installer/packages/model-host/package.json
-COPY machtiani-installer/packages/product-adapter/package.json /workspace/machtiani/machtiani-installer/packages/product-adapter/package.json
-COPY machtiani-installer/packages/tui/package.json /workspace/machtiani/machtiani-installer/packages/tui/package.json
-COPY machtiani-installer/packages/workflow/package.json /workspace/machtiani/machtiani-installer/packages/workflow/package.json
+COPY dearmachine-concierge/flake.nix \
+     dearmachine-concierge/flake.lock \
+     dearmachine-concierge/package.json \
+     dearmachine-concierge/pnpm-lock.yaml \
+     dearmachine-concierge/pnpm-workspace.yaml \
+     /workspace/machtiani/dearmachine-concierge/
+COPY dearmachine-concierge/patches /workspace/machtiani/dearmachine-concierge/patches
+COPY dearmachine-concierge/packages/app/package.json /workspace/machtiani/dearmachine-concierge/packages/app/package.json
+COPY dearmachine-concierge/packages/backend-adapter/package.json /workspace/machtiani/dearmachine-concierge/packages/backend-adapter/package.json
+COPY dearmachine-concierge/packages/credential-adapter/package.json /workspace/machtiani/dearmachine-concierge/packages/credential-adapter/package.json
+COPY dearmachine-concierge/packages/dsh-adapter/package.json /workspace/machtiani/dearmachine-concierge/packages/dsh-adapter/package.json
+COPY dearmachine-concierge/packages/environment-adapter/package.json /workspace/machtiani/dearmachine-concierge/packages/environment-adapter/package.json
+COPY dearmachine-concierge/packages/model-host/package.json /workspace/machtiani/dearmachine-concierge/packages/model-host/package.json
+COPY dearmachine-concierge/packages/product-adapter/package.json /workspace/machtiani/dearmachine-concierge/packages/product-adapter/package.json
+COPY dearmachine-concierge/packages/tui/package.json /workspace/machtiani/dearmachine-concierge/packages/tui/package.json
+COPY dearmachine-concierge/packages/workflow/package.json /workspace/machtiani/dearmachine-concierge/packages/workflow/package.json
 RUN --mount=type=cache,id=machtiani-installer-qse-pnpm-v11,target=/root/.local/share/pnpm/store,sharing=locked \
-    nix develop path:/workspace/machtiani/machtiani-installer -c \
-      pnpm --dir /workspace/machtiani/machtiani-installer install --frozen-lockfile \
+    nix develop path:/workspace/machtiani/dearmachine-concierge -c \
+      pnpm --dir /workspace/machtiani/dearmachine-concierge install --frozen-lockfile \
         --store-dir=/root/.local/share/pnpm/store --network-concurrency=1 --child-concurrency=1
 
 # Exercise the full installer semantic, snapshot, and PTY suite in the same
 # sparse source-only image used by the live product gate.
 COPY . /workspace/machtiani
-RUN nix develop path:/workspace/machtiani/machtiani-installer -c \
-      pnpm --dir /workspace/machtiani/machtiani-installer test
+RUN nix develop path:/workspace/machtiani/dearmachine-concierge -c \
+      pnpm --dir /workspace/machtiani/dearmachine-concierge test
 
 # Pinned OMP is an alternative backend; configuration selects the live backend.
 # glibc.out supplies the loader; the default profile selection installs only its tools.
@@ -88,4 +88,4 @@ RUN --mount=type=cache,id=machtiani-qse-omp-v18-1-16,target=/var/cache/omp,shari
 
 RUN install -d -m 0700 /run/machtiani-installer-qse/secrets
 
-ENTRYPOINT ["/workspace/machtiani/machtiani-installer/tests/e2e/container-run.sh"]
+ENTRYPOINT ["/workspace/machtiani/dearmachine-concierge/tests/e2e/container-run.sh"]

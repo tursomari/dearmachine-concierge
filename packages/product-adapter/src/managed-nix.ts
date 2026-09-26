@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import { migrateProfile } from './profile-migration.ts'
 
 const exec = promisify(execFile)
-const components = ['dearmachine', 'machtiani-harness', 'machtiani-installer'] as const
+const components = ['dearmachine', 'machtiani-harness', 'dearmachine-concierge'] as const
 const commands = ['dearmachine', 'agent-manager', 'machtiani', 'machtiani-installer', 'machtiani-model-host'] as const
 const revisionPattern = /^[a-f0-9]{40}$/u
 export interface ManagedRelease {

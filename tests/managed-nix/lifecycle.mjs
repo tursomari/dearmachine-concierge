@@ -12,7 +12,7 @@ import { ManagedNix } from '../../packages/product-adapter/dist/managed-nix.mjs'
 if (process.env.MANAGED_NIX_CONTAINER !== '1') throw new Error('Run with tests/managed-nix/run.sh; this test writes fixture store paths inside a container')
 const exec = promisify(execFile)
 const old = 'a'.repeat(40), next = 'b'.repeat(40)
-const names = ['dearmachine', 'machtiani-harness', 'machtiani-installer']
+const names = ['dearmachine', 'machtiani-harness', 'dearmachine-concierge']
 async function fixture(options = {}) {
   const root = await mkdtemp(join(tmpdir(), 'managed-'))
   const home = join(root, 'home')

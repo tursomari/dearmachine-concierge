@@ -41,12 +41,12 @@ git config --global init.defaultBranch main
 
 # Reconstruct fresh local origins and clone the exact recursive gitlinks.
 fixture_root=$(mktemp -d /run/machtiani-qse-git/fixture.XXXXXX)
-umbrella=$(python3 /workspace/machtiani/machtiani-installer/tests/e2e/git-fixture.py \
+umbrella=$(python3 /workspace/machtiani/dearmachine-concierge/tests/e2e/git-fixture.py \
   restore /workspace/machtiani/.qse-git "$fixture_root/repositories")
 
 cp "$agentmail_secret" "$HOME/.config/dearmachine/agentmail-api-key"
 chmod 0600 "$HOME/.config/dearmachine/agentmail-api-key"
-node /workspace/machtiani/machtiani-installer/tests/e2e/prepare-model.mjs
+node /workspace/machtiani/dearmachine-concierge/tests/e2e/prepare-model.mjs
 selection=$runtime/selection.json
 backend=$(cat "$runtime/backend-id")
 case "$backend" in forge|omp) ;; *) fail 'unsupported backend ID' ;; esac
@@ -58,7 +58,7 @@ fi
 rm -f -- "$shared_secret" "$backend_secret" "$agentmail_secret"
 
 git -C "$umbrella" status --porcelain=v2 --untracked-files=all --ignore-submodules=none > "$runtime/source.before"
-node /workspace/machtiani/machtiani-installer/packages/app/dist/headless-bin.mjs \
+node /workspace/machtiani/dearmachine-concierge/packages/app/dist/headless-bin.mjs \
   --source-root "$umbrella" --selection-file "$selection" \
   --existing-inbox-id "$QSE_RECEIVER_ID" "${reasoning_args[@]}" \
   > "$runtime/result.json" 2> "$runtime/installer.stderr"

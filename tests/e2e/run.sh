@@ -75,10 +75,10 @@ dockerfile_line() {
   printf '%s\n' "${dockerfile_match%%:*}"
 }
 
-dependency_copy_line=$(dockerfile_line 'COPY machtiani-installer/flake.nix' 'the dependency-manifest cache boundary')
-dependency_install_line=$(dockerfile_line 'pnpm --dir /workspace/machtiani/machtiani-installer install' 'the dependency installation step')
+dependency_copy_line=$(dockerfile_line 'COPY dearmachine-concierge/flake.nix' 'the dependency-manifest cache boundary')
+dependency_install_line=$(dockerfile_line 'pnpm --dir /workspace/machtiani/dearmachine-concierge install' 'the dependency installation step')
 source_copy_line=$(dockerfile_line 'COPY . /workspace/machtiani' 'the complete source copy')
-source_test_line=$(dockerfile_line 'pnpm --dir /workspace/machtiani/machtiani-installer test' 'the source test step')
+source_test_line=$(dockerfile_line 'pnpm --dir /workspace/machtiani/dearmachine-concierge test' 'the source test step')
 test "$dependency_copy_line" -lt "$dependency_install_line" && \
   test "$dependency_install_line" -lt "$source_copy_line" && \
   test "$source_copy_line" -lt "$source_test_line" || \
@@ -250,10 +250,10 @@ trap 'exit 143' TERM
 
 printf '==> Creating a source-only installer IXE/QSE context...\n'
 git -C "$umbrella_root" archive HEAD | tar -x -C "$context_dir"
-mkdir -p "$context_dir/machtiani-harness" "$context_dir/dearmachine" "$context_dir/machtiani-installer"
+mkdir -p "$context_dir/machtiani-harness" "$context_dir/dearmachine" "$context_dir/dearmachine-concierge"
 git -C "$umbrella_root/machtiani-harness" archive "$(git -C "$umbrella_root" rev-parse HEAD:machtiani-harness)" | tar -x -C "$context_dir/machtiani-harness"
 git -C "$umbrella_root/dearmachine" archive "$(git -C "$umbrella_root" rev-parse HEAD:dearmachine)" | tar -x -C "$context_dir/dearmachine"
-git -C "$umbrella_root/machtiani-installer" archive "$(git -C "$umbrella_root" rev-parse HEAD:machtiani-installer)" | tar -x -C "$context_dir/machtiani-installer"
+git -C "$umbrella_root/dearmachine-concierge" archive "$(git -C "$umbrella_root" rev-parse HEAD:dearmachine-concierge)" | tar -x -C "$context_dir/dearmachine-concierge"
 
 # Export objects from umbrella HEAD and its recursive pins, never component HEADs.
 python3 "$script_dir/git-fixture.py" export "$umbrella_root" "$context_dir/.qse-git"
@@ -261,7 +261,7 @@ python3 "$script_dir/git-fixture.py" export "$umbrella_root" "$context_dir/.qse-
 forbidden=$(find "$context_dir" \( -name .git -o -name .ssh -o -name .secrets -o -name '.env*' \
   -o -name .forge -o -name .credentials.json \) -print -quit)
 test -z "$forbidden" || fail "source context contains forbidden state: $forbidden"
-test -x "$context_dir/machtiani-installer/tests/e2e/container-run.sh" || fail 'source context lacks the executable QSE entry point'
+test -x "$context_dir/dearmachine-concierge/tests/e2e/container-run.sh" || fail 'source context lacks the executable QSE entry point'
 
 if test "$self_test" = true; then
   test "$(AGENTMAIL_SECRETS_PATH=/private/agentmail.env qse_agentmail_secrets_path /source)" = /private/agentmail.env || \
@@ -287,7 +287,7 @@ for qse_command in docker go; do
 done
 
 printf '==> Building the source-only installer IXE image...\n'
-DOCKER_BUILDKIT=1 docker build --progress plain --file "$context_dir/machtiani-installer/tests/e2e/Dockerfile" \
+DOCKER_BUILDKIT=1 docker build --progress plain --file "$context_dir/dearmachine-concierge/tests/e2e/Dockerfile" \
   --tag "$image_name" "$context_dir"
 test "$(docker run --rm --entrypoint /usr/local/bin/forge "$image_name" --version)" = 'forge 2.13.21' || \
   fail 'IXE image has the wrong Forge version'
@@ -303,7 +303,7 @@ printf '==> Checking the local origins and recursive pins without credentials...
 docker run --rm --network=none --tmpfs /tmp:exec,size=2g --env HOME=/tmp/qse-preflight-home \
   --entrypoint /bin/sh "$image_name" -ec '
     mkdir -p "$HOME"
-    python3 /workspace/machtiani/machtiani-installer/tests/e2e/git-fixture.py \
+    python3 /workspace/machtiani/dearmachine-concierge/tests/e2e/git-fixture.py \
       restore /workspace/machtiani/.qse-git /tmp/qse-preflight
   '
 

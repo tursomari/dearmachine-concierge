@@ -257,7 +257,7 @@ class CodexAppServer implements CodexAppServerPort {
 
 type AppServerFactory = (profile: string) => CodexAppServerPort
 
-// Codex 0.153.2 reports failures in both error notifications and completed
+// Codex 0.157.1 reports failures in both error notifications and completed
 // turns. A completed turn is not necessarily a successful generation.
 function codexTurnError(value: unknown): ModelHostError {
   const error = value as { message?: unknown; codexErrorInfo?: unknown } | null

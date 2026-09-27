@@ -79,3 +79,12 @@ Existing selections retain their saved runtime path until reconfigured. If an
 older selection shared the default standalone profile and startup fails, use
 `/model` to reconfigure OpenAI. This selects the private Machtiani profile and
 requires a separate sign-in; it does not copy credentials or remove host state.
+
+ChatGPT model discovery uses the bundled Codex app-server's `model/list`, not
+the standalone `codex` command on PATH or a hardcoded model list in Concierge.
+The provider's catalog can depend on the bundled runtime version as well as
+the signed-in account. A fresh catalog can therefore still omit a newly released
+model when the bundled runtime is older. Updating standalone Codex does not
+update this integration: upgrade the coordinated Dear Machine release that
+contains the newer runtime, then reopen `/model`. Do not copy another Codex
+profile or edit model-cache files to force a model into the menu.

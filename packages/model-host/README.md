@@ -50,7 +50,7 @@ assistant continuation after the function result. The selection is retained
 only after this live test passes. The protocol behavior follows the official
 [OpenAI Chat Completions reference](https://developers.openai.com/api/reference/cli/resources/chat/subresources/completions).
 
-OpenAI Codex subscription support is pinned to `@openai/codex` 0.153.2 and
+OpenAI Codex subscription support is pinned to `@openai/codex` 0.157.1 and
 uses app-server browser-callback or device-code authentication, model discovery,
 streaming, cancellation, and dynamic tools. Browser sign-in is intended for a
 local desktop; device codes remain available for SSH, containers, and headless

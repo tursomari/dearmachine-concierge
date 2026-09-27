@@ -64,15 +64,20 @@
             src = dependencySource;
             fetcherVersion = 4;
             # --no-force fetches platform-specific optional native dependencies.
-            hash = if system == "x86_64-darwin" then "sha256-CJoNIudKyzb7qq6hPpnbxDqUTiOWqahMqK0Gf+dsr2M="
-              else if system == "aarch64-darwin" then "sha256-Nb9QcLbIYEZjlOfq/81KrLT5epxCz3ZRUgXnGkQ8IYg="
-              else if system == "aarch64-linux" then "sha256-/WStR23WfGeyYpWpCYOugSNv0xK6sBrWXZBrDl/2T+M="
-              else "sha256-J2Ls6Sh9EHa0aDSuZB+cPcOnp/f8zfZoXV33YwT3Nis=";
+            hash = if system == "x86_64-darwin" then "sha256-uXr9K/yIei5Z8s1gvyLqcMVenjcv9cUCJ61WL0YXLAI="
+              else if system == "aarch64-darwin" then "sha256-tSuSWh1KziDyfDSsoXt05Xya8WGTOP9q8JEkH41w/hk="
+              else if system == "aarch64-linux" then "sha256-K13pMRhdSIYlGrnFlNIs9ro2IbbexEfsXNXuxt0ZolU="
+              else "sha256-fUJ/PdLDUTTq50CbyVTNPb3aGTcOWJSIlh02w1EJ5Hw=";
             prePnpmInstall = ''
               pnpm config set network-concurrency 1
               pnpm config set child-concurrency 1
             '';
-            pnpmInstallFlags = [ "--no-force" ];
+            # Keep optional package selection explicit for target-cache prefetches.
+            pnpmInstallFlags = [
+              "--no-force"
+              "--cpu=${pkgs.stdenv.hostPlatform.node.arch}"
+              "--os=${pkgs.stdenv.hostPlatform.node.platform}"
+            ];
           };
         in {
           build-dependencies = pkgs.buildEnv {

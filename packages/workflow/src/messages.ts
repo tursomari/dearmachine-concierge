@@ -10,7 +10,7 @@ Would you like to continue with the installation now?`,
   llmCredential: (provider: string, model: string) => `Machtiani needs your ${provider} API key to use ${model} for Dear Machine.
 
 Paste it into the secure field below and press Enter. Your input is masked, saved directly to a private file, and never added to the conversation or sent to the installer model.`,
-  emailTransport: "Dear Machine needs an email service to receive messages and send replies. AgentMail provides that inbox and is recommended; OpenMail and Sendmux are also supported. Which would you like to use?",
+  emailTransport: "Dear Machine needs an email service to receive messages and send replies. Supported services are AgentMail (US-based), OpenMail (EU-native), and Sendmux. Which would you like to use?",
   agentMailHelp: "If you don’t already have an AgentMail API key, a free tier is available. Do you need help getting one?",
   emailCredential: (transport: string) => `Dear Machine needs your ${transport} API key to connect to the email service you chose.
 

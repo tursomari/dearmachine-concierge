@@ -28,8 +28,8 @@ lifecycle started=1 stopped=0 progress=inactive
 title "Machtiani Installer"
 cursor hidden column=10 viewportRow=6 bufferRow=6
 viewport
-0| " MACHTIANI INSTALLER                                                            "
-1| " A guided setup for Dear Machine                                                "
+0| "INSTALLER                                                                       "
+1| "A guided setup for Dear Machine                                                 "
 2| <blank>
 3| "Machtiani                                                                       "
 4| "Choose the AI service for this installation assistant.                          "
@@ -52,8 +52,8 @@ lifecycle started=1 stopped=0 progress=inactive
 title "Machtiani Installer"
 cursor hidden column=3 viewportRow=10 bufferRow=10
 viewport
-0| " MACHTIANI INSTALLER                            "
-1| " A guided setup for Dear Machine                "
+0| "INSTALLER                                       "
+1| "A guided setup for Dear Machine                 "
 2| <blank>
 3| "Machtiani                                       "
 4| "Welcome to Dear Machine. Would you like to      "
@@ -74,8 +74,8 @@ lifecycle started=1 stopped=0 progress=inactive
 title "Machtiani Installer"
 cursor hidden column=3 viewportRow=9 bufferRow=9
 viewport
-0| " MACHTIANI INSTALLER                                                            "
-1| " A guided setup for Dear Machine                                                "
+0| "INSTALLER                                                                       "
+1| "A guided setup for Dear Machine                                                 "
 2| <blank>
 3| "Machtiani                                                                       "
 4| "Welcome to Dear Machine. Would you like to continue with the installation now?  "

@@ -55,7 +55,7 @@ describe('real PTY lifecycle', () => {
   it('restores the terminal after declining the welcome gate', async () => {
     const result = await runInPty([{ prompt: 'Would you like to continue', input: 'not now\r' }])
     expect(result.code).toBe(0)
-    expect(result.output).toContain('MACHTIANI INSTALLER')
+    expect(result.output).toMatch(/(?<!MACHTIANI )INSTALLER/)
   })
 
   it('drains delayed terminal replies before restoring cooked input', async () => {

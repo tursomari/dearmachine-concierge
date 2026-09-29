@@ -7,7 +7,7 @@ title "Machtiani Installer"
 cursor hidden column=10 viewportRow=5 bufferRow=7
 viewport
 2| <blank>
-3| "Machtiani                                       "
+3| "Concierge                                       "
 4| "Choose the AI service for this installation     "
 5| "assistant.                                      "
 6| <blank>
@@ -31,7 +31,7 @@ viewport
 0| "INSTALLER                                                                       "
 1| "A guided setup for Dear Machine                                                 "
 2| <blank>
-3| "Machtiani                                                                       "
+3| "Concierge                                                                       "
 4| "Choose the AI service for this installation assistant.                          "
 5| <blank>
 6| "Filter: >                                                                       "
@@ -55,7 +55,7 @@ viewport
 0| "INSTALLER                                       "
 1| "A guided setup for Dear Machine                 "
 2| <blank>
-3| "Machtiani                                       "
+3| "Concierge                                       "
 4| "Welcome to Dear Machine. Would you like to      "
 5| "continue with the installation now?             "
 6| "                                                "
@@ -77,7 +77,7 @@ viewport
 0| "INSTALLER                                                                       "
 1| "A guided setup for Dear Machine                                                 "
 2| <blank>
-3| "Machtiani                                                                       "
+3| "Concierge                                                                       "
 4| "Welcome to Dear Machine. Would you like to continue with the installation now?  "
 5| "                                                                                "
 6| "1. Yes                                                                          "

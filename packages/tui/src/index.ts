@@ -38,7 +38,7 @@ export interface InstallerQuestion {
 export interface InstallerTuiOptions {
   terminal?: Terminal
   title?: string
-  /** Label shown above assistant messages; defaults to Machtiani. */
+  /** Label shown above assistant messages; defaults to Concierge. */
   assistantLabel?: string
   /** Visual-only guidance shown while the ordinary editor is empty. */
   inputPlaceholder?: string
@@ -223,7 +223,7 @@ export class InstallerTui {
   }
 
   addAssistant(message: string): void {
-    this.addRole(this.options.assistantLabel ?? 'Machtiani', message)
+    this.addRole(this.options.assistantLabel ?? 'Concierge', message)
   }
 
   addUser(message: string): void {

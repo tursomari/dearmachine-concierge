@@ -5,7 +5,6 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { InstallerTui } from '@dearmachine/machtiani-installer-tui'
 import { HeadlessTerminal } from '../../tui/tests/headless-terminal.ts'
 import { ConciergeActivityIndicator } from '../src/concierge-activity.ts'
-import { installationProgressLabel } from '../src/index.ts'
 import { authenticateClaudeBackend } from '../src/backend-auth.ts'
 
 afterEach(() => vi.unstubAllEnvs())
@@ -23,7 +22,7 @@ process.stdin.once('data', code => { fs.mkdirSync(process.env.CLAUDE_CONFIG_DIR,
   const terminal = new HeadlessTerminal(100, 35)
   const tui = new InstallerTui({ terminal, color: false })
   tui.start()
-  const activity = new ConciergeActivityIndicator(tui, 200, installationProgressLabel)
+  const activity = new ConciergeActivityIndicator(tui)
   activity.status('running')
   const authenticate = (signal: AbortSignal) => activity.duringInteraction(() => authenticateClaudeBackend(tui, home, signal, executable))
   return { home, executable, terminal, tui, activity, authenticate, close: async () => { activity.dispose(); await tui.dispose(); await terminal.dispose(); await rm(home, { recursive: true, force: true }) } }
@@ -46,10 +45,10 @@ it.each([false, true])('uses a masked code and the backend profile (custom profi
     f.terminal.send('\r')
     await expect(result).resolves.toBeUndefined()
     // No new running status or tool event is needed to restore the installer footer.
-    await expect.poll(async () => await f.terminal.snapshot()).toContain(installationProgressLabel)
+    await expect.poll(async () => await f.terminal.snapshot()).toContain('processing')
     expect(f.terminal.progress).toBe(true)
     f.activity.status('idle')
-    await expect.poll(async () => await f.terminal.snapshot()).not.toContain(installationProgressLabel)
+    await expect.poll(async () => await f.terminal.snapshot()).not.toContain('processing')
     expect(f.terminal.progress).toBe(false)
     expect(await readFile(join(profile, 'verified'), 'utf8')).toBe('fixture-private-code\n')
     expect(await readFile(join(f.home, 'installer-profile.json'), 'utf8')).toBe('{"provider":"independent"}')
@@ -66,7 +65,7 @@ it('cancels sign-in while awaiting the code and returns control to the terminal'
     await expect.poll(async () => await f.terminal.snapshot()).toContain('Secure sign-in code')
     controller.abort()
     await rejected
-    await expect.poll(async () => await f.terminal.snapshot()).toContain(installationProgressLabel)
+    await expect.poll(async () => await f.terminal.snapshot()).toContain('processing')
     expect(f.terminal.progress).toBe(true)
     await expect(readFile(join(f.home, '.claude/verified'))).rejects.toMatchObject({ code: 'ENOENT' })
     const answer = f.tui.ask({ message: 'Continue?' })
@@ -84,7 +83,7 @@ it('requires authenticated status after the login process exits successfully', a
     await expect.poll(async () => await f.terminal.snapshot()).toContain('Secure sign-in code')
     f.terminal.send('fixture-code'); f.terminal.send('\r')
     await rejected
-    await expect.poll(async () => await f.terminal.snapshot()).toContain(installationProgressLabel)
+    await expect.poll(async () => await f.terminal.snapshot()).toContain('processing')
     expect(f.terminal.progress).toBe(true)
   } finally { await f.close() }
 })
@@ -99,7 +98,7 @@ it('does not restart progress when the installer becomes idle during sign-in', a
     f.activity.status('idle')
     controller.abort()
     await rejected
-    await expect.poll(async () => await f.terminal.snapshot()).not.toContain(installationProgressLabel)
+    await expect.poll(async () => await f.terminal.snapshot()).not.toContain('processing')
     expect(f.terminal.progress).toBe(false)
   } finally { await f.close() }
 })

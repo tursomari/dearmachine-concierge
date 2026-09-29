@@ -10,17 +10,17 @@ describe('concierge activity indicator', () => {
     const activity = new ConciergeActivityIndicator({ setProgress }, 200)
 
     activity.status('running')
-    expect(setProgress).toHaveBeenLastCalledWith('Preparing…', 'slow')
+    expect(setProgress).toHaveBeenLastCalledWith('processing', 'slow')
 
     activity.event({ type: 'assistant-stream', channel: 'internal' })
-    expect(setProgress).toHaveBeenLastCalledWith('Working through…', 'medium')
+    expect(setProgress).toHaveBeenLastCalledWith('processing', 'medium')
     vi.advanceTimersByTime(200)
-    expect(setProgress).toHaveBeenLastCalledWith('Preparing…', 'slow')
+    expect(setProgress).toHaveBeenLastCalledWith('processing', 'slow')
 
     activity.event({ type: 'assistant-stream', channel: 'visible' })
-    expect(setProgress).toHaveBeenLastCalledWith('Responding…', 'fast')
+    expect(setProgress).toHaveBeenLastCalledWith('processing', 'fast')
     activity.event({ type: 'tool-start', id: 'tool-1', name: 'read', detail: 'file' })
-    expect(setProgress).toHaveBeenLastCalledWith('Preparing…', 'slow')
+    expect(setProgress).toHaveBeenLastCalledWith('processing', 'slow')
 
     activity.event({ type: 'turn-end', outcome: 'completed' })
     expect(setProgress).toHaveBeenLastCalledWith(undefined)
@@ -34,7 +34,7 @@ it.each(['running', 'idle', 'turn-end', 'disposed'] as const)(
   'restores the current activity after a trusted interaction (%s)', async state => {
     vi.useFakeTimers()
     const setProgress = vi.fn()
-    const activity = new ConciergeActivityIndicator({ setProgress }, 200, 'Installing')
+    const activity = new ConciergeActivityIndicator({ setProgress }, 200)
     activity.status('running')
     activity.event({ type: 'assistant-stream', channel: 'visible' })
     let finish!: () => void
@@ -48,7 +48,7 @@ it.each(['running', 'idle', 'turn-end', 'disposed'] as const)(
     expect(setProgress).not.toHaveBeenCalled()
     finish()
     await result
-    if (state === 'running') expect(setProgress).toHaveBeenLastCalledWith('Installing', 'slow')
+    if (state === 'running') expect(setProgress).toHaveBeenLastCalledWith('processing', 'slow')
     else expect(setProgress).toHaveBeenLastCalledWith(undefined)
     activity.status('idle')
     vi.advanceTimersByTime(500)
@@ -61,6 +61,6 @@ it('restores running activity when an interaction fails', async () => {
   const activity = new ConciergeActivityIndicator({ setProgress })
   activity.status('running')
   await expect(activity.duringInteraction(async () => { throw new Error('cancelled') })).rejects.toThrow('cancelled')
-  expect(setProgress).toHaveBeenLastCalledWith('Preparing…', 'slow')
+  expect(setProgress).toHaveBeenLastCalledWith('processing', 'slow')
   activity.dispose()
 })

@@ -207,8 +207,6 @@ function renderInstallationOutcome(outcome: InstallationOutcome): string {
   return `${heading}\n\n${outcome.summary}${receipts}${remaining}`
 }
 
-export const installationProgressLabel = 'Machtiani installation in progress'
-
 interface AgentEventTui {
   addCommand?(command: string): void
   addAssistant(message: string): void
@@ -303,7 +301,7 @@ export async function runInstaller(sourceRoot: string, paths = defaultInstallerP
     onInterrupt: async () => { if (building) building.abort(); else await agent?.interrupt() },
     onExit: () => { void shell.submit('/quit') },
   })
-  const activity = new ConciergeActivityIndicator(tui, 200, installationProgressLabel)
+  const activity = new ConciergeActivityIndicator(tui)
   shell = new ConciergeShell({
     chooseSupervision: nativeSupervisionChoice,
     control: defaultConciergeControl(),

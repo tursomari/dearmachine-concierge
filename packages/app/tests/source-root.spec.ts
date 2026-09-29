@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  installationProgressLabel,
   installerAgentPrompt,
   installerTurnMessage,
   renderAgentEvent,
@@ -21,10 +20,6 @@ describe('installer source root', () => {
       reasoning: 'Internal stage bookkeeping and tentative interpretations.' })
     expect(tui.addAssistant).toHaveBeenCalledWith('Your system is ready. Which email service would you like?')
     expect(tui.addReasoning).not.toHaveBeenCalled()
-  })
-
-  it('describes the whole guided session as installation progress', () => {
-    expect(installationProgressLabel).toBe('Machtiani installation in progress')
   })
 
   it('keeps a safe tool purpose visible after the agent tool settles', () => {

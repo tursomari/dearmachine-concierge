@@ -227,6 +227,7 @@ interface JournalSelection {
   transport: string
   authorizedSender: string
   backendId: string
+  magnificaHumanitas?: true
   reasoningEffort?: string
   existingInboxIdHash?: string
 }
@@ -273,6 +274,7 @@ function journalSelection(selection: ReadyInstallationSelection, existingInboxId
     authorizedSender: selection.authorizedSender,
     backendId: selection.backend.id,
   }
+  if (selection.magnificaHumanitas === true) result.magnificaHumanitas = true
   if (reasoningEffort !== undefined) result.reasoningEffort = reasoningEffort
   if (existingInboxId !== undefined) result.existingInboxIdHash = statusHash(existingInboxId)
   return result
@@ -524,7 +526,8 @@ export class NativeProductInstaller {
           ...inboxArguments, '--transport', transport.id,
           ...(distribution === undefined ? ['--agent-bin', join(this.options.home, '.local/bin/machtiani'), '--agent-manager', join(this.options.home, '.local/bin/agent-manager')] : []),
           '--project', entryPoint, '--entry-point-repo', entryPoint,
-          '--config', deviceConfig, '--poll-interval', '5s', '--magnifica-humanitas', '--verbose',
+          '--config', deviceConfig, '--poll-interval', '5s',
+          ...(selection.magnificaHumanitas === true ? ['--magnifica-humanitas'] : []), '--verbose',
         ], this.options.workspace, undefined, null)
         await advance('pair-created')
       }

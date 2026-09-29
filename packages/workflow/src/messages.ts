@@ -16,6 +16,17 @@ Paste it into the secure field below and press Enter. Your input is masked, save
 
 Paste it into the secure field below and press Enter. Your input is masked, saved directly to a private file, and never added to the conversation or sent to the installer model.`,
   authorizedSender: 'What email address should be allowed to send work to Dear Machine?',
+  magnificaHumanitas: `Dear Machine can share a short quote from Magnifica Humanitas, Pope Leo XIV’s encyclical on artificial intelligence. It is entirely optional. For example:
+
+“To disarm does not mean rejecting technology, but preventing it from dominating humanity.”
+
+“Today, justice requires access to the benefits of innovation, including care, knowledge, tools and opportunities.”
+
+“…freedom in the digital age is not merely a matter of interiority but also a public concern.”
+
+A quote can appear in Dear Machine’s email footers and in Machtiani’s terminal banner. Including a quote requires no extra AI request.
+
+Would you like to include these quotes? The default is “No, thanks.”`,
   backendReadiness: (detectedAgents: string) => `Dear Machine delegates work to a backend agent—a separate AI worker similar to a subagent. I found these supported agents already installed: ${detectedAgents}.
 
 With your permission, I can check whether they are signed in and ready. May I do that?`,

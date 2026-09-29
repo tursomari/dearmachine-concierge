@@ -87,6 +87,7 @@ describe('real PTY lifecycle', () => {
       { prompt: 'free tier is available.', input: 'no\r' },
       { prompt: 'Preview only:', input: 'preview-email-credential\r' },
       { prompt: 'What email address', input: 'sender@example.test\r' },
+      { prompt: 'The default is', input: 'No, thanks\r' },
     ])
     expect(result.code).toBe(0)
     expect(result.output).toContain('no-change installation preview is complete')

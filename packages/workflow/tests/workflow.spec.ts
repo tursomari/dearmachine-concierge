@@ -57,10 +57,10 @@ describe('canonical installation workflow', () => {
   })
 
   it('keeps the first three stages ordered and credentials out of the conversation', async () => {
-    const test = fixture(['yes', 'OpenRouter', 'z-ai/glm-5.3-flash', 'provider-test-secret', 'AgentMail', 'no', 'email-test-secret', 'sender@example.test'])
+    const test = fixture(['yes', 'OpenRouter', 'z-ai/glm-5.3-flash', 'provider-test-secret', 'AgentMail', 'no', 'email-test-secret', 'sender@example.test', ''])
     await expect(runFirstThreeStages(test.ports)).resolves.toEqual({
       provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', transport: 'AgentMail',
-      authorizedSender: 'sender@example.test', detectedBackends: ['Codex'],
+      authorizedSender: 'sender@example.test', magnificaHumanitas: false, detectedBackends: ['Codex'],
     })
     expect(test.asked).toEqual([
       messages.welcome,
@@ -69,6 +69,7 @@ describe('canonical installation workflow', () => {
       messages.emailTransport,
       messages.agentMailHelp,
       messages.authorizedSender,
+      messages.magnificaHumanitas,
     ])
     expect(test.secretAsked).toEqual([
       messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'),
@@ -82,13 +83,53 @@ describe('canonical installation workflow', () => {
   })
 
   it('resumes from a non-secret checkpoint without repeating earlier questions', async () => {
-    const test = fixture(['resume-provider-secret', 'Sendmux', 'resume-email-secret', 'sender@example.test'], {
+    const test = fixture(['resume-provider-secret', 'Sendmux', 'resume-email-secret', 'sender@example.test', 'no'], {
       stage: 'llm-credential', provider: 'OpenRouter', model: 'z-ai/glm-5.3-flash', detectedBackends: [],
     })
     await runFirstThreeStages(test.ports)
     expect(test.secretAsked[0]).toBe(messages.llmCredential('OpenRouter', 'z-ai/glm-5.3-flash'))
     expect(test.asked).not.toContain(messages.welcome)
     expect(test.saved?.stage).toBe('complete')
+  })
+})
+
+describe('Magnifica Humanitas quote choice', () => {
+  const opening = ['yes', 'OpenRouter', 'z-ai/glm-5.3-flash', 'provider-test-secret', 'Sendmux', 'email-test-secret', 'sender@example.test']
+
+  it('offers the choice after the sender and before backend discovery, with exact quotes and accurate claims', () => {
+    const copy = messages.magnificaHumanitas
+    expect(copy.startsWith('Dear Machine can share a short quote from Magnifica Humanitas')).toBe(true)
+    expect(copy).toContain('For example:')
+    for (const quote of [
+      '“To disarm does not mean rejecting technology, but preventing it from dominating humanity.”',
+      '“Today, justice requires access to the benefits of innovation, including care, knowledge, tools and opportunities.”',
+      '“…freedom in the digital age is not merely a matter of interiority but also a public concern.”',
+    ]) expect(copy).toContain(quote)
+    expect(copy).toContain('email footers')
+    expect(copy).toContain('terminal banner')
+    expect(copy).toContain('no extra AI request')
+    expect(copy).toContain('“No, thanks.”')
+    expect(copy).not.toMatch(/zero|no (?:token|performance)|settings|later/iu)
+  })
+
+  it.each(['', 'No, thanks', 'no', 'maybe', 'yes please, but not really'])('defaults to No, thanks for %j', async answer => {
+    const test = fixture([...opening, answer])
+    await expect(runFirstThreeStages(test.ports)).resolves.toMatchObject({ magnificaHumanitas: false })
+    expect(test.saved?.magnificaHumanitas).toBe(false)
+  })
+
+  it.each(['yes', 'Yes, please', 'Yes.'])('opts in only on the explicit answer %j', async answer => {
+    const test = fixture([...opening, answer])
+    await expect(runFirstThreeStages(test.ports)).resolves.toMatchObject({ magnificaHumanitas: true })
+    expect(test.saved?.magnificaHumanitas).toBe(true)
+  })
+
+  it('asks after an interrupted sender stage and treats a pre-existing complete checkpoint as declined', async () => {
+    const resumed = fixture(['yes'], { stage: 'magnifica-humanitas', provider: 'p', model: 'm', transport: 'Sendmux', authorizedSender: 'sender@example.test', detectedBackends: [] })
+    await expect(runFirstThreeStages(resumed.ports)).resolves.toMatchObject({ magnificaHumanitas: true })
+    const legacy = fixture([], { stage: 'complete', provider: 'p', model: 'm', transport: 'Sendmux', authorizedSender: 'sender@example.test', detectedBackends: [] })
+    await expect(runFirstThreeStages(legacy.ports)).resolves.toMatchObject({ magnificaHumanitas: false })
+    expect(legacy.asked).toEqual([])
   })
 })
 

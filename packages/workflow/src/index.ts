@@ -45,11 +45,12 @@ export interface BackendPort {
 }
 
 export interface WorkflowCheckpoint {
-  stage: 'welcome' | 'environment' | 'provider' | 'model' | 'llm-credential' | 'email-transport' | 'email-credential' | 'authorized-sender' | 'complete' | 'backend-discovery' | 'backend-choice' | 'ready-to-install' | 'installing' | 'awaiting-test-email' | 'verifying-email' | 'success'
+  stage: 'welcome' | 'environment' | 'provider' | 'model' | 'llm-credential' | 'email-transport' | 'email-credential' | 'authorized-sender' | 'magnifica-humanitas' | 'complete' | 'backend-discovery' | 'backend-choice' | 'ready-to-install' | 'installing' | 'awaiting-test-email' | 'verifying-email' | 'success'
   provider?: string
   model?: string
   transport?: string
   authorizedSender?: string
+  magnificaHumanitas?: boolean
   detectedBackends?: readonly string[]
   backendReadiness?: readonly BackendReadiness[]
   backend?: BackendReadiness
@@ -67,6 +68,8 @@ export interface InstallationSelection {
   model: string
   transport: string
   authorizedSender: string
+  /** Explicit opt-in to Magnifica Humanitas quotes; absent means the default, "No, thanks." */
+  magnificaHumanitas?: boolean
   detectedBackends: readonly string[]
 }
 
@@ -96,6 +99,8 @@ export interface ReadyInstallationSelection extends InstallationSelection {
 }
 
 const yes = (answer: string): boolean => /^(?:y|yes|continue|start|ok|okay|sure)$/iu.test(answer.trim())
+// Only an explicit yes opts in; anything else, including an empty reply, keeps "No, thanks."
+const quoteOptIn = (answer: string): boolean => /^(?:y|yes|yes,?\s+please|please|sure|ok|okay)[.!]?$/iu.test(answer.trim())
 const agentMail = (answer: string): boolean => /^agent\s*mail$/iu.test(answer.trim())
 
 async function awaitCredential(
@@ -189,7 +194,13 @@ export async function runFirstThreeStages(ports: WorkflowPorts): Promise<Install
 
   if (state.stage === 'authorized-sender') {
     const authorizedSender = (await ports.conversation.ask(messages.authorizedSender)).trim()
-    state = { ...state, stage: 'complete', authorizedSender }
+    state = { ...state, stage: 'magnifica-humanitas', authorizedSender }
+    await ports.checkpoint.save(state)
+  }
+
+  if (state.stage === 'magnifica-humanitas') {
+    const magnificaHumanitas = quoteOptIn(await ports.conversation.ask(messages.magnificaHumanitas))
+    state = { ...state, stage: 'complete', magnificaHumanitas }
     await ports.checkpoint.save(state)
   }
 
@@ -198,6 +209,7 @@ export async function runFirstThreeStages(ports: WorkflowPorts): Promise<Install
     model: state.model!,
     transport: state.transport!,
     authorizedSender: state.authorizedSender!,
+    magnificaHumanitas: state.magnificaHumanitas === true,
     detectedBackends: state.detectedBackends ?? [],
   }
 }

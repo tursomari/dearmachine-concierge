@@ -41,6 +41,17 @@ describe('headless product gate', () => {
     await expect(loadHeadlessSelection(path)).rejects.toThrow('unexpected or missing fields')
   })
 
+  it('accepts an explicit boolean quote choice and rejects any other value', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'machtiani-headless-selection-'))
+    const path = join(root, 'selection.json')
+    await writeFile(path, `${JSON.stringify({ ...selection, magnificaHumanitas: true })}\n`, { mode: 0o600 })
+    await expect(loadHeadlessSelection(path)).resolves.toEqual({ ...selection, magnificaHumanitas: true })
+    await writeFile(path, `${JSON.stringify({ ...selection, magnificaHumanitas: false })}\n`, { mode: 0o600 })
+    await expect(loadHeadlessSelection(path)).resolves.toEqual(selection)
+    await writeFile(path, `${JSON.stringify({ ...selection, magnificaHumanitas: 'yes' })}\n`, { mode: 0o600 })
+    await expect(loadHeadlessSelection(path)).rejects.toThrow('invalid quote choice')
+  })
+
   it('rejects a non-private selection file', async () => {
     const root = await mkdtemp(join(tmpdir(), 'machtiani-headless-selection-'))
     const path = join(root, 'selection.json')

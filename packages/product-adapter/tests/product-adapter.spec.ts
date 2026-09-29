@@ -67,6 +67,19 @@ const selection = {
 }
 
 describe('native product installer', () => {
+  it.each([
+    ['omits the quote flag by default', selection, false],
+    ['omits the quote flag when declined', { ...selection, magnificaHumanitas: false }, false],
+    ['passes the quote flag only on explicit opt-in', { ...selection, magnificaHumanitas: true }, true],
+  ])('%s', async (_name, chosen, enabled) => {
+    const test = await fixture()
+    await test.installer.install(chosen)
+    const command = test.runner.requests.find(request => request.label === 'Create Dear Machine pair')?.command
+    expect(command?.includes('--magnifica-humanitas')).toBe(enabled)
+    expect(command).toContain('--verbose')
+    expect((await readFile(test.journalPath, 'utf8')).includes('"magnificaHumanitas"')).toBe(enabled)
+  })
+
   it('matches one complete labeled inbox block from the current native status', async () => {
     const test = await fixture()
     class CurrentStatusRunner extends RecordingRunner {

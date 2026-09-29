@@ -42,9 +42,13 @@ function nonempty(value: unknown): value is string {
 function parseSelection(value: unknown): HeadlessSelection {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Headless selection is not a valid object.')
   const selection = value as Record<string, unknown>
-  if (!exactKeys(selection, selection.customProvider === undefined ? selectionKeys : [...selectionKeys, 'customProvider'])) throw new Error('Headless selection has unexpected or missing fields.')
+  const optionalKeys = ['customProvider', 'magnificaHumanitas'].filter(key => selection[key] !== undefined)
+  if (!exactKeys(selection, [...selectionKeys, ...optionalKeys])) throw new Error('Headless selection has unexpected or missing fields.')
   if (!nonempty(selection.provider) || !nonempty(selection.model) || !nonempty(selection.transport) || !nonempty(selection.authorizedSender)) {
     throw new Error('Headless selection contains an invalid product choice.')
+  }
+  if (selection.magnificaHumanitas !== undefined && typeof selection.magnificaHumanitas !== 'boolean') {
+    throw new Error('Headless selection contains an invalid quote choice.')
   }
   if (!Array.isArray(selection.detectedBackends) || !selection.detectedBackends.every(nonempty)) {
     throw new Error('Headless selection contains an invalid backend inventory.')
@@ -82,6 +86,7 @@ function parseSelection(value: unknown): HeadlessSelection {
     model: selection.model,
     transport: selection.transport,
     authorizedSender: selection.authorizedSender,
+    ...(selection.magnificaHumanitas === true ? { magnificaHumanitas: true } : {}),
     detectedBackends: [...selection.detectedBackends],
     backend: {
       name: backend.name,

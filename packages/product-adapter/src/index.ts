@@ -527,7 +527,8 @@ export class NativeProductInstaller {
           ...(distribution === undefined ? ['--agent-bin', join(this.options.home, '.local/bin/machtiani'), '--agent-manager', join(this.options.home, '.local/bin/agent-manager')] : []),
           '--project', entryPoint, '--entry-point-repo', entryPoint,
           '--config', deviceConfig, '--poll-interval', '5s',
-          ...(selection.magnificaHumanitas === true ? ['--magnifica-humanitas'] : []), '--verbose',
+          // Always explicit: an omitted flag keeps a value persisted by an earlier installation.
+          `--magnifica-humanitas=${selection.magnificaHumanitas === true}`, '--verbose',
         ], this.options.workspace, undefined, null)
         await advance('pair-created')
       }

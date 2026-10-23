@@ -67,7 +67,7 @@
             hash = if system == "x86_64-darwin" then "sha256-l0ImV4haWojZYz6RphCSPmqU5b7QR9oVvHKw/zA0HPU="
               else if system == "aarch64-darwin" then "sha256-2f5WAt3CSGuZhIdPtlONJO1Ir1BH+N87MJSA1bHl8Vc="
               else if system == "aarch64-linux" then "sha256-6LGr4S1+k9NM7VLVXUY/HxJAGzKtFRcGVz6Mlrsxv78="
-              else "sha256-6xZpiuhJ2TaQKmWLINkFWcAECPbue3zFZ8AAFO/e3ZA=";
+              else "sha256-eLPNIbmywrVyTzlpMMGF2Lf1FdrlHDIlU58BdkGTBo4=";
             prePnpmInstall = ''
               pnpm config set network-concurrency 1
               pnpm config set child-concurrency 1
